@@ -93,7 +93,16 @@ async function sendMediaGroup(app: App, channel: TelegramChannel, files: TFile[]
     if (!response.ok) throw new Error((await response.json()).description);
 }
 
-export async function sendNoteToTelegram(app: App, file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean): Promise<void> {
+function resolveChatId(value: string): string {
+    const trimmed = value.trim();
+    // If already starts with @ or is a number (including negative) — leave as is
+    if (trimmed.startsWith("@") || /^-?\d+$/.test(trimmed)) return trimmed;
+    // Otherwise assume it's a username without @ — add it
+    return `@${trimmed}`;
+}
+
+export async function sendNoteToTelegram(app: App, file: TFile, tg_channel: TelegramChannel, silent: boolean, attachUnderText: boolean): Promise<void> {
+	  const channel = { ...tg_channel, chatId: resolveChatId(tg_channel.chatId) };
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
     const formattedContent = prepareContent(body);
