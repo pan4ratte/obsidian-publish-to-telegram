@@ -398,7 +398,23 @@ export class TelegramSettingTab extends PluginSettingTab {
 
             new Setting(channelDiv).setName(t.SETTING_BOT_TOKEN_NAME).setDesc(t.SETTING_BOT_TOKEN_DESC)
                 .addText(text => text.setPlaceholder(t.SETTING_PLACEHOLDER_TOKEN).setValue(channel.botToken)
-                    .onChange(async (v) => { channel.botToken = v; await this.plugin.saveSettings(); }));
+                    .onChange(async (v) => {
+                        const secretStorage = this.app.vault.getSecretStorage();
+                        if (!secretStorage) {
+                            // Fallback for older Obsidian versions
+                            channel.botToken = v;
+                            this.plugin.tokenCache.set(channel.id, v);
+                            await this.plugin.saveSettings();
+                        } else {
+                            const key = `telegram-bot-token:${channel.id}`;
+                            await secretStorage.set(key, v);
+                            this.plugin.tokenCache.set(channel.id, v);
+                            // Keep channel.botToken for UI consistency
+                            channel.botToken = v;
+                            // Save settings to persist any other changes (botToken is stripped in saveSettings)
+                            await this.plugin.saveSettings();
+                        }
+                    }));
 
             new Setting(channelDiv).setName(t.SETTING_CHAT_ID_NAME).setDesc(t.SETTING_CHAT_ID_DESC)
                 .addText(text => text.setPlaceholder(t.SETTING_PLACEHOLDER_CHAT).setValue(channel.chatId)
@@ -406,19 +422,25 @@ export class TelegramSettingTab extends PluginSettingTab {
 
             new Setting(channelDiv).setName(t.SETTING_POST_START_MARKER_NAME).setDesc(t.SETTING_POST_START_MARKER_DESC)
                 .addText(text => text.setPlaceholder(t.SETTING_POST_START_MARKER_PLACEHOLDER).setValue(channel.postStartMarker ?? this.plugin.settings.postStartMarker)
-                    .onChange(async (v) => { channel.postStartMarker = v; await this.plugin.saveSettings(); }));
+                    .onChange(async (v) => {
+                        if (v === '') {
+                            delete channel.postStartMarker;
+                        } else {
+                            channel.postStartMarker = v;
+                        }
+                        await this.plugin.saveSettings();
+                    }));
 
             new Setting(channelDiv).setName(t.SETTING_POST_END_MARKER_NAME).setDesc(t.SETTING_POST_END_MARKER_DESC)
                 .addText(text => text.setPlaceholder(t.SETTING_POST_END_MARKER_PLACEHOLDER).setValue(channel.postEndMarker ?? this.plugin.settings.postEndMarker)
-                    .onChange(async (v) => { channel.postEndMarker = v; await this.plugin.saveSettings(); }));
-
-            new Setting(channelDiv).setName(t.SETTING_POST_START_MARKER_NAME).setDesc(t.SETTING_POST_START_MARKER_DESC)
-                .addText(text => text.setPlaceholder(t.SETTING_POST_START_MARKER_PLACEHOLDER).setValue(channel.postStartMarker ?? this.plugin.settings.postStartMarker)
-                    .onChange(async (v) => { channel.postStartMarker = v; await this.plugin.saveSettings(); }));
-
-            new Setting(channelDiv).setName(t.SETTING_POST_END_MARKER_NAME).setDesc(t.SETTING_POST_END_MARKER_DESC)
-                .addText(text => text.setPlaceholder(t.SETTING_POST_END_MARKER_PLACEHOLDER).setValue(channel.postEndMarker ?? this.plugin.settings.postEndMarker)
-                    .onChange(async (v) => { channel.postEndMarker = v; await this.plugin.saveSettings(); }));
+                    .onChange(async (v) => {
+                        if (v === '') {
+                            delete channel.postEndMarker;
+                        } else {
+                            channel.postEndMarker = v;
+                        }
+                        await this.plugin.saveSettings();
+                    }));
 
             new Setting(channelDiv).setName(t.SETTING_DEFAULT_CHANNEL).setDesc(t.SETTING_DEFAULT_DESC)
                 .addToggle(toggle => toggle.setValue(channel.isDefault || false)

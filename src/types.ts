@@ -5,6 +5,8 @@ export interface TelegramChannel {
     isDefault: boolean;
     /** @deprecated Stored in SecretStorage */
     botToken?: string;
+    postStartMarker?: string;
+    postEndMarker?: string;
 }
 
 export interface TelegramSettings {
