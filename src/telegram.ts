@@ -270,11 +270,30 @@ export function findChannelByLink(channels: TelegramChannel[], link: string): Te
     }) || null;
 }
 
-export async function sendNoteToTelegram(app: App, file: TFile, tg_channel: TelegramChannel, silent: boolean, attachUnderText: boolean, treatMdEmbedsAsComments: boolean, updateLink?: string): Promise<string | null> {
+export async function sendNoteToTelegram(app: App, file: TFile, tg_channel: TelegramChannel, silent: boolean, attachUnderText: boolean, treatMdEmbedsAsComments: boolean, updateLink?: string, startMarker: string = "", endMarker: string = "", botToken: string = ""): Promise<string | null> {
     const channel = { ...tg_channel, chatId: resolveChatId(tg_channel.chatId) };
+    if (botToken) {
+        channel.botToken = botToken;
+    }
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
-    const formattedContent = prepareContent(body);
+    // Extract text between markers if both provided and found
+    let textToProcess = body;
+    if (startMarker && endMarker) {
+        const startIdx = body.indexOf(startMarker);
+        const endIdx = body.indexOf(endMarker, startIdx !== -1 ? startIdx + startMarker.length : 0);
+        if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+            textToProcess = body.slice(startIdx + startMarker.length, endIdx);
+        } else if (startIdx !== -1 && endIdx === -1) {
+            // Only start marker found: from start marker to end
+            textToProcess = body.slice(startIdx + startMarker.length);
+        } else if (startIdx === -1 && endIdx !== -1) {
+            // Only end marker found: from beginning to end marker
+            textToProcess = body.slice(0, endIdx);
+        }
+        // else both not found: use whole body (textToProcess already set)
+    }
+    const formattedContent = prepareContent(textToProcess);
 
     // ── Update Existing Post ──────────────────────────────────────────────────
 

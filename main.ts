@@ -6,7 +6,7 @@ import { FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src
 
 export default class SendToTelegramPlugin extends Plugin {
     settings: TelegramSettings;
-
+    private tokenCache: Map<string, string> = new Map();
     private channelCommandIds: string[] = [];
 
     async onload(): Promise<void> {
@@ -107,8 +107,25 @@ export default class SendToTelegramPlugin extends Plugin {
     // UPDATED: Added updateLink parameter
     async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string): Promise<void> {
         try {
-            // UPDATED: Pass updateLink through to the core function
-            const link = await sendNoteToTelegram(this.app, file, channel, silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink);
+            // Get the bot token from our cache (or from channel.botToken as fallback)
+            const botToken = this.tokenCache.get(channel.id) ?? channel.botToken ?? '';
+            if (!botToken) {
+                throw new Error('Bot token not found for channel ' + channel.id);
+            }
+
+            // UPDATED: Pass updateLink and markers through to the core function
+            const link = await sendNoteToTelegram(
+                this.app,
+                file,
+                channel,
+                silent,
+                attachUnderText,
+                this.settings.treatMdEmbedsAsComments,
+                updateLink,
+                this.settings.postStartMarker,
+                this.settings.postEndMarker,
+                botToken
+            );
 
             if (this.settings.savePostLinks && link) {
                 await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -125,9 +142,52 @@ export default class SendToTelegramPlugin extends Plugin {
         }
     }
 
-    async loadSettings() { this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()); }
+    async loadSettings() {
+        const loaded = await this.loadData();
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+        await this.migrateTokensToSecretStorage();
+    }
+
+    private async migrateTokensToSecretStorage() {
+        const secretStorage = this.app.vault.getSecretStorage();
+        if (!secretStorage) {
+            // SecretStorage not available, keep botToken in settings (fallback)
+            return;
+        }
+        for (const channel of this.settings.channels) {
+            const key = `telegram-bot-token:${channel.id}`;
+            if (channel.botToken && channel.botToken.trim() !== '') {
+                // Migrate existing token from settings to SecretStorage
+                const existing = await secretStorage.get(key);
+                if (!existing) {
+                    await secretStorage.set(key, channel.botToken);
+                }
+                this.tokenCache.set(channel.id, channel.botToken);
+                // Keep botToken in channel for UI; will be stripped before saving
+            } else {
+                // Try to load token from SecretStorage
+                const stored = await secretStorage.get(key);
+                if (stored) {
+                    this.tokenCache.set(channel.id, stored);
+                    channel.botToken = stored; // populate UI
+                }
+            }
+        }
+    }
+
     async saveSettings() {
-        await this.saveData(this.settings);
+        // Create a copy of settings without botToken to avoid persisting it
+        const channelsForSave = this.settings.channels.map(c => ({
+            id: c.id,
+            name: c.name,
+            chatId: c.chatId,
+            isDefault: c.isDefault
+        }));
+        const dataToSave = {
+            ...this.settings,
+            channels: channelsForSave
+        };
+        await this.saveData(dataToSave);
         this.syncChannelCommands();
     }
 }
