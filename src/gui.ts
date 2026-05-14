@@ -412,6 +412,13 @@ export class TelegramSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                         this.display();
                     }));
+         });
+         // Add limits information section
+         new Setting(containerEl).setName(t.SETTING_LIMITS_INFO_NAME).setDesc(t.SETTING_LIMITS_INFO_DESC)
+             .addExtra(text => text.setContentEl(el => {
+                 el.createEl('p', {text: t.SETTING_LIMITS_INFO_TEXT});
+                 el.createEl('p', {text: t.SETTING_LIMITS_INFO_LINK});
+             }));
         });
     }
 }

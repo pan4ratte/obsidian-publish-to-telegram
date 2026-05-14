@@ -61,6 +61,10 @@ export default {
     SETTING_SAVE_POST_LINKS_DESC: "Если включено, ссылка на опубликованную запись будет сохранена в свойствах заметки",
     SETTING_MD_EMBEDS_AS_COMMENTS_NAME: "Считать .md-вложения комментариями к посту",
     SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "Если включено, после публикации бот отправит комментарий к посту с содержимым .md-вложения",
+    SETTING_LIMITS_INFO_NAME: "Лимиты Telegram",
+    SETTING_LIMITS_INFO_DESC: "Информация о лимитах публикации в Telegram",
+    SETTING_LIMITS_INFO_TEXT: "Стандартные лимиты Telegram: до 4096 символов для обычных ботов, до 10 000 символов для премиум‑ботов. Лимиты на медиа: фото до 10 МБ, видео до 50 МБ, документы до 50 МБ на файл.",
+    SETTING_LIMITS_INFO_LINK: "Подробнее: https://limits.tginfo.me/",
 
     FORMATTING_HELP_CONTENT: `
 Данную справку можно вызвать из палитры команд, введя "Publish to Telegram: Открыть справку по использованию".

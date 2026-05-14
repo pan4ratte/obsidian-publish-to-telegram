@@ -61,6 +61,10 @@ export default {
     SETTING_SAVE_POST_LINKS_DESC: "If enabled, the link to the published post will be saved to the note's properties",
     SETTING_MD_EMBEDS_AS_COMMENTS_NAME: "Treat .md embeds as post comments",
     SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "If on, after publishing the bot will send a commentary to the post with the contents of .md embed",
+    SETTING_LIMITS_INFO_NAME: "Telegram limits",
+    SETTING_LIMITS_INFO_DESC: "Information about Telegram posting limits",
+    SETTING_LIMITS_INFO_TEXT: "Standard Telegram limits apply: up to 4096 characters for regular bots, and up to 10,000 characters for premium bots. Media limits: photos up to 10 MB, videos up to 50 MB, documents up to 50 MB per file.",
+    SETTING_LIMITS_INFO_LINK: "More details: https://limits.tginfo.me/",
 
     FORMATTING_HELP_CONTENT: `
 You can open these instructions from the command palette by typing "Publish to Telegram: Open usage instructions".
