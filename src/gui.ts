@@ -404,6 +404,22 @@ export class TelegramSettingTab extends PluginSettingTab {
                 .addText(text => text.setPlaceholder(t.SETTING_PLACEHOLDER_CHAT).setValue(channel.chatId)
                     .onChange(async (v) => { channel.chatId = v; await this.plugin.saveSettings(); }));
 
+            new Setting(channelDiv).setName(t.SETTING_POST_START_MARKER_NAME).setDesc(t.SETTING_POST_START_MARKER_DESC)
+                .addText(text => text.setPlaceholder(t.SETTING_POST_START_MARKER_PLACEHOLDER).setValue(channel.postStartMarker ?? this.plugin.settings.postStartMarker)
+                    .onChange(async (v) => { channel.postStartMarker = v; await this.plugin.saveSettings(); }));
+
+            new Setting(channelDiv).setName(t.SETTING_POST_END_MARKER_NAME).setDesc(t.SETTING_POST_END_MARKER_DESC)
+                .addText(text => text.setPlaceholder(t.SETTING_POST_END_MARKER_PLACEHOLDER).setValue(channel.postEndMarker ?? this.plugin.settings.postEndMarker)
+                    .onChange(async (v) => { channel.postEndMarker = v; await this.plugin.saveSettings(); }));
+
+            new Setting(channelDiv).setName(t.SETTING_POST_START_MARKER_NAME).setDesc(t.SETTING_POST_START_MARKER_DESC)
+                .addText(text => text.setPlaceholder(t.SETTING_POST_START_MARKER_PLACEHOLDER).setValue(channel.postStartMarker ?? this.plugin.settings.postStartMarker)
+                    .onChange(async (v) => { channel.postStartMarker = v; await this.plugin.saveSettings(); }));
+
+            new Setting(channelDiv).setName(t.SETTING_POST_END_MARKER_NAME).setDesc(t.SETTING_POST_END_MARKER_DESC)
+                .addText(text => text.setPlaceholder(t.SETTING_POST_END_MARKER_PLACEHOLDER).setValue(channel.postEndMarker ?? this.plugin.settings.postEndMarker)
+                    .onChange(async (v) => { channel.postEndMarker = v; await this.plugin.saveSettings(); }));
+
             new Setting(channelDiv).setName(t.SETTING_DEFAULT_CHANNEL).setDesc(t.SETTING_DEFAULT_DESC)
                 .addToggle(toggle => toggle.setValue(channel.isDefault || false)
                     .onChange(async (v) => {

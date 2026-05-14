@@ -149,9 +149,16 @@ export default class SendToTelegramPlugin extends Plugin {
     }
 
     private async migrateTokensToSecretStorage() {
-        const secretStorage = this.app.vault.getSecretStorage();
+        // Optional chaining for older Obsidian versions lacking getSecretStorage
+        const secretStorage = this.app.vault.getSecretStorage?.();
         if (!secretStorage) {
             // SecretStorage not available, keep botToken in settings (fallback)
+            // Ensure every channel has botToken as string (optional, but we'll set to empty if undefined)
+            for (const channel of this.settings.channels) {
+                if (channel.botToken === undefined) {
+                    channel.botToken = '';
+                }
+            }
             return;
         }
         for (const channel of this.settings.channels) {
@@ -170,6 +177,9 @@ export default class SendToTelegramPlugin extends Plugin {
                 if (stored) {
                     this.tokenCache.set(channel.id, stored);
                     channel.botToken = stored; // populate UI
+                } else {
+                    // No token found anywhere, ensure it's an empty string for UI
+                    channel.botToken = '';
                 }
             }
         }
