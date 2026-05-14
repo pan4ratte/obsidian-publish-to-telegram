@@ -419,6 +419,5 @@ export class TelegramSettingTab extends PluginSettingTab {
                  el.createEl('p', {text: t.SETTING_LIMITS_INFO_TEXT});
                  el.createEl('p', {text: t.SETTING_LIMITS_INFO_LINK});
              }));
-        });
-    }
+     }
 }
