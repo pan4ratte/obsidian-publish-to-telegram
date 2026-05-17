@@ -54,7 +54,7 @@ To publish notes to Telegram, you need to configure a preset.
 
 1. Use the official Telegram tool [@BotFather](https://t.me/BotFather) to create your own bot, following the instructions in the app. If you plan to post to group or make pre-written commentaries for posts, in the bot settings go to the "Bot Settings" menu, find the section "Groups and Channels" and turn of the "Group Privacy" option.
 
-2. Copy your bot's API key in the app and paste this token into the corresponding field in the plugin settings.
+2. Copy your bot's API key in the app and paste it into the **Bot token** field at the top of the plugin settings, then click **Save**. The token is stored securely in Obsidian's built-in keychain (SecretStorage), not in plain text. You can delete it at any time with the **Delete** button.
 
 3. Use the [@userinfobot](https://t.me/userinfobot) tool to get the ID of the channel/group where you plan to post. You can also get your account ID if you want to use the preset to send messages to yourself (the bot will send you messages to you personally — do not forget to start a conversation with the bot first).
 
@@ -128,6 +128,16 @@ All standard Telegram formatting elements are supported as well as some addition
 </table>
 
 In addition to the formatting that will be reflected in the Telegram post, you can use the comment syntax `<!-- hidden text -->` or `%% hidden text %%` to add information to your notes that will not be included in the post content when it is published.
+
+### Content markers
+
+You can publish only a specific part of a note by using **start** and **end markers**. Only the text between the markers will be sent to Telegram.
+
+Default markers:
+- Start marker: `:::post-start-here`
+- End marker: `:::post-end-here`
+
+You can configure custom markers globally in the plugin settings, or override them per preset. If no markers are found in the note, the entire note content is published.
 
 ### Attachments
 
