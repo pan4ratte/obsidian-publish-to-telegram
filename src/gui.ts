@@ -107,14 +107,12 @@ export class LimitsWarningModal extends Modal {
     onProceed: () => void;
     onCancel: () => void;
     length: number;
-    charset: string;
 
     constructor(app: App, length: number, onProceed: () => void, onCancel: () => void) {
         super(app);
         this.length = length;
         this.onProceed = onProceed;
         this.onCancel = onCancel;
-        this.charset = "▰".repeat(Math.min(Math.ceil(length / 100), 30));
     }
 
     onOpen() {
@@ -336,7 +334,7 @@ export class MultiPresetModal extends Modal {
                 this.close();
 
                 for (const channel of channelsToPost) {
-                    await (this.plugin as any).sendNoteToTelegram(this.file, channel, silent, attachUnderText, updateLink);
+                    await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, updateLink);
                 }
             });
     }

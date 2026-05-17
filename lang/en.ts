@@ -4,7 +4,6 @@ export default {
     NOTICE_ERR_CONFIG: "Error: Set up at least one preset.",
     NOTICE_ERR_SEND: "Publishing error: ",
     NOTICE_ERR_NO_DEFAULT: "Error: Default preset is not set up.",
-    NOTICE_ERR_INCOMPLETE_PRESET: "Error: Bot token and Chat ID must both be filled in before publishing.",
     SETTING_HEADER: "Publish to Telegram Settings",
     SETTING_DESCRIPTION: "Plugin allows you to post active note to Telegram with hotkeys, command palette and from context menus. Standard Telegram text formatting is supported, as well as photo, album and documents uploads. Advanced publishing settings are available: post to multiple channels/groups at once, silent post and posting media under the text.",
     SETTING_ADD_CHANNEL_NAME: "Set up instructions",
@@ -58,11 +57,11 @@ export default {
     MULTI_PRESET_UPDATE_NAME: "Update existing post",
     MULTI_PRESET_UPDATE_NAME_DESC: "Links are stored in the telegram_links property",
     MULTI_PRESET_UPDATE_NO_OPTION: "Choose a link to the post",
-    MULTI_PRESET_UPDATE_LINK_LABEL: "{link}", /* REMOVE */
+    MULTI_PRESET_UPDATE_LINK_LABEL: "{link}",
     MULTI_PRESET_UPDATE_NO_LINKS: "No links found in properties",
     MULTI_PRESET_UPDATE_RESOLVING: "Resolving channel…",
     MULTI_PRESET_UPDATE_WILL_USE: "Will update the post in {name}",
-    MULTI_PRESET_UPDATE_NO_MATCH: "Matching preset not found!", /* REMOVE ??? */
+    MULTI_PRESET_UPDATE_NO_MATCH: "Matching preset not found!",
     MULTI_PRESET_UPDATE_NO_MATCH_NOTICE: "Matching preset not found for this link!",
     SETTING_SAVE_POST_LINKS_NAME: "Save posts links",
     SETTING_SAVE_POST_LINKS_DESC: "If enabled, the link to the published post will be saved to the note's properties",
