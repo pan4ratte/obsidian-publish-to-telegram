@@ -1,11 +1,11 @@
 import { Plugin, Notice, TFile, TFolder, Menu } from "obsidian";
 import { t } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, DEFAULT_SETTINGS } from "./src/types";
-import { extractFrontmatter, prepareContent, sendNoteToTelegram } from "./src/telegram";
+import { CHAR_LIMIT, prepareNoteContent, sendNoteToTelegram } from "./src/telegram";
 import { FormattingHelpModal, LimitsWarningModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 
 export default class SendToTelegramPlugin extends Plugin {
-    settings: TelegramSettings;
+    settings!: TelegramSettings;
     private botToken: string = '';
     private channelCommandIds: string[] = [];
 
@@ -70,7 +70,6 @@ export default class SendToTelegramPlugin extends Plugin {
         });
     }
 
-    // If no preset is set as default but only one exists, that preset is set as default
     async resolveDefaultChannel(): Promise<TelegramChannel | undefined> {
         const explicit = this.settings.channels.find(c => c.isDefault);
         if (explicit) return explicit;
@@ -112,53 +111,30 @@ export default class SendToTelegramPlugin extends Plugin {
         }
 
         try {
-
-            // ── Limits check ────────────────────────────────────────────────
-            const content = await this.app.vault.read(file);
-            const { body } = extractFrontmatter(content);
-            let textToProcess = body;
             const startMarker = channel.postStartMarker || this.settings.postStartMarker;
             const endMarker = channel.postEndMarker || this.settings.postEndMarker;
-            if (startMarker && endMarker) {
-                const startIdx = body.indexOf(startMarker);
-                const endIdx = body.indexOf(endMarker, startIdx !== -1 ? startIdx + startMarker.length : 0);
-                if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
-                    textToProcess = body.slice(startIdx + startMarker.length, endIdx);
-                } else if (startIdx !== -1 && endIdx === -1) {
-                    textToProcess = body.slice(startIdx + startMarker.length);
-                } else if (startIdx === -1 && endIdx !== -1) {
-                    textToProcess = body.slice(0, endIdx);
-                }
-            }
-            const formattedContent = prepareContent(textToProcess);
-            if (formattedContent.length > 4096) {
+
+            const formattedContent = await prepareNoteContent(this.app, file, startMarker, endMarker);
+
+            if (formattedContent.length > CHAR_LIMIT) {
                 const proceed = await new Promise<boolean>(resolve => {
                     new LimitsWarningModal(this.app, formattedContent.length,
-                        () => resolve(true),
-                        () => resolve(false)
+                        () => resolve(true), () => resolve(false)
                     ).open();
                 });
                 if (!proceed) return;
             }
 
-            // UPDATED: Pass updateLink and markers through to the core function
             const link = await sendNoteToTelegram(
-                this.app,
-                file,
-                channel,
-                silent,
-                attachUnderText,
-                this.settings.treatMdEmbedsAsComments,
-                updateLink,
-                this.settings.postStartMarker,
-                this.settings.postEndMarker,
-                botToken
+                this.app, file, channel, silent, attachUnderText,
+                this.settings.treatMdEmbedsAsComments, updateLink,
+                this.settings.postStartMarker, this.settings.postEndMarker,
+                botToken, formattedContent,
             );
 
             if (this.settings.savePostLinks && link) {
                 await this.app.fileManager.processFrontMatter(file, (fm) => {
                     if (!Array.isArray(fm.telegram_links)) fm.telegram_links = [];
-                    // UPDATED: Only push the link if it doesn't already exist (prevents duplicates when updating)
                     if (!fm.telegram_links.includes(link)) {
                         fm.telegram_links.push(link);
                     }
@@ -183,9 +159,10 @@ export default class SendToTelegramPlugin extends Plugin {
                     return;
                 }
             }
-        } catch {}
+        } catch (e: any) {
+            console.error("SecretStorage get failed:", e);
+        }
 
-        // Fallback: migrate old per-channel token or read from data.json
         for (const ch of loaded.channels || []) {
             if (ch.botToken && ch.botToken.trim() !== '') {
                 try {
@@ -193,7 +170,9 @@ export default class SendToTelegramPlugin extends Plugin {
                     if (ss && typeof ss.setSecret === "function") {
                         ss.setSecret("publish-to-tg-bot-token", ch.botToken);
                     }
-                } catch {}
+                } catch (e: any) {
+                    console.error("SecretStorage migration failed:", e);
+                }
                 this.botToken = ch.botToken;
                 break;
             }
@@ -215,7 +194,9 @@ export default class SendToTelegramPlugin extends Plugin {
             if (ss && typeof ss.setSecret === "function") {
                 ss.setSecret("publish-to-tg-bot-token", token);
             }
-        } catch {}
+        } catch (e: any) {
+            console.error("SecretStorage set failed:", e);
+        }
         this.botToken = token;
         new Notice(t.NOTICE_TOKEN_SAVED, 3000);
     }
@@ -226,7 +207,9 @@ export default class SendToTelegramPlugin extends Plugin {
             if (ss && typeof ss.setSecret === "function") {
                 ss.setSecret("publish-to-tg-bot-token", "");
             }
-        } catch {}
+        } catch (e: any) {
+            console.error("SecretStorage remove failed:", e);
+        }
         this.botToken = '';
         new Notice(t.NOTICE_TOKEN_DELETED, 3000);
     }
