@@ -26,7 +26,7 @@ function mediaGroupType(extension: string): "photo" | "video" {
 
 // ─── Frontmatter extraction ───────────────────────────────────────────────────
 
-function extractFrontmatter(content: string): { frontmatter: string; body: string } {
+export function extractFrontmatter(content: string): { frontmatter: string; body: string } {
     const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
     const body = match ? content.slice(match[0].length) : content;
     if (!match) return { frontmatter: "", body };
@@ -35,7 +35,7 @@ function extractFrontmatter(content: string): { frontmatter: string; body: strin
 
 // ─── Content preparation ──────────────────────────────────────────────────────
 
-function prepareContent(body: string): string {
+export function prepareContent(body: string): string {
     const withHr = body.replace(/^(-{3,}|\*{3,}|_{3,})$/gm, (hr) => '\u2500'.repeat(hr.length));
     const stripped = withHr
         .replace(/%%[\s\S]*?%%/g, "")             // Strip Obsidian comments %% ... %%
@@ -56,13 +56,15 @@ function prepareContent(body: string): string {
 
 // ─── Telegram API calls ───────────────────────────────────────────────────────
 
+type ChannelWithToken = TelegramChannel & { botToken: string };
+
 function buildPostLink(chat: { id: number; username?: string }, messageId: number): string {
     if (chat.username) return `https://t.me/${chat.username}/${messageId}`;
     const channelId = String(chat.id).replace(/^-100/, "");
     return `https://t.me/c/${channelId}/${messageId}`;
 }
 
-async function getLinkedChatId(channel: TelegramChannel): Promise<number | null> {
+async function getLinkedChatId(channel: ChannelWithToken): Promise<number | null> {
     const response = await fetch(`https://api.telegram.org/bot${channel.botToken}/getChat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,7 +102,7 @@ async function findDiscussionMessageId(botToken: string, linkedChatId: number, c
     return null;
 }
 
-async function sendTextMessage(channel: TelegramChannel, text: string, silent: boolean): Promise<SendResult> {
+async function sendTextMessage(channel: ChannelWithToken, text: string, silent: boolean): Promise<SendResult> {
     const body: Record<string, unknown> = {
         chat_id: channel.chatId,
         text,
@@ -139,7 +141,7 @@ async function sendReply(botToken: string, chatId: number | string, replyToMessa
     if (!response.ok) throw new Error(data.description);
 }
 
-async function sendSinglePhoto(app: App, channel: TelegramChannel, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
+async function sendSinglePhoto(app: App, channel: ChannelWithToken, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
     const formData = new FormData();
     formData.append("chat_id", channel.chatId);
     formData.append("photo", await file.getBlob(), file.name);
@@ -159,7 +161,7 @@ async function sendSinglePhoto(app: App, channel: TelegramChannel, file: MediaFi
     };
 }
 
-async function sendAnimation(app: App, channel: TelegramChannel, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
+async function sendAnimation(app: App, channel: ChannelWithToken, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
     const formData = new FormData();
     formData.append("chat_id", channel.chatId);
     formData.append("animation", await file.getBlob(), file.name);
@@ -179,7 +181,7 @@ async function sendAnimation(app: App, channel: TelegramChannel, file: MediaFile
     };
 }
 
-async function sendSingleVideo(app: App, channel: TelegramChannel, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
+async function sendSingleVideo(app: App, channel: ChannelWithToken, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
     const formData = new FormData();
     formData.append("chat_id", channel.chatId);
     formData.append("video", await file.getBlob(), file.name);
@@ -199,7 +201,7 @@ async function sendSingleVideo(app: App, channel: TelegramChannel, file: MediaFi
     };
 }
 
-async function sendSingleDocument(app: App, channel: TelegramChannel, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
+async function sendSingleDocument(app: App, channel: ChannelWithToken, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
     const formData = new FormData();
     formData.append("chat_id", channel.chatId);
     formData.append("document", await file.getBlob(), file.name);
@@ -219,7 +221,7 @@ async function sendSingleDocument(app: App, channel: TelegramChannel, file: Medi
     };
 }
 
-async function sendMediaGroup(app: App, channel: TelegramChannel, files: MediaFile[], caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
+async function sendMediaGroup(app: App, channel: ChannelWithToken, files: MediaFile[], caption: string, silent: boolean, attachUnderText: boolean): Promise<SendResult> {
     const formData = new FormData();
     formData.append("chat_id", channel.chatId);
     if (silent) formData.append("disable_notification", "true");
@@ -271,10 +273,7 @@ export function findChannelByLink(channels: TelegramChannel[], link: string): Te
 }
 
 export async function sendNoteToTelegram(app: App, file: TFile, tg_channel: TelegramChannel, silent: boolean, attachUnderText: boolean, treatMdEmbedsAsComments: boolean, updateLink?: string, startMarker: string = "", endMarker: string = "", botToken: string = ""): Promise<string | null> {
-    const channel = { ...tg_channel, chatId: resolveChatId(tg_channel.chatId) };
-    if (botToken) {
-        channel.botToken = botToken;
-    }
+    const channel: ChannelWithToken = { ...tg_channel, chatId: resolveChatId(tg_channel.chatId), botToken };
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
     // Extract text between markers if both provided and found

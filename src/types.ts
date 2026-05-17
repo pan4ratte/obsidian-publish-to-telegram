@@ -3,8 +3,6 @@ export interface TelegramChannel {
     name: string;
     chatId: string;
     isDefault: boolean;
-    /** @deprecated Stored in SecretStorage */
-    botToken?: string;
     postStartMarker?: string;
     postEndMarker?: string;
 }
