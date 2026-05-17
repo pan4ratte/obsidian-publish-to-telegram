@@ -17,8 +17,15 @@ export default {
     SETTING_FORMATTING_HELP: "Usage instructions",
     SETTING_OPEN_BOTFATHER: "Open @BotFather",
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
-    SETTING_BOT_TOKEN_NAME: "You bot token",
-    SETTING_BOT_TOKEN_DESC: "Get it from @BotFather",
+    SETTING_BOT_TOKEN_NAME: "Bot token",
+    SETTING_BOT_TOKEN_DESC: "Token is stored securely in Obsidian's SecretStorage",
+    SETTING_BOT_TOKEN_SAVED: "✓ Token saved",
+    SETTING_BOT_TOKEN_NOT_SET: "⛔ Token not set",
+    SETTING_BOT_TOKEN_SAVE_BTN: "💾 Save",
+    SETTING_BOT_TOKEN_DELETE_BTN: "🗑️ Delete",
+    NOTICE_TOKEN_SAVED: "Bot token saved to Secret storage under the name Publish-to-tg-bot-token",
+    NOTICE_TOKEN_DELETED: "Bot token deleted",
+    NOTICE_ERR_NO_TOKEN: "Bot token not found. Set it in the plugin settings.",
     SETTING_CHAT_ID_NAME: "Target channel/group ID",
     SETTING_CHAT_ID_DESC: "Get it from @userinfobot",
     SETTING_DELETE_CHANNEL: "Delete preset",
@@ -71,6 +78,11 @@ export default {
     SETTING_LIMITS_INFO_DESC: "Information about Telegram posting limits",
     SETTING_LIMITS_INFO_TEXT: "Standard Telegram limits apply: up to 4096 characters for regular bots, and up to 10,000 characters for premium bots. Media limits: photos up to 10 MB, videos up to 50 MB, documents up to 50 MB per file.",
     SETTING_LIMITS_INFO_LINK: "More details: https://limits.tginfo.me/",
+
+    LIMITS_WARNING_TITLE: "Content too long",
+    LIMITS_WARNING_MSG: "Content exceeds 4096 characters ({length}). Telegram may truncate it. Send anyway?",
+    LIMITS_WARNING_SEND: "Send anyway",
+    LIMITS_WARNING_CANCEL: "Cancel",
 
     FORMATTING_HELP_CONTENT: `
 You can open these instructions from the command palette by typing "Publish to Telegram: Open usage instructions".

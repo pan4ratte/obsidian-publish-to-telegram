@@ -17,8 +17,15 @@ export default {
     SETTING_FORMATTING_HELP: "Справка по использованию",
     SETTING_OPEN_BOTFATHER: "Открыть @BotFather",
     SETTING_OPEN_USERINFOBOT: "Открыть @userinfobot",
-    SETTING_BOT_TOKEN_NAME: "Токен вашего бота",
-    SETTING_BOT_TOKEN_DESC: "Получите его у @BotFather",
+    SETTING_BOT_TOKEN_NAME: "Токен бота",
+    SETTING_BOT_TOKEN_DESC: "Токен хранится в защищённом хранилище Obsidian (SecretStorage)",
+    SETTING_BOT_TOKEN_SAVED: "✓ Токен сохранён",
+    SETTING_BOT_TOKEN_NOT_SET: "⛔ Токен не задан",
+    SETTING_BOT_TOKEN_SAVE_BTN: "💾 Сохранить",
+    SETTING_BOT_TOKEN_DELETE_BTN: "🗑️ Удалить",
+    NOTICE_TOKEN_SAVED: "Токен сохранён в Secret storage под именем Publish-to-tg-bot-token",
+    NOTICE_TOKEN_DELETED: "Токен удалён",
+    NOTICE_ERR_NO_TOKEN: "Токен бота не найден. Укажите его в настройках плагина.",
     SETTING_CHAT_ID_NAME: "ID целевого канала/группы",
     SETTING_CHAT_ID_DESC: "Получите его у @userinfobot",
     SETTING_DELETE_CHANNEL: "Удалить пресет",
@@ -71,6 +78,11 @@ export default {
     SETTING_LIMITS_INFO_DESC: "Информация о лимитах публикации в Telegram",
     SETTING_LIMITS_INFO_TEXT: "Стандартные лимиты Telegram: до 4096 символов для обычных ботов, до 10 000 символов для премиум‑ботов. Лимиты на медиа: фото до 10 МБ, видео до 50 МБ, документы до 50 МБ на файл.",
     SETTING_LIMITS_INFO_LINK: "Подробнее: https://limits.tginfo.me/",
+
+    LIMITS_WARNING_TITLE: "Содержимое слишком длинное",
+    LIMITS_WARNING_MSG: "Содержимое превышает 4096 символов ({length}). Telegram может обрезать его. Отправить всё равно?",
+    LIMITS_WARNING_SEND: "Всё равно отправить",
+    LIMITS_WARNING_CANCEL: "Отмена",
 
     FORMATTING_HELP_CONTENT: `
 Данную справку можно вызвать из палитры команд, введя "Publish to Telegram: Открыть справку по использованию".

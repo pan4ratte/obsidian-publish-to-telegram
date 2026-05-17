@@ -1,12 +1,12 @@
 import { Plugin, Notice, TFile, TFolder, Menu } from "obsidian";
 import { t } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, DEFAULT_SETTINGS } from "./src/types";
-import { sendNoteToTelegram } from "./src/telegram";
-import { FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
+import { extractFrontmatter, prepareContent, sendNoteToTelegram } from "./src/telegram";
+import { FormattingHelpModal, LimitsWarningModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 
 export default class SendToTelegramPlugin extends Plugin {
     settings: TelegramSettings;
-    private tokenCache: Map<string, string> = new Map();
+    private botToken: string = '';
     private channelCommandIds: string[] = [];
 
     async onload(): Promise<void> {
@@ -104,13 +104,41 @@ export default class SendToTelegramPlugin extends Plugin {
         });
     }
 
-    // UPDATED: Added updateLink parameter
     async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string): Promise<void> {
+        const botToken = this.getBotToken();
+        if (!botToken) {
+            new Notice(t.NOTICE_ERR_NO_TOKEN);
+            return;
+        }
+
         try {
-            // Get the bot token from our cache (or from channel.botToken as fallback)
-            const botToken = this.tokenCache.get(channel.id) ?? channel.botToken ?? '';
-            if (!botToken) {
-                throw new Error('Bot token not found for channel ' + channel.id);
+
+            // ── Limits check ────────────────────────────────────────────────
+            const content = await this.app.vault.read(file);
+            const { body } = extractFrontmatter(content);
+            let textToProcess = body;
+            const startMarker = channel.postStartMarker || this.settings.postStartMarker;
+            const endMarker = channel.postEndMarker || this.settings.postEndMarker;
+            if (startMarker && endMarker) {
+                const startIdx = body.indexOf(startMarker);
+                const endIdx = body.indexOf(endMarker, startIdx !== -1 ? startIdx + startMarker.length : 0);
+                if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+                    textToProcess = body.slice(startIdx + startMarker.length, endIdx);
+                } else if (startIdx !== -1 && endIdx === -1) {
+                    textToProcess = body.slice(startIdx + startMarker.length);
+                } else if (startIdx === -1 && endIdx !== -1) {
+                    textToProcess = body.slice(0, endIdx);
+                }
+            }
+            const formattedContent = prepareContent(textToProcess);
+            if (formattedContent.length > 4096) {
+                const proceed = await new Promise<boolean>(resolve => {
+                    new LimitsWarningModal(this.app, formattedContent.length,
+                        () => resolve(true),
+                        () => resolve(false)
+                    ).open();
+                });
+                if (!proceed) return;
             }
 
             // UPDATED: Pass updateLink and markers through to the core function
@@ -145,59 +173,66 @@ export default class SendToTelegramPlugin extends Plugin {
     async loadSettings() {
         const loaded = await this.loadData();
         this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
-        await this.migrateTokensToSecretStorage();
+
+        try {
+            const ss: any = (this.app as any)?.secretStorage;
+            if (ss && typeof ss.getSecret === "function") {
+                const stored = ss.getSecret("publish-to-tg-bot-token");
+                if (stored) {
+                    this.botToken = stored;
+                    return;
+                }
+            }
+        } catch {}
+
+        // Fallback: migrate old per-channel token or read from data.json
+        for (const ch of loaded.channels || []) {
+            if (ch.botToken && ch.botToken.trim() !== '') {
+                try {
+                    const ss: any = (this.app as any)?.secretStorage;
+                    if (ss && typeof ss.setSecret === "function") {
+                        ss.setSecret("publish-to-tg-bot-token", ch.botToken);
+                    }
+                } catch {}
+                this.botToken = ch.botToken;
+                break;
+            }
+        }
     }
 
-    private async migrateTokensToSecretStorage() {
-        // Optional chaining for older Obsidian versions lacking getSecretStorage
-        const secretStorage = this.app.vault.getSecretStorage?.();
-        if (!secretStorage) {
-            // SecretStorage not available, keep botToken in settings (fallback)
-            // Ensure every channel has botToken as string (optional, but we'll set to empty if undefined)
-            for (const channel of this.settings.channels) {
-                if (channel.botToken === undefined) {
-                    channel.botToken = '';
-                }
+    getBotToken(): string {
+        return this.botToken;
+    }
+
+    hasBotToken(): boolean {
+        return this.botToken !== '';
+    }
+
+    saveBotToken(token: string): void {
+        if (!token.trim()) return;
+        try {
+            const ss: any = (this.app as any)?.secretStorage;
+            if (ss && typeof ss.setSecret === "function") {
+                ss.setSecret("publish-to-tg-bot-token", token);
             }
-            return;
-        }
-        for (const channel of this.settings.channels) {
-            const key = `telegram-bot-token:${channel.id}`;
-            if (channel.botToken && channel.botToken.trim() !== '') {
-                // Migrate existing token from settings to SecretStorage
-                const existing = await secretStorage.get(key);
-                if (!existing) {
-                    await secretStorage.set(key, channel.botToken);
-                }
-                this.tokenCache.set(channel.id, channel.botToken);
-                // Keep botToken in channel for UI; will be stripped before saving
-            } else {
-                // Try to load token from SecretStorage
-                const stored = await secretStorage.get(key);
-                if (stored) {
-                    this.tokenCache.set(channel.id, stored);
-                    channel.botToken = stored; // populate UI
-                } else {
-                    // No token found anywhere, ensure it's an empty string for UI
-                    channel.botToken = '';
-                }
+        } catch {}
+        this.botToken = token;
+        new Notice(t.NOTICE_TOKEN_SAVED, 3000);
+    }
+
+    removeBotToken(): void {
+        try {
+            const ss: any = (this.app as any)?.secretStorage;
+            if (ss && typeof ss.setSecret === "function") {
+                ss.setSecret("publish-to-tg-bot-token", "");
             }
-        }
+        } catch {}
+        this.botToken = '';
+        new Notice(t.NOTICE_TOKEN_DELETED, 3000);
     }
 
     async saveSettings() {
-        // Create a copy of settings without botToken to avoid persisting it
-        const channelsForSave = this.settings.channels.map(c => ({
-            id: c.id,
-            name: c.name,
-            chatId: c.chatId,
-            isDefault: c.isDefault
-        }));
-        const dataToSave = {
-            ...this.settings,
-            channels: channelsForSave
-        };
-        await this.saveData(dataToSave);
+        await this.saveData(this.settings);
         this.syncChannelCommands();
     }
 }

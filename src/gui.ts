@@ -17,18 +17,20 @@ function findChannelByLink(channels: TelegramChannel[], link: string): TelegramC
     }) || null;
 }
 
-async function resolveChannelByLink(channels: TelegramChannel[], link: string): Promise<TelegramChannel | null> {
+async function resolveChannelByLink(channels: TelegramChannel[], link: string, botToken: string): Promise<TelegramChannel | null> {
     const direct = findChannelByLink(channels, link);
     if (direct) return direct;
+
+    if (!botToken) return null;
 
     const msgIdMatch = link.match(/\/(?:t\.me\/|c\/|)([^/]+)\/(\d+)\/?$/);
     if (!msgIdMatch) return null;
     const identifier = msgIdMatch[1].toLowerCase();
 
     for (const channel of channels) {
-        if (!channel.botToken || !channel.chatId) continue;
+        if (!channel.chatId) continue;
         try {
-            const response = await fetch(`https://api.telegram.org/bot${channel.botToken}/getChat`, {
+            const response = await fetch(`https://api.telegram.org/bot${botToken}/getChat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ chat_id: channel.chatId })
@@ -99,6 +101,42 @@ export class ConfirmationModal extends Modal {
     onClose() { this.contentEl.empty(); }
 }
 
+// ─── Limits Warning Modal ─────────────────────────────────────────────────────
+
+export class LimitsWarningModal extends Modal {
+    onProceed: () => void;
+    onCancel: () => void;
+    length: number;
+    charset: string;
+
+    constructor(app: App, length: number, onProceed: () => void, onCancel: () => void) {
+        super(app);
+        this.length = length;
+        this.onProceed = onProceed;
+        this.onCancel = onCancel;
+        this.charset = "▰".repeat(Math.min(Math.ceil(length / 100), 30));
+    }
+
+    onOpen() {
+        const { contentEl, titleEl } = this;
+        titleEl.setText(t.LIMITS_WARNING_TITLE);
+        const msg = t.LIMITS_WARNING_MSG.replace("{length}", String(this.length));
+        contentEl.createEl("p", { text: msg });
+        const bar = contentEl.createEl("progress", { attr: { max: 4096, value: this.length } });
+        bar.style.width = "100%";
+        const btnContainer = contentEl.createDiv("telegram-modal-buttons");
+        new ButtonComponent(btnContainer)
+            .setButtonText(t.LIMITS_WARNING_CANCEL)
+            .onClick(() => { this.onCancel(); this.close(); });
+        new ButtonComponent(btnContainer)
+            .setButtonText(t.LIMITS_WARNING_SEND)
+            .setCta()
+            .onClick(() => { this.onProceed(); this.close(); });
+    }
+
+    onClose() { this.contentEl.empty(); }
+}
+
 // ─── Multi Preset Modal ───────────────────────────────────────────────────────
 
 export class MultiPresetModal extends Modal {
@@ -159,7 +197,7 @@ export class MultiPresetModal extends Modal {
         this.setChannelRowsDisabled(true);
         this.setHint(t.MULTI_PRESET_UPDATE_RESOLVING, false);
 
-        const matched = await resolveChannelByLink(this.plugin.settings.channels, value);
+        const matched = await resolveChannelByLink(this.plugin.settings.channels, value, this.plugin.getBotToken());
         this.resolvedUpdateChannel = matched;
 
         if (matched) {
@@ -284,7 +322,7 @@ export class MultiPresetModal extends Modal {
 
                 if (isUpdating) {
                     const targetChannel = this.resolvedUpdateChannel
-                        ?? await resolveChannelByLink(this.plugin.settings.channels, updateLinkRaw!);
+                        ?? await resolveChannelByLink(this.plugin.settings.channels, updateLinkRaw!, this.plugin.getBotToken());
 
                     if (!targetChannel) {
                         new Notice(t.MULTI_PRESET_UPDATE_NO_MATCH_NOTICE);
@@ -320,6 +358,37 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         containerEl.createEl("p", { text: t.SETTING_DESCRIPTION, cls: "telegram-plugin-description" });
 
+        // ── Global Bot Token ────────────────────────────────────────────────
+        const hasToken = this.plugin.hasBotToken();
+        const tokenStatus = containerEl.createEl("span", {
+            text: hasToken ? t.SETTING_BOT_TOKEN_SAVED : t.SETTING_BOT_TOKEN_NOT_SET,
+        });
+        let tokenInput: HTMLInputElement;
+
+        new Setting(containerEl)
+            .setName(t.SETTING_BOT_TOKEN_NAME)
+            .setDesc(t.SETTING_BOT_TOKEN_DESC)
+            .addText((text) => {
+                tokenInput = text.inputEl;
+                text.setPlaceholder(t.SETTING_PLACEHOLDER_TOKEN).setValue("");
+            })
+            .addButton((btn) =>
+                btn.setButtonText(t.SETTING_BOT_TOKEN_SAVE_BTN).onClick(() => {
+                    const val = tokenInput.value.trim();
+                    if (!val) return;
+                    this.plugin.saveBotToken(val);
+                    tokenInput.value = "";
+                    tokenStatus.textContent = t.SETTING_BOT_TOKEN_SAVED;
+                })
+            )
+            .addButton((btn) =>
+                btn.setButtonText(t.SETTING_BOT_TOKEN_DELETE_BTN).onClick(() => {
+                    this.plugin.removeBotToken();
+                    tokenStatus.textContent = t.SETTING_BOT_TOKEN_NOT_SET;
+                })
+            );
+
+        // ── Presets ──────────────────────────────────────────────────────────
         const addSection = containerEl.createDiv("telegram-add-preset-section");
         const infoDiv = addSection.createDiv("telegram-add-preset-info");
         infoDiv.createEl("div", { text: t.SETTING_ADD_CHANNEL_NAME, cls: "telegram-add-preset-title" });
@@ -345,7 +414,7 @@ export class TelegramSettingTab extends PluginSettingTab {
         new ButtonComponent(buttonContainer)
             .setButtonText(t.SETTING_ADD_CHANNEL)
             .onClick(async () => {
-                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: "", botToken: "", chatId: "", isDefault: false });
+                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: "", chatId: "", isDefault: false });
                 await this.plugin.saveSettings();
                 this.display();
             }).buttonEl.addClass("telegram-add-button");
@@ -395,26 +464,6 @@ export class TelegramSettingTab extends PluginSettingTab {
                         this.display();
                     }).open();
                 }).buttonEl.addClass("telegram-delete-button");
-
-            new Setting(channelDiv).setName(t.SETTING_BOT_TOKEN_NAME).setDesc(t.SETTING_BOT_TOKEN_DESC)
-                .addText(text => text.setPlaceholder(t.SETTING_PLACEHOLDER_TOKEN).setValue(channel.botToken)
-                    .onChange(async (v) => {
-                        const secretStorage = this.app.vault.getSecretStorage();
-                        if (!secretStorage) {
-                            // Fallback for older Obsidian versions
-                            channel.botToken = v;
-                            this.plugin.tokenCache.set(channel.id, v);
-                            await this.plugin.saveSettings();
-                        } else {
-                            const key = `telegram-bot-token:${channel.id}`;
-                            await secretStorage.set(key, v);
-                            this.plugin.tokenCache.set(channel.id, v);
-                            // Keep channel.botToken for UI consistency
-                            channel.botToken = v;
-                            // Save settings to persist any other changes (botToken is stripped in saveSettings)
-                            await this.plugin.saveSettings();
-                        }
-                    }));
 
             new Setting(channelDiv).setName(t.SETTING_CHAT_ID_NAME).setDesc(t.SETTING_CHAT_ID_DESC)
                 .addText(text => text.setPlaceholder(t.SETTING_PLACEHOLDER_CHAT).setValue(channel.chatId)
