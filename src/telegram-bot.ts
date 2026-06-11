@@ -2,7 +2,7 @@
 // Telegram Bot API send path — used by presets with type === "bot".
 // Self-contained: only imports from markdown.ts and Obsidian's API.
 
-import { App, TFile, requestUrl } from "obsidian";
+import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings } from "./types";
 import { mdToTelegramHtml, obsidianToRichMarkdown } from "./markdown";
 
@@ -272,10 +272,9 @@ async function sendRichOrClassicReply(token: string, chatId: string, replyToMess
             await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
             return;
         } catch (err) {
-            console.warn(
-                "[publish-to-telegram] rich comment failed, falling back to HTML reply:",
-                err instanceof Error ? err.message : err
-            );
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn("[publish-to-telegram] rich comment failed, falling back to HTML reply:", msg);
+            new Notice(`Rich comment unavailable — sending as standard text. (${msg})`);
         }
     }
     await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId);
@@ -390,13 +389,20 @@ async function sendPartViaBotApi(
             const commentMd = commentsAsRich ? obsidianToRichMarkdown(mdBody) : "";
             if (!commentHtml.length && !commentMd.length) continue;
 
-            if (linkedChatId !== null) {
-                const discussionId = await findDiscussionMessageId(token, linkedChatId, result.messageId);
-                if (discussionId !== null) {
-                    await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
+            // A comment failure must not lose the main post's link, so isolate it.
+            try {
+                if (linkedChatId !== null) {
+                    const discussionId = await findDiscussionMessageId(token, linkedChatId, result.messageId);
+                    if (discussionId !== null) {
+                        await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
+                    } else {
+                        new Notice("Couldn't find the discussion message to comment under.");
+                    }
+                } else {
+                    await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
                 }
-            } else {
-                await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
+            } catch (err) {
+                new Notice(`Comment failed: ${err instanceof Error ? err.message : String(err)}`);
             }
         }
     }

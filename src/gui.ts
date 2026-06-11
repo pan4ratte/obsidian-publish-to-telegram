@@ -197,14 +197,17 @@ export class MultiPresetModal extends Modal {
         this.publishBtn?.setButtonText(this.anyLinkSelected() ? t.MULTI_PRESET_EDIT_BTN : t.MULTI_PRESET_POST_BTN);
     }
 
-    private updateScheduleVisibility() {
-        if (!this.scheduleOptionEl) return;
-        const allChannels = this.plugin.settings.channels;
-        const selected = allChannels.filter(c => this.selectedChannels.has(c.id));
-        // Hide schedule if every selected preset is a Bot preset (scheduling not supported).
-        // Also hide when nothing is selected yet (no-op state).
+    private updateScheduleState() {
+        if (!this.scheduleOptionEl || !this.scheduleInput) return;
+        const selected = this.plugin.settings.channels.filter(c => this.selectedChannels.has(c.id));
+        // Scheduling isn't supported by the Bot API. Keep the field visible but disable
+        // it — both visually (greyed, non-interactive) and physically (input disabled +
+        // value cleared) — when every selected preset is a Bot preset. Mixed selections
+        // stay active: the schedule applies to the User presets and is ignored for Bot ones.
         const allBot = selected.length > 0 && selected.every(c => c.type === "bot");
-        this.scheduleOptionEl.toggle(!allBot);
+        this.scheduleInput.disabled = allBot;
+        if (allBot) this.scheduleInput.value = "";
+        this.scheduleOptionEl.toggleClass("is-disabled", allBot);
     }
 
     // Rich-text comments only work for Bot presets. Lock the toggle off — visually
@@ -311,7 +314,7 @@ export class MultiPresetModal extends Modal {
                 .onChange(value => {
                     if (value) this.selectedChannels.add(channel.id);
                     else this.selectedChannels.delete(channel.id);
-                    this.updateScheduleVisibility();
+                    this.updateScheduleState();
                     this.updateCommentsRichToggleState();
                 });
 
@@ -348,9 +351,6 @@ export class MultiPresetModal extends Modal {
                 .setValue(false);
         }
 
-        this.updateScheduleVisibility();
-        this.updateCommentsRichToggleState();
-
         this.scheduleOptionEl = contentEl.createDiv("telegram-option-item");
         const scheduleOptionEl = this.scheduleOptionEl;
         const scheduleTextEl = scheduleOptionEl.createDiv("telegram-option-text");
@@ -358,6 +358,10 @@ export class MultiPresetModal extends Modal {
         scheduleTextEl.createDiv({ text: t.MULTI_PRESET_SCHEDULE_DESC, cls: "telegram-option-desc" });
         this.scheduleInput = scheduleOptionEl.createDiv("telegram-option-control").createEl("input", { cls: "telegram-schedule-input" });
         this.scheduleInput.type = "datetime-local";
+
+        // Initial state now that all option elements exist.
+        this.updateScheduleState();
+        this.updateCommentsRichToggleState();
 
         // ─── Edit Post & Comments Section ─────────────────────────────────────────────
 
