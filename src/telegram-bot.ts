@@ -253,6 +253,34 @@ async function sendReplyBot(token: string, chatId: string, replyToMessageId: num
     });
 }
 
+// Rich Message reply — sendRichMessage uses a reply_parameters object rather than
+// the reply_to_message_id field used by classic sendMessage.
+async function sendRichReplyBot(token: string, chatId: string, replyToMessageId: number, markdown: string, silent: boolean, topicId?: number): Promise<void> {
+    await callBotJson(token, "sendRichMessage", {
+        ...baseBody(chatId, silent, topicId),
+        rich_message: { markdown },
+        reply_parameters: { message_id: replyToMessageId },
+    });
+}
+
+// Sends a comment reply as a Rich Message when markdown is provided, falling back
+// to a classic HTML reply if Rich Messages are unavailable. Passing an empty
+// markdown string forces the classic path (used when the "rich comments" toggle is off).
+async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number): Promise<void> {
+    if (markdown.length > 0) {
+        try {
+            await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
+            return;
+        } catch (err) {
+            console.warn(
+                "[publish-to-telegram] rich comment failed, falling back to HTML reply:",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
+    await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId);
+}
+
 async function getLinkedChatId(token: string, chatId: string): Promise<number | null> {
     const result = await callBotJson(token, "getChat", { chat_id: chatId }) as { linked_chat_id?: number };
     return result.linked_chat_id ?? null;
@@ -289,6 +317,7 @@ async function sendPartViaBotApi(
     treatMdEmbedsAsComments: boolean,
     sourceFile: TFile,
     topicId?: number,
+    commentsAsRich = false,
 ): Promise<SendResult | null> {
     const htmlContent = mdToTelegramHtml(body);
     const richMarkdown = obsidianToRichMarkdown(body);
@@ -357,16 +386,17 @@ async function sendPartViaBotApi(
         for (const mdFile of mdEmbeds) {
             const mdContent = await app.vault.read(mdFile);
             const { body: mdBody } = extractFrontmatter(mdContent);
-            const formattedMd = mdToTelegramHtml(mdBody);
-            if (!formattedMd.length) continue;
+            const commentHtml = mdToTelegramHtml(mdBody);
+            const commentMd = commentsAsRich ? obsidianToRichMarkdown(mdBody) : "";
+            if (!commentHtml.length && !commentMd.length) continue;
 
             if (linkedChatId !== null) {
                 const discussionId = await findDiscussionMessageId(token, linkedChatId, result.messageId);
                 if (discussionId !== null) {
-                    await sendReplyBot(token, String(linkedChatId), discussionId, formattedMd, silent);
+                    await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
                 }
             } else {
-                await sendReplyBot(token, chatId, result.messageId, formattedMd, silent, topicId);
+                await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
             }
         }
     }
@@ -410,6 +440,7 @@ export async function sendNoteViaBotApi(
     attachUnderText: boolean,
     treatMdEmbedsAsComments: boolean,
     updateLink?: string,
+    commentsAsRich = false,
 ): Promise<{ links: string[]; errors: Error[] }> {
     const token = channel.botToken ?? "";
     if (!token) throw new Error("Bot token is not configured for this preset.");
@@ -454,7 +485,7 @@ export async function sendNoteViaBotApi(
             try {
                 const result = await sendPartViaBotApi(
                     app, part, token, chatId, silent, attachUnderText,
-                    treatMdEmbedsAsComments, file, topicId,
+                    treatMdEmbedsAsComments, file, topicId, commentsAsRich,
                 );
                 if (result) links.push(result.link);
             } catch (err) {

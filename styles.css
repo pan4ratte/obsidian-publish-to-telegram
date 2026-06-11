@@ -368,7 +368,8 @@ body .telegram-auth-submit:disabled {
     transition: opacity 0.15s ease;
 }
 
-.telegram-multi-preset-item.is-disabled {
+.telegram-multi-preset-item.is-disabled,
+.telegram-option-item.is-disabled {
     opacity: 0.35;
     pointer-events: none;
     user-select: none;

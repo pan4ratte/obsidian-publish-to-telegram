@@ -63,6 +63,8 @@ export default {
     MULTI_PRESET_SILENT_POST_DESC: "Подписчики получат уведомление без звука",
     MULTI_PRESET_ATTACHMENTS_NAME: "Вложения под текстом",
     MULTI_PRESET_ATTACHMENTS_DESC: "Отображать текст сообщения над прикреплёнными медиафайлами",
+    MULTI_PRESET_COMMENTS_RICH_NAME: "Отправлять комментарии как rich-текст",
+    MULTI_PRESET_COMMENTS_RICH_DESC: "Для Bot-пресетов: публиковать комментарии из .md-вложений как Rich-сообщения (заголовки, таблицы и т.д.). При отсутствии поддержки используется обычное форматирование.",
     MULTI_PRESET_SCHEDULE_NAME: "Запланировать публикацию",
     MULTI_PRESET_SCHEDULE_DESC: "Оставьте пустым, чтобы опубликовать сейчас",
     MULTI_PRESET_UPDATE_HEADING: "Редактирование",

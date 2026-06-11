@@ -148,7 +148,7 @@ export default class SendToTelegramPlugin extends Plugin {
         }
     }
 
-    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date): Promise<void> {
+    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date, commentsAsRich = false): Promise<void> {
         // Bot presets use their own send path and don't need a GramJS session.
         if (channel.type !== "bot" && !this.secrets.telegramSession) {
             new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED);
@@ -172,7 +172,7 @@ export default class SendToTelegramPlugin extends Plugin {
                 // ── Bot API path ──────────────────────────────────────────────
                 const { links, errors } = await sendNoteViaBotApi(
                     this.app, file, channel, this.settings,
-                    silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink,
+                    silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink, commentsAsRich,
                 );
                 allLinks.push(...links);
                 allErrors.push(...errors);

@@ -163,6 +163,8 @@ export class MultiPresetModal extends Modal {
 
     private silentToggle: ToggleComponent;
     private attachToggle: ToggleComponent;
+    private commentsAsRichToggle: ToggleComponent | null = null;
+    private commentsAsRichOptionEl: HTMLElement | null = null;
     private scheduleInput: HTMLInputElement | null = null;
 
     private updateLinkDropdown: DropdownComponent | null = null;
@@ -203,6 +205,23 @@ export class MultiPresetModal extends Modal {
         // Also hide when nothing is selected yet (no-op state).
         const allBot = selected.length > 0 && selected.every(c => c.type === "bot");
         this.scheduleOptionEl.toggle(!allBot);
+    }
+
+    // Rich-text comments only work for Bot presets. Lock the toggle off — visually
+    // (greyed, non-interactive) and physically (value forced to false) — only when the
+    // selection has NO Bot preset to apply it to. Mixed Bot+User selections stay
+    // enabled: rich comments apply to the Bot presets and are ignored for User ones.
+    private updateCommentsRichToggleState() {
+        if (!this.commentsAsRichToggle) return;
+        const selected = this.plugin.settings.channels.filter(c => this.selectedChannels.has(c.id));
+        const noBotPreset = selected.length > 0 && selected.every(c => c.type !== "bot");
+        if (noBotPreset) {
+            this.commentsAsRichToggle.setValue(false);
+            this.commentsAsRichToggle.setDisabled(true);
+        } else {
+            this.commentsAsRichToggle.setDisabled(false);
+        }
+        this.commentsAsRichOptionEl?.toggleClass("is-disabled", noBotPreset);
     }
 
     private setChannelRowsDisabled(disabled: boolean) {
@@ -293,6 +312,7 @@ export class MultiPresetModal extends Modal {
                     if (value) this.selectedChannels.add(channel.id);
                     else this.selectedChannels.delete(channel.id);
                     this.updateScheduleVisibility();
+                    this.updateCommentsRichToggleState();
                 });
 
             this.channelRows.push({ id: channel.id, container: itemEl, toggle });
@@ -317,7 +337,19 @@ export class MultiPresetModal extends Modal {
         this.attachToggle = new ToggleComponent(attachOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
+        // Rich-text comments only apply to the .md-embeds-as-comments feature (Bot presets),
+        // so only surface the toggle when that feature is enabled globally.
+        if (this.plugin.settings.treatMdEmbedsAsComments) {
+            this.commentsAsRichOptionEl = contentEl.createDiv("telegram-option-item");
+            const commentsRichTextEl = this.commentsAsRichOptionEl.createDiv("telegram-option-text");
+            commentsRichTextEl.createDiv({ text: t.MULTI_PRESET_COMMENTS_RICH_NAME, cls: "telegram-option-name" });
+            commentsRichTextEl.createDiv({ text: t.MULTI_PRESET_COMMENTS_RICH_DESC, cls: "telegram-option-desc" });
+            this.commentsAsRichToggle = new ToggleComponent(this.commentsAsRichOptionEl.createDiv("telegram-option-control"))
+                .setValue(false);
+        }
+
         this.updateScheduleVisibility();
+        this.updateCommentsRichToggleState();
 
         this.scheduleOptionEl = contentEl.createDiv("telegram-option-item");
         const scheduleOptionEl = this.scheduleOptionEl;
@@ -450,6 +482,7 @@ export class MultiPresetModal extends Modal {
 
                 const silent = this.silentToggle?.getValue() ?? false;
                 const attachUnderText = this.attachToggle?.getValue() ?? false;
+                const commentsAsRich = this.commentsAsRichToggle?.getValue() ?? false;
 
                 let scheduleDate: Date | undefined;
                 if (!isUpdatingPost && !isEditingComments && this.scheduleInput?.value) {
@@ -495,7 +528,7 @@ export class MultiPresetModal extends Modal {
                 if (!isUpdatingPost && !isEditingComments) {
                     for (const channelId of this.selectedChannels) {
                         const channel = this.plugin.settings.channels.find(c => c.id === channelId);
-                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate);
+                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, commentsAsRich);
                     }
                 }
             });

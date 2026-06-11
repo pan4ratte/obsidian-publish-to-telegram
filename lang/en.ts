@@ -63,6 +63,8 @@ Bot preset — publishes via a Telegram bot token (no account login required).
     MULTI_PRESET_SILENT_POST_DESC: "Subscribers will receive a notification without sound",
     MULTI_PRESET_ATTACHMENTS_NAME: "Attachments below the text",
     MULTI_PRESET_ATTACHMENTS_DESC: "Display post text above the attached media files",
+    MULTI_PRESET_COMMENTS_RICH_NAME: "Send comments as rich text",
+    MULTI_PRESET_COMMENTS_RICH_DESC: "For Bot presets: post .md-embed comments as Rich Messages (headings, tables, etc.). Falls back to standard formatting if unsupported.",
     MULTI_PRESET_SCHEDULE_NAME: "Schedule the post",
     MULTI_PRESET_SCHEDULE_DESC: "Leave empty to publish immediately",
     MULTI_PRESET_UPDATE_HEADING: "Editing",
