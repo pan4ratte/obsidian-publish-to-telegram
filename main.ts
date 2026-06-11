@@ -2,6 +2,7 @@ import { Plugin, Notice, TFile, TFolder, Menu } from "obsidian";
 import { t, getUserGuideContent, changelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks } from "./src/telegram";
+import { sendNoteViaBotApi } from "./src/telegram-bot";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 import { errMessage } from "./src/util";
 
@@ -128,6 +129,7 @@ export default class SendToTelegramPlugin extends Plugin {
     }
 
     private async isChannelForum(channel: TelegramChannel): Promise<boolean> {
+        if (channel.type === "bot") return false; // Bot API: user configures topicId directly in chat picker
         if (this.forumCache.has(channel.id)) return this.forumCache.get(channel.id)!;
         if (!this.secrets.telegramSession) return false;
         try {
@@ -147,7 +149,11 @@ export default class SendToTelegramPlugin extends Plugin {
     }
 
     async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date): Promise<void> {
-        if (!this.secrets.telegramSession) { new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED); return; }
+        // Bot presets use their own send path and don't need a GramJS session.
+        if (channel.type !== "bot" && !this.secrets.telegramSession) {
+            new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED);
+            return;
+        }
 
         const targets = channel.chatTargets?.length > 0
             ? channel.chatTargets
@@ -162,18 +168,29 @@ export default class SendToTelegramPlugin extends Plugin {
         const allScheduled: PendingScheduledLink[] = [];
 
         try {
-            for (const target of targets) {
-                const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title };
-                const { links, commentLinks, errors, scheduled } = await sendNoteToTelegram(
-                    this.app, file, singleChannel, this.settings, this.secrets, silent, attachUnderText,
-                    this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
-                    () => { progressNotice.setMessage(t.NOTICE_PUBLISHING_COMMENTS); }
+            if (channel.type === "bot") {
+                // ── Bot API path ──────────────────────────────────────────────
+                const { links, errors } = await sendNoteViaBotApi(
+                    this.app, file, channel, this.settings,
+                    silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink,
                 );
                 allLinks.push(...links);
-                allCommentLinks.push(...commentLinks);
                 allErrors.push(...errors);
-                for (const s of scheduled) {
-                    allScheduled.push({ ...s, notePath: file.path, noteTitle: file.basename, createdAt: Date.now() });
+            } else {
+                // ── GramJS (User API) path ────────────────────────────────────
+                for (const target of targets) {
+                    const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title };
+                    const { links, commentLinks, errors, scheduled } = await sendNoteToTelegram(
+                        this.app, file, singleChannel, this.settings, this.secrets, silent, attachUnderText,
+                        this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
+                        () => { progressNotice.setMessage(t.NOTICE_PUBLISHING_COMMENTS); }
+                    );
+                    allLinks.push(...links);
+                    allCommentLinks.push(...commentLinks);
+                    allErrors.push(...errors);
+                    for (const s of scheduled) {
+                        allScheduled.push({ ...s, notePath: file.path, noteTitle: file.basename, createdAt: Date.now() });
+                    }
                 }
             }
 
@@ -317,11 +334,15 @@ export default class SendToTelegramPlugin extends Plugin {
             telegramApiHash?: string;
         };
         this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
-        // Migrate single chatId/chatTitle → chatTargets array
+        // Migrate single chatId/chatTitle → chatTargets array; default type to "user"
         let migrated = false;
         for (const ch of this.settings.channels) {
             if (!ch.chatTargets) {
                 ch.chatTargets = ch.chatId ? [{ id: ch.chatId, title: ch.chatTitle }] : [];
+                migrated = true;
+            }
+            if (!ch.type) {
+                ch.type = "user";
                 migrated = true;
             }
         }

@@ -7,6 +7,8 @@ export interface ChatTarget {
 export interface TelegramChannel {
     id: string;
     name: string;
+    type: "bot" | "user";
+    botToken?: string;     // only set when type === "bot"
     chatTargets: ChatTarget[];
     chatId: string;        // legacy field — kept for telegram.ts compat; synced to chatTargets[0].id
     chatTitle?: string;    // legacy field — synced to chatTargets[0].title

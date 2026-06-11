@@ -28,15 +28,25 @@ export default {
     SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "If enabled, the contents of .md-attachments will be sent as comments to the post discussion",
     SECTION_PRESETS: "Presets",
     SETTING_ADD_CHANNEL_NAME: "Preset creation and usage",
-    SETTING_ADD_CHANNEL_DESC: `1. Authorize into your account and make sure that you have relevant permissions to post to the target channels/groups.
-2. Create a new preset and click on the search field to load chat list. You can also enter @username or ID manually.
-3. Add one or multiple target channels, groups, forum topics, chats or bots to the preset.
+    SETTING_ADD_CHANNEL_DESC: `User preset — publishes from your personal Telegram account (requires one-time authorization).
+1. Authorize into your account and make sure that you have relevant permissions to post to the target channels/groups.
+2. Create a new User preset and click on the search field to load chat list. You can also enter @username or ID manually.
 
-* Note that the user guide describes all of the plugin's features and supported formatting options in detail.
-** You can get the ID of any user, channel, group or bot with the @userinfobot.`,
+Bot preset — publishes via a Telegram bot token (no account login required).
+1. Create a bot with @BotFather and make it an admin of the target channel/group.
+2. Create a new Bot preset, enter the bot token, then add target chat IDs or @usernames.
+
+* You can get the ID of any user, channel, group or bot with the @userinfobot.
+** The user guide describes all features and supported formatting options in detail.`,
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
     SETTING_FORMATTING_HELP: "User guide",
     SETTING_ADD_CHANNEL: "Create new preset",
+    SETTING_ADD_USER_PRESET: "New User preset",
+    SETTING_ADD_BOT_PRESET: "New Bot preset",
+    PRESET_BADGE_USER: "USER",
+    PRESET_BADGE_BOT: "BOT",
+    SETTING_BOT_TOKEN_NAME: "Bot Token",
+    SETTING_BOT_TOKEN_DESC: "Token from @BotFather. The bot must be an admin of the target channel/group.",
     CHANNEL_DEFAULT_NAME: "New Preset",
     SETTING_PLACE_HOLDER_NAME: "Preset name…",
     SETTING_PLACEHOLDER_CHAT: "@username or ID…",

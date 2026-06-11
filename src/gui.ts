@@ -44,6 +44,7 @@ function channelFromLink(link: string, name: string): TelegramChannel | null {
     return {
         id: "update-temp",
         name,
+        type: "user",
         chatId: parsed.chatId,
         chatTargets: [{ id: parsed.chatId, title: name }],
         isDefault: false,
@@ -173,6 +174,7 @@ export class MultiPresetModal extends Modal {
 
     private publishBtn: ButtonComponent | null = null;
     private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent }> = [];
+    private scheduleOptionEl: HTMLElement | null = null;
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
 
     constructor(app: App, plugin: SendToTelegramPlugin, file: TFile, initialChannelId?: string) {
@@ -191,6 +193,16 @@ export class MultiPresetModal extends Modal {
 
     private updatePublishBtn() {
         this.publishBtn?.setButtonText(this.anyLinkSelected() ? t.MULTI_PRESET_EDIT_BTN : t.MULTI_PRESET_POST_BTN);
+    }
+
+    private updateScheduleVisibility() {
+        if (!this.scheduleOptionEl) return;
+        const allChannels = this.plugin.settings.channels;
+        const selected = allChannels.filter(c => this.selectedChannels.has(c.id));
+        // Hide schedule if every selected preset is a Bot preset (scheduling not supported).
+        // Also hide when nothing is selected yet (no-op state).
+        const allBot = selected.length > 0 && selected.every(c => c.type === "bot");
+        this.scheduleOptionEl.toggle(!allBot);
     }
 
     private setChannelRowsDisabled(disabled: boolean) {
@@ -265,7 +277,11 @@ export class MultiPresetModal extends Modal {
         this.plugin.settings.channels.forEach(channel => {
             const itemEl = listContainer.createDiv("telegram-multi-preset-item");
             const nameEl = itemEl.createDiv("telegram-multi-preset-name");
-            nameEl.setText(channel.name || t.CHANNEL_DEFAULT_NAME);
+            nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
+            nameEl.createEl("span", {
+                text: channel.type === "bot" ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER,
+                cls: `tg-preset-badge tg-preset-badge--${channel.type ?? "user"}`,
+            });
 
             const isPreToggled = this.initialChannelId === channel.id;
             if (isPreToggled) this.selectedChannels.add(channel.id);
@@ -276,6 +292,7 @@ export class MultiPresetModal extends Modal {
                 .onChange(value => {
                     if (value) this.selectedChannels.add(channel.id);
                     else this.selectedChannels.delete(channel.id);
+                    this.updateScheduleVisibility();
                 });
 
             this.channelRows.push({ id: channel.id, container: itemEl, toggle });
@@ -300,7 +317,10 @@ export class MultiPresetModal extends Modal {
         this.attachToggle = new ToggleComponent(attachOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
-        const scheduleOptionEl = contentEl.createDiv("telegram-option-item");
+        this.updateScheduleVisibility();
+
+        this.scheduleOptionEl = contentEl.createDiv("telegram-option-item");
+        const scheduleOptionEl = this.scheduleOptionEl;
         const scheduleTextEl = scheduleOptionEl.createDiv("telegram-option-text");
         scheduleTextEl.createDiv({ text: t.MULTI_PRESET_SCHEDULE_NAME, cls: "telegram-option-name" });
         scheduleTextEl.createDiv({ text: t.MULTI_PRESET_SCHEDULE_DESC, cls: "telegram-option-desc" });
@@ -654,12 +674,23 @@ export class TelegramSettingTab extends PluginSettingTab {
             .buttonEl.addClass("telegram-link-button");
 
         new ButtonComponent(buttonContainer)
-            .setButtonText(t.SETTING_ADD_CHANNEL)
+            .setButtonText(t.SETTING_ADD_USER_PRESET)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
                 while (existingNames.has(`${t.CHANNEL_DEFAULT_NAME} ${idx}`)) idx++;
-                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, chatTargets: [], chatId: "", isDefault: false });
+                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, type: "user", chatTargets: [], chatId: "", isDefault: false });
+                await this.plugin.saveSettings();
+                this.render();
+            }).buttonEl.addClass("telegram-add-button");
+
+        new ButtonComponent(buttonContainer)
+            .setButtonText(t.SETTING_ADD_BOT_PRESET)
+            .onClick(async () => {
+                const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
+                let idx = 1;
+                while (existingNames.has(`${t.CHANNEL_DEFAULT_NAME} ${idx}`)) idx++;
+                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, type: "bot", botToken: "", chatTargets: [], chatId: "", isDefault: false });
                 await this.plugin.saveSettings();
                 this.render();
             }).buttonEl.addClass("telegram-add-button");
@@ -669,6 +700,10 @@ export class TelegramSettingTab extends PluginSettingTab {
             const header = channelDiv.createDiv("telegram-channel-header");
             const titleContainer = header.createDiv("telegram-header-title-container");
             titleContainer.createEl("span", { text: channel.name || t.CHANNEL_DEFAULT_NAME, cls: "telegram-header-name" });
+            titleContainer.createEl("span", {
+                text: channel.type === "bot" ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER,
+                cls: `tg-preset-badge tg-preset-badge--${channel.type ?? "user"}`,
+            });
 
             new ButtonComponent(titleContainer.createDiv("telegram-edit-container"))
                 .setIcon("pencil").onClick(() => {
@@ -708,6 +743,10 @@ export class TelegramSettingTab extends PluginSettingTab {
                     ).open();
                 }).buttonEl.addClass("telegram-delete-button");
 
+            if (channel.type === "bot") {
+                this.renderBotTokenField(channelDiv, channel);
+            }
+
             this.renderChatPicker(channelDiv, channel);
 
             new Setting(channelDiv).setName(t.SETTING_DEFAULT_CHANNEL).setDesc(t.SETTING_DEFAULT_DESC)
@@ -726,6 +765,30 @@ export class TelegramSettingTab extends PluginSettingTab {
                 })
                 .settingEl.addClass("telegram-preset-default");
         });
+    }
+
+    private renderBotTokenField(container: HTMLElement, channel: TelegramChannel): void {
+        const setting = new Setting(container)
+            .setName(t.SETTING_BOT_TOKEN_NAME)
+            .setDesc(t.SETTING_BOT_TOKEN_DESC)
+            .addText(text => {
+                text.inputEl.type = "password";
+                text.setValue(channel.botToken ?? "")
+                    .setPlaceholder("123456789:ABC…")
+                    .onChange(async (v) => {
+                        channel.botToken = v.trim();
+                        await this.plugin.saveSettings();
+                    });
+            })
+            .addButton(btn => {
+                btn.setIcon("eye").setTooltip("Show / hide token")
+                    .onClick(() => {
+                        const input = setting.settingEl.querySelector<HTMLInputElement>("input");
+                        if (!input) return;
+                        input.type = input.type === "password" ? "text" : "password";
+                    });
+            });
+        setting.settingEl.addClass("telegram-bot-token-setting");
     }
 
     private renderChatPicker(container: HTMLElement, channel: TelegramChannel): void {
@@ -769,7 +832,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 t.SETTING_PLACEHOLDER_CHAT_SEARCH
             );
 
-            if (this.plugin.secrets.telegramSession) {
+            if (this.plugin.secrets.telegramSession && channel.type !== "bot") {
                 const suggest = new ChatSuggest(
                     this.app, input,
                     () => this.dialogsFetch ?? Promise.resolve([]),
