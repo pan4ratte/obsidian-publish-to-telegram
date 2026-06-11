@@ -19,6 +19,28 @@ export function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Converts Obsidian markdown to Telegram "Rich Markdown" (Bot API 10.1).
+//
+// Rich Markdown is GitHub-Flavored-Markdown-compatible, so unlike mdToTelegramHtml
+// (which downgrades headings → bold, lists → bullets, and drops tables) we pass the
+// note's markdown through almost verbatim. Only Obsidian-specific syntax that Rich
+// Markdown wouldn't understand is cleaned up:
+//   - comments / embeds are stripped (reusing stripObsidianSyntax)
+//   - remaining [[wikilinks]] are flattened to their display text
+// Everything else — headings, tables, task lists, fenced code, blockquotes,
+// ==highlight==, ||spoiler||, $math$, footnotes — is valid Rich Markdown as-is.
+export function obsidianToRichMarkdown(body: string): string {
+    let text = stripObsidianSyntax(body);
+
+    // [[target]], [[target|alias]], [[target#heading]], [[target#heading|alias]] → alias ?? target
+    text = text.replace(
+        /\[\[([^[\]|#]+)(?:#[^[\]|]*)?(?:\|([^[\]]+))?\]\]/g,
+        (_, target: string, alias?: string) => (alias ?? target).trim()
+    );
+
+    return text.trim();
+}
+
 // Converts Obsidian markdown directly to Telegram-compatible HTML
 // for GramJS HTMLParser (supports: b, i, u, s, code, pre, blockquote, a, spoiler)
 export function mdToTelegramHtml(body: string): string {

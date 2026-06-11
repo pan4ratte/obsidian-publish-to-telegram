@@ -4,7 +4,7 @@
 
 import { App, TFile, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings } from "./types";
-import { mdToTelegramHtml } from "./markdown";
+import { mdToTelegramHtml, obsidianToRichMarkdown } from "./markdown";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -155,6 +155,35 @@ async function sendTextBot(token: string, chatId: string, text: string, silent: 
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
+// Sends text as a Rich Message (Bot API 10.1 — sendRichMessage). Rich Markdown
+// preserves headings, tables, task lists, math, footnotes, etc. that the classic
+// HTML path can't express.
+async function sendRichTextBot(token: string, chatId: string, markdown: string, silent: boolean, topicId?: number): Promise<SendResult> {
+    const result = await callBotJson(token, "sendRichMessage", {
+        ...baseBody(chatId, silent, topicId),
+        rich_message: { markdown },
+    }) as { chat: { id: number; username?: string }; message_id: number };
+    return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
+}
+
+// Prefers Rich Messages; falls back to a classic HTML message if sendRichMessage
+// is unavailable for this bot (e.g. the Bot API server predates 10.1, or the bot
+// lacks the capability). The fallback only fires before anything is sent, so there
+// is no risk of a double post.
+async function sendRichOrClassicText(token: string, chatId: string, markdown: string, html: string, silent: boolean, topicId?: number): Promise<SendResult> {
+    if (markdown.length > 0) {
+        try {
+            return await sendRichTextBot(token, chatId, markdown, silent, topicId);
+        } catch (err) {
+            console.warn(
+                "[publish-to-telegram] sendRichMessage failed, falling back to HTML sendMessage:",
+                err instanceof Error ? err.message : err
+            );
+        }
+    }
+    return await sendTextBot(token, chatId, html, silent, topicId);
+}
+
 async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
@@ -262,6 +291,7 @@ async function sendPartViaBotApi(
     topicId?: number,
 ): Promise<SendResult | null> {
     const htmlContent = mdToTelegramHtml(body);
+    const richMarkdown = obsidianToRichMarkdown(body);
     const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile);
 
     const photoAndVideoFiles = attachments.filter(f =>
@@ -315,8 +345,11 @@ async function sendPartViaBotApi(
         for (const doc of remainingDocs) await sendDocumentBot(token, chatId, doc, "", silent, false, topicId);
     }
 
-    if (!result && htmlContent.length > 0) {
-        result = await sendTextBot(token, chatId, htmlContent, silent, topicId);
+    // Text-only post → Rich Message (with classic HTML fallback). Posts that carry
+    // media keep the classic caption path above, since Rich Message media must be an
+    // HTTP/HTTPS URL block and can't caption an uploaded file.
+    if (!result && (richMarkdown.length > 0 || htmlContent.length > 0)) {
+        result = await sendRichOrClassicText(token, chatId, richMarkdown, htmlContent, silent, topicId);
     }
 
     if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0) {
