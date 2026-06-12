@@ -67,7 +67,7 @@ If you want to test beta-versions of the plugin or use previous versions, you ca
 
 To post notes to Telegram, you need to set up a preset. When creating a preset, you can choose any posting method as the primary one and use the others optionally, when necessary.
 
-## Publishing as an account
+## 1. Publishing as an account
 
 **Important aspects of this posting method:**
 
@@ -93,7 +93,7 @@ To post notes to Telegram, you need to set up a preset. When creating a preset, 
 
 Now you can post notes to Telegram using your preset’s name via the command palette, the note’s context menu, or keyboard shortcuts.
 
-## Publishing as a bot
+## 2. Publishing as a bot
 
 **Important aspects of this posting method:**
 
@@ -129,7 +129,7 @@ Now you can post notes to Telegram using your preset’s name via the command pa
 
 Now you can post notes to Telegram using your preset’s name via the command palette, the note’s context menu, or keyboard shortcuts.
 
-## Standard formatting
+## 3. Standard formatting
 
 Standard formatting is available for posts made via the “Account” and “Bot” methods. All standard Telegram formatting elements are supported, as well as some additional ones:
 
@@ -158,7 +158,7 @@ Standard formatting is available for posts made via the “Account” and “Bot
       <td><s>Strikethrough</s></td>
     </tr>
     <tr>
-      <td><code><tg-spoiler>Spoiler</tg-spoiler></code></td>
+      <td><code>&lt;tg-spoiler&gt;Spoiler&lt;/tg-spoiler&gt;</code></td>
       <td>Spoiler</td>
     </tr>
     <tr>
@@ -196,15 +196,15 @@ Standard formatting is available for posts made via the “Account” and “Bot
   </tbody>
 </table>
 
-### Omitting text from a post
+### 3.1 Omitting text from a post
 
 In addition to the formatting that will be reflected in the Telegram post, you can use the comment syntax `<!-- hidden text -->` or `%% hidden text %%` to add information to your notes that will not be included in the post content when it is published.
 
-### Splitting the note into multiple posts
+### 3.2 Splitting the note into multiple posts
 
 You can also use the special command `<!-- \split -->` or `%% \split %%` to split the text of your note into separate posts. If you use this command, the plugin will publish all posts at the same time. Attachments (see below), including pre-written comments, must appear before the special command that marks the end of the post.
 
-### Attachments
+### 3.3 Attachments
 
 Media, album (groups of media) and document attachments are supported. To attach a file to your post, use any of the standard Obsidian embed syntax options:
 
@@ -227,9 +227,9 @@ Currently supported formats:
 | `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`            | Video / Album   |
 | `.pdf`, `.md`                                      | Document        |
 
-## Rich-text formatting
+## 4. Rich-text formatting
 
-Rich-text formatting is available for posts made via the “Bot + rich text” method. Telegram’s Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note’s Markdown through almost verbatim: everything listed under [Standard formatting](#standard-formatting) is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
+Rich-text formatting is available for posts made via the “Bot + rich text” method. Telegram’s Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note’s Markdown through almost verbatim: everything listed under [Standard formatting](#3-standard-formatting) is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
 
 <table>
   <thead>
@@ -302,7 +302,7 @@ Rich-text formatting is available for posts made via the “Bot + rich text” m
   </tbody>
 </table>
 
-### Auto-detected entities
+### 4.1 Auto-detected entities
 
 Telegram automatically detects and links several kinds of inline text — you don’t need any special syntax, just type them:
 
@@ -310,25 +310,88 @@ Telegram automatically detects and links several kinds of inline text — you do
 
 A `#hashtag` is written exactly as in Obsidian; the plugin escapes it automatically so Telegram renders it as a clickable hashtag rather than a heading.
 
-### Advanced elements
+### 4.2 Advanced elements
 
-Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’s rich-message tags directly in your note for elements that have no Markdown shorthand:
+Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’s rich-message tags directly in your note for elements that have no Markdown shorthand. The full set of supported tags and attributes:
 
-* `<u>…</u>` / `<ins>…</ins>` — underline
-* `<a name="anchor"></a>` and `<a href="#anchor">…</a>` — in-document anchors and links
-* `<tg-collage>…</tg-collage>` / `<tg-slideshow>…</tg-slideshow>` — media collages and slideshows
-* `<tg-map lat="41.9" long="12.5" zoom="14"/>` — a map block
-* `![](tg://emoji?id=…)` — a custom emoji (Telegram Premium)
-* `[label](tg://time?unix=…&format=…)` — a formatted date-time entity
+**Inline formatting**
 
-See Telegram’s [rich message formatting options](https://core.telegram.org/bots/api#rich-message-formatting-options) for the full list of supported tags and attributes.
+| Tag(s) | Meaning |
+| --- | --- |
+| `<b>`, `<strong>` | Bold |
+| `<i>`, `<em>` | Italic |
+| `<u>`, `<ins>` | Underline |
+| `<s>`, `<strike>`, `<del>` | Strikethrough |
+| `<code>` | Inline fixed-width code |
+| `<mark>` | Highlight (marked text) |
+| `<sub>` | Subscript |
+| `<sup>` | Superscript |
+| `<tg-spoiler>` | Spoiler |
+| `<tg-emoji emoji-id="…">` | Custom emoji |
+| `<tg-time unix="…" format="…">` | Formatted date-time entity |
+| `<tg-math>` | Inline LaTeX formula |
+
+**Links, anchors & references**
+
+| Tag | Meaning |
+| --- | --- |
+| `<a href="https://…">` | Inline URL |
+| `<a href="mailto:…">` | E-mail link |
+| `<a href="tel:…">` | Phone-number link |
+| `<a href="tg://user?id=…">` | Inline user mention |
+| `<a name="…"></a>` | Anchor target |
+| `<a href="#…">` | In-document link to an anchor or reference |
+| `<tg-reference name="…">` | Referenced text, linked to with `<a href="#…">` |
+
+**Block elements**
+
+| Tag | Meaning |
+| --- | --- |
+| `<h1>` … `<h6>` | Headings (six sizes) |
+| `<p>` | Paragraph |
+| `<pre>` | Preformatted code block |
+| `<pre><code class="language-…">` | Code block with syntax highlighting for the named language |
+| `<blockquote>` (with `<cite>`) | Block quotation, optional credit |
+| `<aside>` (with `<cite>`) | Pull quote (centered), optional credit |
+| `<footer>` | Footer text |
+| `<hr/>` | Divider |
+| `<ul><li>` | Unordered list |
+| `<ol><li>` | Ordered list — `<ol>` accepts `start`, `type` (`a`/`A`/`i`/`I`/`1`) and `reversed`; `<li>` accepts `value` and `type` |
+| `<details>` (with `<summary>`) | Collapsible block — add `open` to expand it by default |
+| `<tg-math-block>` | LaTeX formula block |
+
+**Media** (HTTP(S) URLs only)
+
+| Tag | Meaning |
+| --- | --- |
+| `<img src="…">` | Photo |
+| `<video src="…">` | Video, or animation for a `.gif` source |
+| `<audio src="…">` | Audio file or voice note |
+| `<figure>` + `<figcaption>` (with `<cite>`) | Captioned media; add the `tg-spoiler` attribute on the media element to cover it with a spoiler |
+| `<tg-map lat="…" long="…" zoom="…"/>` | Map block |
+| `<tg-collage>` | Media collage |
+| `<tg-slideshow>` | Media slideshow |
+
+**Tables**
+
+| Tag | Meaning |
+| --- | --- |
+| `<table>` | Table — accepts `bordered` and `striped` |
+| `<caption>` | Table caption |
+| `<tr>`, `<th>`, `<td>` | Rows, header cells and data cells |
+| Cell attributes | `colspan`, `rowspan`, `align` (`left`/`center`/`right`), `valign` (`top`/`middle`/`bottom`) |
+
+**HTML entities**
+
+* All numerical HTML entities (e.g. `&#39;`).
+* Named entities: `&lt;`, `&gt;`, `&amp;`, `&quot;`, `&apos;`, `&nbsp;`, `&hellip;`, `&mdash;`, `&ndash;`, `&lsquo;`, `&rsquo;`, `&ldquo;`, `&rdquo;`.
 
 **Notes:**
 
 * Inline media must be an **HTTP(S) web link** — local attachments can’t be embedded inside a rich-text message (use the “Bot” or “Account” method, or a web URL). Local files attached to a “Bot + rich text” post are rejected with an error.
 * A rich message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns.
 
-## Pre-written comments
+## 5. Pre-written comments
 
 You can pre-write one or more comments for your post that will appear in its discussion right after the publication. To use that feature:
 
@@ -346,7 +409,7 @@ A couple of notes:
 
 * For now, it is not possible to schedule pre-written comments.
 
-## Advanced publishing settings
+## 6. Advanced publishing settings
 
 You can open an advanced publishing settings window with command palette (`Ctrl + P`) by typing "Publish to Telegram: Publish with advanced settings". In that settings window you can choose to:
 
@@ -360,7 +423,7 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 * Edit already existing posts or pre-written comments. Links are stored in the `tg_posts` and `tg_comments` properties, that are filled automatically if the corresponding option is enabled in the settings. You can also create them and fill manually.
 
-## Limits
+## 7. Limits
 
 Standard Telegram posting limits apply to limits of characters per post, limits of attached media size per post, etc. More about that: [https://limits.tginfo.me/](https://limits.tginfo.me/)
 
