@@ -17,6 +17,7 @@ interface SendResult {
 interface MediaFile {
     name: string;
     extension: string;
+    isLocal: boolean;   // true for vault files, false for remote HTTP(S) media
     getBlob: () => Promise<Blob>;
 }
 
@@ -81,6 +82,7 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachmen
                     attachments.push({
                         name: cleanPath.split('/').pop() || `media.${ext}`,
                         extension: ext,
+                        isLocal: false,
                         getBlob: async () => {
                             const response = await requestUrl({ url: cleanPath });
                             return new Blob([response.arrayBuffer]);
@@ -100,6 +102,7 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachmen
                 attachments.push({
                     name: resolved.name,
                     extension: resolved.extension,
+                    isLocal: true,
                     getBlob: async () => new Blob([await app.vault.readBinary(resolved)])
                 });
             } else if (resolved.extension === "md") {
@@ -114,6 +117,25 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachmen
     while ((m = reverseMdLinkRegex.exec(body)) !== null) processLinkpath(m[1]);
 
     return { attachments, mdEmbeds };
+}
+
+// Wraps an embedded .md TFile as a document MediaFile, so it can be uploaded as a
+// file attachment when md embeds are not being sent as comments.
+function mdEmbedToMedia(app: App, file: TFile): MediaFile {
+    return {
+        name: file.name,
+        extension: file.extension,
+        isLocal: true,
+        getBlob: async () => new Blob([await app.vault.readBinary(file)]),
+    };
+}
+
+// Maps a file extension to the sendMediaGroup item type. Anything that isn't a
+// photo or video (PDFs, .md attachments, …) is sent as a document.
+function botMediaType(ext: string): "video" | "photo" | "document" {
+    if (VIDEO_EXTS.has(ext)) return "video";
+    if (["jpg", "jpeg", "png", "webp"].includes(ext)) return "photo";
+    return "document";
 }
 
 // ─── Bot API call helpers ─────────────────────────────────────────────────────
@@ -248,12 +270,12 @@ async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile
     const mediaArray = await Promise.all(files.map(async (file, idx) => {
         const attachName = `file${idx}`;
         form.append(attachName, await file.getBlob(), file.name);
-        const type = VIDEO_EXTS.has(file.extension) ? "video" : "photo";
-        return {
-            type,
-            media: `attach://${attachName}`,
-            ...(idx === 0 && caption ? { caption, parse_mode: "HTML", show_caption_above_media: attachUnderText } : {})
-        };
+        const type = botMediaType(file.extension);
+        // show_caption_above_media is only valid for photo/video items, not documents.
+        const captionFields = idx === 0 && caption
+            ? { caption, parse_mode: "HTML", ...(type === "document" ? {} : { show_caption_above_media: attachUnderText }) }
+            : {};
+        return { type, media: `attach://${attachName}`, ...captionFields };
     }));
 
     form.append("media", JSON.stringify(mediaArray));
@@ -349,29 +371,44 @@ async function sendPartViaBotApi(
         ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
     );
     const gifFiles = attachments.filter(f => f.extension === "gif");
-    const docFiles = attachments.filter(f => f.extension === "pdf");
+    // PDFs always upload as documents; embedded .md files join them as document
+    // attachments unless they're being sent as comments instead.
+    const pdfFiles = attachments.filter(f => f.extension === "pdf");
+    const mdDocFiles = treatMdEmbedsAsComments ? [] : mdEmbeds.map(f => mdEmbedToMedia(app, f));
+    const docFiles = [...pdfFiles, ...mdDocFiles];
 
     // richMarkdown carries the post text AND any HTTP(S) media embeds (as rich media
     // blocks). uploadMedia is only the locally-stored / non-rich files that the Rich
     // Message API can't reference by URL and must be uploaded separately.
     const hasPostText = postMarkdown.length > 0 || htmlFallback.length > 0;
-    const hasUploadMedia = photoAndVideoFiles.length > 0 || gifFiles.length > 0 || docFiles.length > 0;
+    const uploadFiles = [...photoAndVideoFiles, ...gifFiles, ...docFiles];
+    const hasUploadMedia = uploadFiles.length > 0;
+    const hasLocalUpload = uploadFiles.some(f => f.isLocal);
 
-    // Uploads the local / non-rich media files without captions; returns the first
-    // message's SendResult.
-    async function sendUploadMedia(): Promise<SendResult | null> {
+    // The Bot API caps media captions at 1024 chars (bots get no Premium bump). The
+    // length is counted on the visible text, so strip HTML tags before measuring.
+    const BOT_CAPTION_LIMIT = 1024;
+    const captionPlainLength = htmlFallback.replace(/<[^>]+>/g, "").length;
+
+    // Uploads the local / non-rich media files. The post text rides as the caption of the
+    // first message produced (consumed once); the rest go caption-less. attachUnderText
+    // positions the caption above photo/video media. Returns the first message's SendResult.
+    async function sendUploadMedia(caption: string): Promise<SendResult | null> {
         let mediaResult: SendResult | null = null;
+        let captionLeft = caption;
+        const nextCaption = () => { const c = captionLeft; captionLeft = ""; return c; };
 
         if (photoAndVideoFiles.length > 0) {
             const firstBatch = photoAndVideoFiles.slice(0, 10);
             const remaining = photoAndVideoFiles.slice(10);
+            const cap = nextCaption();
             if (firstBatch.length === 1) {
                 const f = firstBatch[0];
                 mediaResult = VIDEO_EXTS.has(f.extension)
-                    ? await sendVideoBot(token, chatId, f, "", silent, false, topicId)
-                    : await sendPhotoBot(token, chatId, f, "", silent, false, topicId);
+                    ? await sendVideoBot(token, chatId, f, cap, silent, attachUnderText, topicId)
+                    : await sendPhotoBot(token, chatId, f, cap, silent, attachUnderText, topicId);
             } else {
-                mediaResult = await sendMediaGroupBot(token, chatId, firstBatch, "", silent, false, topicId);
+                mediaResult = await sendMediaGroupBot(token, chatId, firstBatch, cap, silent, attachUnderText, topicId);
             }
             for (const f of remaining) {
                 await (VIDEO_EXTS.has(f.extension)
@@ -381,16 +418,17 @@ async function sendPartViaBotApi(
         }
 
         for (const gif of gifFiles) {
-            const r = await sendAnimationBot(token, chatId, gif, "", silent, false, topicId);
+            const r = await sendAnimationBot(token, chatId, gif, nextCaption(), silent, attachUnderText, topicId);
             if (!mediaResult) mediaResult = r;
         }
 
         if (docFiles.length > 0) {
             const firstBatch = docFiles.slice(0, 10);
             const remainingDocs = docFiles.slice(10);
+            // Documents don't support show_caption_above_media, so attachUnderText is false here.
             const docResult = firstBatch.length === 1
-                ? await sendDocumentBot(token, chatId, firstBatch[0], "", silent, false, topicId)
-                : await sendMediaGroupBot(token, chatId, firstBatch, "", silent, false, topicId);
+                ? await sendDocumentBot(token, chatId, firstBatch[0], nextCaption(), silent, false, topicId)
+                : await sendMediaGroupBot(token, chatId, firstBatch, nextCaption(), silent, false, topicId);
             if (!mediaResult) mediaResult = docResult;
             for (const doc of remainingDocs) await sendDocumentBot(token, chatId, doc, "", silent, false, topicId);
         }
@@ -398,23 +436,36 @@ async function sendPartViaBotApi(
         return mediaResult;
     }
 
-    // Post text goes as a Rich Message ("bot + rich", postMarkdown set) or a classic
-    // HTML message ("bot", postMarkdown empty). Local uploads are sent without captions
-    // as separate messages. attachUnderText controls which comes first in the chat.
     let result: SendResult | null = null;
 
-    if (!hasUploadMedia) {
-        if (hasPostText) result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
-    } else if (!hasPostText) {
-        result = await sendUploadMedia();
-    } else if (attachUnderText) {
-        // Text above media: send the text message first, then the uploads
-        result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
-        await sendUploadMedia();
+    if (postAsRich) {
+        // ── Rich Message path ("bot + rich") ─────────────────────────────────────
+        // Rich Messages can only reference web media (embedded in the markdown); local
+        // uploads aren't supported, so refuse rather than silently posting them separately.
+        if (hasLocalUpload) throw new Error("RICH_LOCAL_MEDIA");
+        // Any remaining (web, non-rich-embeddable) uploads go as separate caption-less
+        // messages around the rich text.
+        if (!hasUploadMedia) {
+            if (hasPostText) result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
+        } else if (!hasPostText) {
+            result = await sendUploadMedia("");
+        } else if (attachUnderText) {
+            result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
+            await sendUploadMedia("");
+        } else {
+            result = await sendUploadMedia("");
+            await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
+        }
     } else {
-        // Media above text (default): send the uploads first, then the text message
-        result = await sendUploadMedia();
-        await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
+        // ── Classic HTML path ("bot") ────────────────────────────────────────────
+        // All attachments carry the post text as the caption of the first message; a
+        // caption over the Bot API limit is refused rather than truncated or split off.
+        if (!hasUploadMedia) {
+            if (hasPostText) result = await sendRichOrClassicText(token, chatId, "", htmlFallback, silent, topicId);
+        } else {
+            if (hasPostText && captionPlainLength > BOT_CAPTION_LIMIT) throw new Error("MEDIA_CAPTION_TOO_LONG");
+            result = await sendUploadMedia(hasPostText ? htmlFallback : "");
+        }
     }
 
     const commentLinks: string[] = [];

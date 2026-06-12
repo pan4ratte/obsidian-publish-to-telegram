@@ -115,6 +115,16 @@ function collectMediaFiles(app: App, body: string, sourceFile: TFile): { attachm
     return { attachments, mdEmbeds };
 }
 
+// Wraps an embedded .md TFile as a document MediaFile, so it can be uploaded as a
+// file attachment when md embeds are not being sent as comments.
+function mdEmbedToMedia(app: App, file: TFile): MediaFile {
+    return {
+        name: file.name,
+        extension: file.extension,
+        getBlob: async () => new Blob([await app.vault.readBinary(file)]),
+    };
+}
+
 // ─── Post link helpers ────────────────────────────────────────────────────────
 
 function buildPostLinkFromChatId(chatId: string, messageId: number, topicId?: number): string {
@@ -535,7 +545,11 @@ async function sendPartViaAccount(
             ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
         );
         const gifFiles = attachments.filter(f => f.extension === "gif");
-        const docFiles  = attachments.filter(f => f.extension === "pdf");
+        // PDFs always upload as documents; embedded .md files join them as document
+        // attachments unless they're being sent as comments instead.
+        const pdfFiles = attachments.filter(f => f.extension === "pdf");
+        const mdDocFiles = treatMdEmbedsAsComments ? [] : mdEmbeds.map(f => mdEmbedToMedia(app, f));
+        const docFiles  = [...pdfFiles, ...mdDocFiles];
 
         let result: SendResult | null = null;
         let captionConsumed = false;
@@ -568,7 +582,7 @@ async function sendPartViaAccount(
             captionConsumed = true;
         }
 
-        // ── PDFs: grouped as documents ────────────────────────────────────────────
+        // ── Documents (PDFs + uncommented .md embeds): grouped as documents ───────
         if (docFiles.length > 0) {
             const customFiles = await Promise.all(docFiles.map(async f => {
                 const blob = await f.getBlob();

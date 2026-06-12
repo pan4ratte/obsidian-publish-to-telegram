@@ -32,7 +32,7 @@ export default {
     SETTING_SAVE_POST_LINKS_NAME: "Save posts and comments links",
     SETTING_SAVE_POST_LINKS_DESC: "Links to published posts and comments will be saved to the note's properties",
     SETTING_MD_EMBEDS_AS_COMMENTS_NAME: "Treat .md embeds as post comments",
-    SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "Contents of .md-attachments will be sent as comments to the post discussion",
+    SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "When enabled, contents of .md-attachments are sent as comments to the post discussion; when disabled, the .md files are attached as documents",
     SECTION_PRESETS: "Presets",
     SETTING_ADD_CHANNEL_NAME: "Preset creation and usage",
     SETTING_ADD_CHANNEL_DESC: `We strongly recommend that you carefully read the user guide, it describes all plugin features and supported formatting options. Key differencec between publication methods:
@@ -131,6 +131,7 @@ Limitations of rich-text messages: you cannot edit them or attach local files to
     NOTICE_ERR_SEND: "Publishing error: ",
     NOTICE_ERR_TOO_LONG_TEXT: "Error: Post must be less than 4097 symbols.",
     NOTICE_ERR_TOO_LONG_CAPTION: "Error: Post with media attachments must be less than 1025 symbols.",
+    NOTICE_ERR_RICH_LOCAL_MEDIA: "Error: Rich Messages support only web media — local attachments can't be sent with the 'bot + rich' method.",
     NOTICE_ERR_NOT_AUTHENTICATED: "Error: Authorize into your Telegram account in the plugin settings before publishing.",
     NOTICE_ERR_NOT_MODIFIED: "Nothing to update: contents weren't changed.",
     AUTH_SUCCESS: "Successfully authorized",

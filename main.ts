@@ -239,6 +239,8 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_TOO_LONG_TEXT);
                 } else if (msg.includes("MEDIA_CAPTION_TOO_LONG") || msg.includes("CAPTION IS TOO LONG")) {
                     new Notice(t.NOTICE_ERR_TOO_LONG_CAPTION);
+                } else if (msg.includes("RICH_LOCAL_MEDIA")) {
+                    new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
                 } else {
                     new Notice(`${t.NOTICE_ERR_SEND}${err.message ?? ""}`);
                 }
@@ -255,6 +257,8 @@ export default class SendToTelegramPlugin extends Plugin {
                 new Notice(t.NOTICE_ERR_TOO_LONG_TEXT);
             } else if (msg.includes("MEDIA_CAPTION_TOO_LONG") || msg.includes("CAPTION IS TOO LONG")) {
                 new Notice(t.NOTICE_ERR_TOO_LONG_CAPTION);
+            } else if (msg.includes("RICH_LOCAL_MEDIA")) {
+                new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
             } else {
                 new Notice(`${t.NOTICE_ERR_SEND}${errMessage(err)}`);
             }
