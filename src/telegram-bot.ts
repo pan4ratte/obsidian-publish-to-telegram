@@ -169,8 +169,7 @@ export async function getBotInfo(token: string): Promise<string> {
 
 // FormData (multipart) cannot be passed to requestUrl whose body type is string|ArrayBuffer.
 async function callBotFetch(token: string, method: string, form: FormData): Promise<unknown> {
-    // eslint-disable-next-line no-restricted-globals
-    const response = await fetch(botUrl(token, method), { method: "POST", body: form });
+    const response = await window.fetch(botUrl(token, method), { method: "POST", body: form });
     const data = await response.json() as { ok: boolean; result: unknown; description?: string };
     if (!data.ok) throw new Error(data.description ?? `Bot API error: ${method}`);
     return data.result;
