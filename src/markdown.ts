@@ -3,11 +3,27 @@
 
 // ─── Content preparation ──────────────────────────────────────────────────────
 
-export function stripObsidianSyntax(body: string): string {
+// Extensions that Telegram Rich Markdown renders as inline media blocks
+// (photos, videos, audio, animations). Allows an optional ?query / #fragment.
+const RICH_MEDIA_EXT = /\.(?:jpe?g|png|webp|gif|mp4|mov|mkv|webm|avi|mp3|ogg|m4a|wav|flac)(?:[?#][^)\s]*)?$/i;
+
+// True when a standard-embed target is an HTTP(S) URL that Rich Markdown can render
+// inline as a media block. Such embeds are kept in the Rich Markdown (so they ride
+// along in the rich message) instead of being uploaded as separate files.
+export function isRichEmbeddableUrl(rawTarget: string): boolean {
+    const url = rawTarget.split(/\s+["']/)[0].trim();   // drop optional "title"/'title'
+    return /^https?:\/\//i.test(url) && RICH_MEDIA_EXT.test(url);
+}
+
+// keepRichMediaEmbeds: when true (Rich Markdown path), HTTP(S) media embeds are
+// preserved so Telegram renders them as media blocks. The GramJS HTML path leaves
+// it false because that parser can't express URL media blocks.
+export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: boolean } = {}): string {
     return body
         .replace(/%%[\s\S]*?%%/g, "")             // Strip Obsidian comments %% ... %%
-        .replace(/!\[\[[^\]]*\]\]/g, "")           // Strip wikilink embeds
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")      // Strip standard MD embeds ![]()
+        .replace(/!\[\[[^\]]*\]\]/g, "")           // Strip wikilink embeds (always local)
+        .replace(/!\[[^\]]*\]\(([^)]*)\)/g, (match, target: string) =>
+            opts.keepRichMediaEmbeds && isRichEmbeddableUrl(target) ? match : "")
         .replace(/!\([^)]*\)\[[^\]]*\]/g, "")      // Strip reversed MD embeds !()[]
         .replace(/<!--[\s\S]*?-->/g, "")           // Strip HTML comments
         .replace(/<!--/g, "")                      // Strip any orphaned comment openers left after the pass above
@@ -29,8 +45,12 @@ export function escHtml(s: string): string {
 //   - remaining [[wikilinks]] are flattened to their display text
 // Everything else — headings, tables, task lists, fenced code, blockquotes,
 // ==highlight==, ||spoiler||, $math$, footnotes — is valid Rich Markdown as-is.
+//
+// HTTP(S) image/video/audio embeds are kept (keepRichMediaEmbeds) so Telegram
+// renders them inline as media blocks; only local embeds (which can't be a URL
+// media block and must be uploaded separately) are stripped.
 export function obsidianToRichMarkdown(body: string): string {
-    let text = stripObsidianSyntax(body);
+    let text = stripObsidianSyntax(body, { keepRichMediaEmbeds: true });
 
     // [[target]], [[target|alias]], [[target#heading]], [[target#heading|alias]] → alias ?? target
     text = text.replace(
@@ -137,6 +157,7 @@ export function mdToTelegramHtml(body: string): string {
         content.split('\n').map((line: string) => `<s>${line}</s>`).join('\n'));
 
     // Spoiler ||text||  (multiline: wrap each line separately)
+    // NOTE: produces <spoiler> for GramJS HTMLParser; Bot API callers must use mdToBotApiHtml.
     text = text.replace(/\|\|([^\s|][\s\S]*?)\|\|/g, (_, content: string) =>
         content.split('\n').map((line: string) => `<spoiler>${line}</spoiler>`).join('\n'));
 
@@ -155,4 +176,19 @@ export function mdToTelegramHtml(body: string): string {
     text = text.replace(/\n{3,}/g, '\n\n');
 
     return text.replace(/^\n+|\n+$/g, '');
+}
+
+// Tags supported by the Bot API's parse_mode:"HTML".
+// Any other HTML tag that slips through from raw note content is stripped (content kept).
+const BOT_API_ALLOWED_TAGS = /^(?:b|strong|i|em|u|ins|s|strike|del|code|pre|a|tg-spoiler|tg-emoji|blockquote)$/i;
+
+// Adapts mdToTelegramHtml output for the Bot API's HTML parse mode:
+//   - replaces GramJS's <spoiler> with Bot API's <tg-spoiler>
+//   - strips any tag not in the Bot API whitelist (content is kept)
+export function mdToBotApiHtml(body: string): string {
+    let text = mdToTelegramHtml(body);
+    text = text.replace(/<(\/?)spoiler>/g, '<$1tg-spoiler>');
+    text = text.replace(/<(\/?)([a-z][a-z0-9-]*)(\s[^>]*)?>/gi, (match: string, _slash: string, tag: string) =>
+        BOT_API_ALLOWED_TAGS.test(tag) ? match : '');
+    return text;
 }

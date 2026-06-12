@@ -4,7 +4,7 @@
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings } from "./types";
-import { mdToTelegramHtml, obsidianToRichMarkdown } from "./markdown";
+import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl } from "./markdown";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -70,6 +70,10 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachmen
         let cleanPath = rawPath.split(/\s+"/)[0].split(/[?#]/)[0].trim();
 
         if (/^https?:\/\//i.test(cleanPath)) {
+            // Rich-embeddable HTTP(S) media (images/video/audio/gif) is carried inside
+            // the Rich Markdown as a media block, so it must NOT also be uploaded here —
+            // that would double-send it. Non-rich remote files (e.g. PDFs) still upload.
+            if (isRichEmbeddableUrl(cleanPath)) return;
             if (!seen.has(cleanPath)) {
                 seen.add(cleanPath);
                 const ext = cleanPath.split('.').pop()?.toLowerCase() || "";
@@ -323,8 +327,8 @@ async function sendPartViaBotApi(
     topicId?: number,
     commentsAsRich = false,
 ): Promise<SendResult | null> {
-    const htmlContent = mdToTelegramHtml(body);
     const richMarkdown = obsidianToRichMarkdown(body);
+    const htmlFallback = mdToBotApiHtml(body);
     const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile);
 
     const photoAndVideoFiles = attachments.filter(f =>
@@ -333,56 +337,70 @@ async function sendPartViaBotApi(
     const gifFiles = attachments.filter(f => f.extension === "gif");
     const docFiles = attachments.filter(f => f.extension === "pdf");
 
-    let result: SendResult | null = null;
-    let captionConsumed = false;
+    // richMarkdown carries the post text AND any HTTP(S) media embeds (as rich media
+    // blocks). uploadMedia is only the locally-stored / non-rich files that the Rich
+    // Message API can't reference by URL and must be uploaded separately.
+    const hasRichContent = richMarkdown.length > 0 || htmlFallback.length > 0;
+    const hasUploadMedia = photoAndVideoFiles.length > 0 || gifFiles.length > 0 || docFiles.length > 0;
 
-    if (photoAndVideoFiles.length > 0) {
-        const firstBatch = photoAndVideoFiles.slice(0, 10);
-        const remaining = photoAndVideoFiles.slice(10);
+    // Uploads the local / non-rich media files without captions; returns the first
+    // message's SendResult.
+    async function sendUploadMedia(): Promise<SendResult | null> {
+        let mediaResult: SendResult | null = null;
 
-        if (firstBatch.length === 1) {
-            const f = firstBatch[0];
-            result = VIDEO_EXTS.has(f.extension)
-                ? await sendVideoBot(token, chatId, f, htmlContent, silent, attachUnderText, topicId)
-                : await sendPhotoBot(token, chatId, f, htmlContent, silent, attachUnderText, topicId);
-        } else {
-            result = await sendMediaGroupBot(token, chatId, firstBatch, htmlContent, silent, attachUnderText, topicId);
-        }
-        captionConsumed = true;
-
-        for (const f of remaining) {
-            if (VIDEO_EXTS.has(f.extension)) {
-                await sendVideoBot(token, chatId, f, "", silent, false, topicId);
+        if (photoAndVideoFiles.length > 0) {
+            const firstBatch = photoAndVideoFiles.slice(0, 10);
+            const remaining = photoAndVideoFiles.slice(10);
+            if (firstBatch.length === 1) {
+                const f = firstBatch[0];
+                mediaResult = VIDEO_EXTS.has(f.extension)
+                    ? await sendVideoBot(token, chatId, f, "", silent, false, topicId)
+                    : await sendPhotoBot(token, chatId, f, "", silent, false, topicId);
             } else {
-                await sendPhotoBot(token, chatId, f, "", silent, false, topicId);
+                mediaResult = await sendMediaGroupBot(token, chatId, firstBatch, "", silent, false, topicId);
+            }
+            for (const f of remaining) {
+                await (VIDEO_EXTS.has(f.extension)
+                    ? sendVideoBot(token, chatId, f, "", silent, false, topicId)
+                    : sendPhotoBot(token, chatId, f, "", silent, false, topicId));
             }
         }
+
+        for (const gif of gifFiles) {
+            const r = await sendAnimationBot(token, chatId, gif, "", silent, false, topicId);
+            if (!mediaResult) mediaResult = r;
+        }
+
+        if (docFiles.length > 0) {
+            const firstBatch = docFiles.slice(0, 10);
+            const remainingDocs = docFiles.slice(10);
+            const docResult = firstBatch.length === 1
+                ? await sendDocumentBot(token, chatId, firstBatch[0], "", silent, false, topicId)
+                : await sendMediaGroupBot(token, chatId, firstBatch, "", silent, false, topicId);
+            if (!mediaResult) mediaResult = docResult;
+            for (const doc of remainingDocs) await sendDocumentBot(token, chatId, doc, "", silent, false, topicId);
+        }
+
+        return mediaResult;
     }
 
-    for (const gif of gifFiles) {
-        const caption = captionConsumed ? "" : htmlContent;
-        const gifResult = await sendAnimationBot(token, chatId, gif, caption, silent, attachUnderText, topicId);
-        if (!result) result = gifResult;
-        captionConsumed = true;
-    }
+    // Post text (with URL media blocks) always goes as a Rich Message, which supports
+    // the full formatting tag set. Local uploads are sent without captions as separate
+    // messages. attachUnderText controls which comes first in the chat.
+    let result: SendResult | null = null;
 
-    if (docFiles.length > 0) {
-        const caption = captionConsumed ? "" : htmlContent;
-        const firstBatch = docFiles.slice(0, 10);
-        const remainingDocs = docFiles.slice(10);
-        const docResult = firstBatch.length === 1
-            ? await sendDocumentBot(token, chatId, firstBatch[0], caption, silent, attachUnderText, topicId)
-            : await sendMediaGroupBot(token, chatId, firstBatch, caption, silent, attachUnderText, topicId);
-        if (!result) result = docResult;
-        captionConsumed = true;
-        for (const doc of remainingDocs) await sendDocumentBot(token, chatId, doc, "", silent, false, topicId);
-    }
-
-    // Text-only post → Rich Message (with classic HTML fallback). Posts that carry
-    // media keep the classic caption path above, since Rich Message media must be an
-    // HTTP/HTTPS URL block and can't caption an uploaded file.
-    if (!result && (richMarkdown.length > 0 || htmlContent.length > 0)) {
-        result = await sendRichOrClassicText(token, chatId, richMarkdown, htmlContent, silent, topicId);
+    if (!hasUploadMedia) {
+        if (hasRichContent) result = await sendRichOrClassicText(token, chatId, richMarkdown, htmlFallback, silent, topicId);
+    } else if (!hasRichContent) {
+        result = await sendUploadMedia();
+    } else if (attachUnderText) {
+        // Text above media: send the rich message first, then the uploads
+        result = await sendRichOrClassicText(token, chatId, richMarkdown, htmlFallback, silent, topicId);
+        await sendUploadMedia();
+    } else {
+        // Media above text (default): send the uploads first, then the rich message
+        result = await sendUploadMedia();
+        await sendRichOrClassicText(token, chatId, richMarkdown, htmlFallback, silent, topicId);
     }
 
     const commentLinks: string[] = [];
@@ -391,7 +409,7 @@ async function sendPartViaBotApi(
         for (const mdFile of mdEmbeds) {
             const mdContent = await app.vault.read(mdFile);
             const { body: mdBody } = extractFrontmatter(mdContent);
-            const commentHtml = mdToTelegramHtml(mdBody);
+            const commentHtml = mdToBotApiHtml(mdBody);
             const commentMd = commentsAsRich ? obsidianToRichMarkdown(mdBody) : "";
             if (!commentHtml.length && !commentMd.length) continue;
 
@@ -474,12 +492,12 @@ export async function sendNoteViaBotApi(
         const msgIdMatch = updateLink.match(/\/(\d+)\/?$/);
         const messageId = msgIdMatch ? parseInt(msgIdMatch[1], 10) : null;
         if (messageId) {
-            const htmlContent = mdToTelegramHtml(body);
+            const htmlContent = mdToBotApiHtml(body);
             for (const target of targets) {
                 const chatId = resolveChatId(target.id);
                 await editMessageBot(token, chatId, messageId, htmlContent);
             }
-            return { links: [updateLink], errors: [] };
+            return { links: [updateLink], commentLinks: [], errors: [] };
         }
     }
 
