@@ -118,20 +118,22 @@ function botUrl(token: string, method: string): string {
     return `https://api.telegram.org/bot${token}/${method}`;
 }
 
-// All Bot API calls use native fetch — requestUrl throws on 4xx and swallows the
-// descriptive error message that the Bot API returns in the response body.
 async function callBotJson(token: string, method: string, body: Record<string, unknown>): Promise<unknown> {
-    const response = await fetch(botUrl(token, method), {
+    const response = await requestUrl({
+        url: botUrl(token, method),
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        throw: false, // read the JSON error body ourselves instead of losing it to a thrown exception
     });
-    const data = await response.json() as { ok: boolean; result: unknown; description?: string };
+    const data = response.json as { ok: boolean; result: unknown; description?: string };
     if (!data.ok) throw new Error(data.description ?? `Bot API error: ${method}`);
     return data.result;
 }
 
+// FormData (multipart) cannot be passed to requestUrl whose body type is string|ArrayBuffer.
 async function callBotFetch(token: string, method: string, form: FormData): Promise<unknown> {
+    // eslint-disable-next-line no-restricted-globals
     const response = await fetch(botUrl(token, method), { method: "POST", body: form });
     const data = await response.json() as { ok: boolean; result: unknown; description?: string };
     if (!data.ok) throw new Error(data.description ?? `Bot API error: ${method}`);
@@ -293,7 +295,7 @@ async function findDiscussionMessageId(token: string, linkedChatId: number, chan
     const DELAY_MS = 1500;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        await new Promise(resolve => window.setTimeout(resolve, DELAY_MS));
         try {
             const result = await callBotJson(token, "getUpdates", { limit: 100, allowed_updates: ["message"] }) as Array<{ message?: { chat: { id: number }; message_id: number; forward_origin?: { message_id?: number }; forward_from_message_id?: number } }>;
             for (const update of [...result].reverse()) {

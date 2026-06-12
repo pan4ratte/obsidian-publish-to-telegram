@@ -22,33 +22,25 @@ export default {
     AUTH_PASSWORD_PLACEHOLDER: "Enter password…",
     AUTH_PASSWORD_REQUIRED: "Two-factor authentication is enabled. Enter your cloud password.",
     AUTH_LOADING: "Please wait…",
-    SETTING_SAVE_POST_LINKS_NAME: "Save posts links",
-    SETTING_SAVE_POST_LINKS_DESC: "If enabled, the link to the published post will be saved to the note's properties",
+    SETTING_SAVE_POST_LINKS_NAME: "Save posts and comments links",
+    SETTING_SAVE_POST_LINKS_DESC: "Links to published posts and comments will be saved to the note's properties",
     SETTING_MD_EMBEDS_AS_COMMENTS_NAME: "Treat .md embeds as post comments",
-    SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "If enabled, the contents of .md-attachments will be sent as comments to the post discussion",
+    SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "Contents of .md-attachments will be sent as comments to the post discussion",
     SECTION_PRESETS: "Presets",
     SETTING_ADD_CHANNEL_NAME: "Preset creation and usage",
-    SETTING_ADD_CHANNEL_DESC: `Note: The user guide describes all features and supported formatting options in detail.
-
-User preset publishes from your personal Telegram account and cannot post rich-text messages:
-1. Authorize into your account and make sure that you have relevant permissions to post to the target channels/groups.
-2. Create a new User preset and click on the search field to load chat list. You can also enter @usernames or IDs manually*.
-
-Bot preset publishes via a Telegram bot that you create and can post rich-text messages:
-1. Create a bot with @BotFather and make it an admin of the target channel/group.
-2. Create a new Bot preset, add target chat IDs or @usernames*, then enter the bot token.
-
-* You can get the ID of any user, channel, group or bot with the @userinfobot.`,
+    SETTING_ADD_CHANNEL_DESC: `We strongly recommend that you carefully read the user guide before getting started: it provides detailed instructions on all setup steps, the differences between bot and user presets, the plugin’s features, and the supported formatting options.`,
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
     SETTING_OPEN_BOTFATHER: "Open @BotFather",
-    SETTING_FORMATTING_HELP: "Open user guide",
+    SETTING_FORMATTING_HELP: "User guide",
     SETTING_ADD_CHANNEL: "Create new preset",
-    SETTING_ADD_USER_PRESET: "New user preset",
-    SETTING_ADD_BOT_PRESET: "New bot preset",
-    PRESET_BADGE_USER: "USER",
-    PRESET_BADGE_BOT: "BOT",
+    SETTING_ADD_USER_PRESET: "Create user preset",
+    SETTING_ADD_USER_PRESET_TOOLTIP: "Publishes via Telegram account: supports premium features, but does not support rich-text formatting",
+    SETTING_ADD_BOT_PRESET: "Create bot preset",
+    SETTING_ADD_BOT_PRESET_TOOLTIP: "Publishes via bot: supports rich-text formatting, but does not support premium features",
+    PRESET_BADGE_USER: "User preset",
+    PRESET_BADGE_BOT: "Bot preset",
     SETTING_BOT_TOKEN_NAME: "Enter bot token",
-    SETTING_BOT_TOKEN_DESC: "Get it from @BotFather",
+    SETTING_BOT_TOKEN_DESC: "Get it from the @BotFather",
     CHANNEL_DEFAULT_NAME: "New Preset",
     SETTING_PLACE_HOLDER_NAME: "Preset name…",
     SETTING_PLACEHOLDER_CHAT: "@username or ID…",
@@ -66,7 +58,7 @@ Bot preset publishes via a Telegram bot that you create and can post rich-text m
     MULTI_PRESET_ATTACHMENTS_NAME: "Attachments below the text",
     MULTI_PRESET_ATTACHMENTS_DESC: "Display post text above the attached media files",
     MULTI_PRESET_COMMENTS_RICH_NAME: "Send comments as rich text",
-    MULTI_PRESET_COMMENTS_RICH_DESC: "For Bot presets: post .md-embed comments as Rich Messages (headings, tables, etc.). Falls back to standard formatting if unsupported.",
+    MULTI_PRESET_COMMENTS_RICH_DESC: "For bot presets only: publishes comments as rich-text messages",
     MULTI_PRESET_SCHEDULE_NAME: "Schedule the post",
     MULTI_PRESET_SCHEDULE_DESC: "Leave empty to publish immediately",
     MULTI_PRESET_UPDATE_HEADING: "Editing",

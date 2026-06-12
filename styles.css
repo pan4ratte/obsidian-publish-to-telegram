@@ -105,6 +105,7 @@ body .telegram-edit-button {
     box-shadow: none;
     height: 44px;
     width: 44px;
+    flex-shrink: 0;
 }
 
 body .telegram-edit-button:hover {
@@ -116,6 +117,7 @@ body .telegram-delete-button {
     box-shadow: none;
     height: 44px;
     width: 44px;
+    flex-shrink: 0;
 }
 
 body .telegram-delete-button:hover {
@@ -522,10 +524,6 @@ body .telegram-auth-submit:disabled {
     margin-top: 4px;
 }
 
-.telegram-option-control {
-    margin-top: 16px;
-}
-
 .telegram-modal-heading {
     font-size: var(--font-ui-medium);
     font-weight: var(--font-medium);
@@ -722,29 +720,31 @@ body .telegram-changelog-close:hover {
 .tg-preset-badge {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    font-size: var(--font-smallest);
-    font-weight: var(--font-semibold);
-    letter-spacing: 0.04em;
     padding: 1px 6px;
     border-radius: 4px;
     margin-left: 6px;
     vertical-align: middle;
     line-height: 1.6;
-    pointer-events: none;
     user-select: none;
+    cursor: default;
     color: var(--tag-color);
     background-color: var(--tag-background);
+}
+
+.tg-preset-badge:hover {
+    background-color: var(--tag-background-hover);
+    color: var(--tag-color-hover);
 }
 
 .tg-preset-badge .tg-preset-badge-icon {
     display: inline-flex;
     align-items: center;
+    padding: 4px 0px;
 }
 
 .tg-preset-badge .tg-preset-badge-icon svg {
-    --icon-size: var(--icon-xs);
-    --stroke-width: var(--icon-xs-stroke-width);
+    width: 15px;
+    height: 15px;
 }
 
 /* ─── Bot token field ────────────────────────────────────────────────────────── */

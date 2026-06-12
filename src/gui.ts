@@ -1,4 +1,4 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, AbstractInputSuggest } from "obsidian";
+import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, AbstractInputSuggest } from "obsidian";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Api } from "telegram";
@@ -20,8 +20,8 @@ function voidListener<E extends Event = Event>(handler: (evt: E) => Promise<void
 function renderPresetBadge(container: HTMLElement, type: TelegramChannel["type"] | undefined): void {
     const isBot = type === "bot";
     const badge = container.createEl("span", { cls: `tg-preset-badge tg-preset-badge--${isBot ? "bot" : "user"}` });
+    setTooltip(badge, isBot ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER);
     setIcon(badge.createSpan({ cls: "tg-preset-badge-icon" }), isBot ? "bot-message-square" : "user");
-    badge.createSpan({ text: isBot ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER });
 }
 
 // ─── Channel resolution helpers ───────────────────────────────────────────────
@@ -729,6 +729,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         new ButtonComponent(addRow)
             .setButtonText(t.SETTING_ADD_USER_PRESET)
+            .setTooltip(t.SETTING_ADD_USER_PRESET_TOOLTIP)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
@@ -740,6 +741,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         new ButtonComponent(addRow)
             .setButtonText(t.SETTING_ADD_BOT_PRESET)
+            .setTooltip(t.SETTING_ADD_BOT_PRESET_TOOLTIP)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
@@ -826,7 +828,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             .addText(text => {
                 text.inputEl.type = "password";
                 text.setValue(channel.botToken ?? "")
-                    .setPlaceholder("123456789:ABC…")
+                    .setPlaceholder("123456789:abc…")
                     .onChange((v) => {
                         channel.botToken = v.trim();
                         this.plugin.saveBotToken(channel.id, v.trim());
