@@ -242,7 +242,14 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
 /* ── Account selector (user presets) ── */
 .telegram-account-setting.setting-item {
     border-top: none;
-    padding-top: 8px;
+    padding: 16px 0;
+    margin-bottom: 0;
+}
+
+/* ── Default posting method picker ── */
+.telegram-method-setting.setting-item {
+    padding: 16px 0;
+    margin-bottom: 0;
 }
 
 /* ── Credentials card (tucked behind the auth-status bar, like the other panels) ── */
@@ -695,6 +702,14 @@ body .telegram-auth-submit:disabled {
 
 .telegram-modal-heading:first-of-type {
     margin-top: 16px;
+}
+
+.telegram-modal-warning {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin: -8px 0 12px;
+    padding-left: 8px;
+    line-height: var(--line-height-normal);
 }
 
 input.telegram-schedule-input {

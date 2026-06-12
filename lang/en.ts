@@ -85,6 +85,7 @@ export default {
     MULTI_PRESET_SCHEDULE_NAME: "Schedule the post",
     MULTI_PRESET_SCHEDULE_DESC: "Leave empty to publish immediately",
     MULTI_PRESET_UPDATE_HEADING: "Editing",
+    MULTI_PRESET_EDIT_RICH_WARNING: "Editing a message that was published as rich text will strip its rich-text formatting — the Telegram Bot API doesn't allow editing Rich Messages.",
     MULTI_PRESET_UPDATE_NAME: "Edit post",
     MULTI_PRESET_UPDATE_NAME_DESC: "Links are stored in the tg_posts property",
     MULTI_PRESET_UPDATE_RESOLVING: "Loading…",

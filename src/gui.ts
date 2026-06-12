@@ -181,12 +181,14 @@ export class MultiPresetModal extends Modal {
     private updateLinkDropdown: DropdownComponent | null = null;
     private updateHintEl: HTMLElement | null = null;
     private updateDescEl: HTMLElement | null = null;
+    private updateOptionEl: HTMLElement | null = null;
     private builtUpdateChannel: TelegramChannel | null = null;
 
     private commentLinkDropdown: DropdownComponent | null = null;
+    private commentOptionEl: HTMLElement | null = null;
 
     private publishBtn: ButtonComponent | null = null;
-    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod }> = [];
+    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod, methodDropdown: DropdownComponent }> = [];
     private scheduleOptionEl: HTMLElement | null = null;
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
 
@@ -236,6 +238,33 @@ export class MultiPresetModal extends Modal {
             this.commentsAsRichToggle.setDisabled(false);
         }
         this.commentsAsRichOptionEl?.toggleClass("is-disabled", noBotMethod);
+    }
+
+    // Editing a Rich Message via the Bot API strips its rich formatting (Telegram
+    // restriction), so the post/comment editing options are locked off whenever a
+    // selected preset publishes with the "bot + rich text" method. "bot" and "account"
+    // methods keep them enabled.
+    private updateEditingState() {
+        const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
+        const disabled = selectedRows.some(r => r.method === "bot-rich");
+
+        this.updateOptionEl?.toggleClass("is-disabled", disabled);
+        this.commentOptionEl?.toggleClass("is-disabled", disabled);
+
+        if (disabled) {
+            // Clear any pending edit selection so a rich post can't be edited.
+            if (this.updateLinkDropdown && this.updateLinkDropdown.getValue() !== "none") {
+                this.updateLinkDropdown.setValue("none");
+                this.handleLinkSelection("none");
+            }
+            if (this.commentLinkDropdown && this.commentLinkDropdown.getValue() !== "none") {
+                this.commentLinkDropdown.setValue("none");
+                this.updatePublishBtn();
+                if (!this.anyLinkSelected()) this.setChannelRowsDisabled(false);
+            }
+        }
+        this.updateLinkDropdown?.setDisabled(disabled);
+        this.commentLinkDropdown?.setDisabled(disabled);
     }
 
     private setChannelRowsDisabled(disabled: boolean) {
@@ -327,6 +356,7 @@ export class MultiPresetModal extends Modal {
                 row.method = value as PostMethod;
                 this.updateScheduleState();
                 this.updateCommentsRichToggleState();
+                this.updateEditingState();
             });
             methodDropdown.selectEl.addClass("telegram-multi-preset-method");
 
@@ -337,6 +367,7 @@ export class MultiPresetModal extends Modal {
                     else this.selectedChannels.delete(channel.id);
                     this.updateScheduleState();
                     this.updateCommentsRichToggleState();
+                    this.updateEditingState();
                 });
             row.toggle = toggle;
 
@@ -397,9 +428,11 @@ export class MultiPresetModal extends Modal {
         const allStoredCommentLinks = readLinks("tg_comments");
 
         contentEl.createDiv({ text: t.MULTI_PRESET_UPDATE_HEADING, cls: "telegram-modal-heading" });
+        contentEl.createDiv({ text: t.MULTI_PRESET_EDIT_RICH_WARNING, cls: "telegram-modal-warning" });
 
         // "Update existing post" row
         const updateOptionEl = contentEl.createDiv("telegram-option-item telegram-option-item--edit");
+        this.updateOptionEl = updateOptionEl;
         const updateTextEl = updateOptionEl.createDiv("telegram-option-text");
         updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NAME, cls: "telegram-option-name" });
         this.updateDescEl = updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NAME_DESC, cls: "telegram-option-desc" });
@@ -409,6 +442,7 @@ export class MultiPresetModal extends Modal {
 
         // "Edit existing comments" row
         const commentOptionEl = contentEl.createDiv("telegram-option-item telegram-option-item--edit");
+        this.commentOptionEl = commentOptionEl;
         const commentTextEl = commentOptionEl.createDiv("telegram-option-text");
         commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NAME, cls: "telegram-option-name" });
         commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_DESC, cls: "telegram-option-desc" });
@@ -483,8 +517,14 @@ export class MultiPresetModal extends Modal {
                 } else {
                     commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
                 }
+
+                // Apply the bot-rich lock to the freshly created dropdowns.
+                this.updateEditingState();
             })();
         }
+
+        // Reflect the initial selection's method (a pre-toggled preset may be bot-rich).
+        this.updateEditingState();
 
         // ─── Publish Button ───────────────────────────────────────────────────────────
 
@@ -689,20 +729,6 @@ export class TelegramSettingTab extends PluginSettingTab {
             setIcon(btn.buttonEl.createSpan({ cls: "telegram-btn-icon", prepend: true }), icon);
         };
 
-        const addTokenBtn = new ButtonComponent(authActionsEl)
-            .setButtonText(t.AUTH_ADD_BOT_TOKEN_BTN)
-            .onClick(() => {
-                const wasOpen = !addTokenContainer.hasClass("is-hidden");
-                closeInline();
-                if (!wasOpen) {
-                    addTokenContainer.removeClass("is-hidden");
-                    addTokenBtn.buttonEl.addClass("is-active");
-                    this.renderAddBotTokenForm(addTokenContainer);
-                }
-            });
-        addTokenBtn.buttonEl.addClass("telegram-link-button");
-        prependIcon(addTokenBtn, "bot-message-square");
-
         const loginBtn = new ButtonComponent(authActionsEl)
             .setButtonText(accounts.length > 0 ? t.AUTH_ADD_ACCOUNT_BTN : t.AUTH_LOGIN_BTN)
             .onClick(() => {
@@ -716,6 +742,20 @@ export class TelegramSettingTab extends PluginSettingTab {
             });
         loginBtn.buttonEl.addClass("telegram-link-button");
         prependIcon(loginBtn, "user-plus");
+
+        const addTokenBtn = new ButtonComponent(authActionsEl)
+            .setButtonText(t.AUTH_ADD_BOT_TOKEN_BTN)
+            .onClick(() => {
+                const wasOpen = !addTokenContainer.hasClass("is-hidden");
+                closeInline();
+                if (!wasOpen) {
+                    addTokenContainer.removeClass("is-hidden");
+                    addTokenBtn.buttonEl.addClass("is-active");
+                    this.renderAddBotTokenForm(addTokenContainer);
+                }
+            });
+        addTokenBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(addTokenBtn, "bot-message-square");
 
         const openCredentials = () => {
             this.credentialsCardOpen = true;
