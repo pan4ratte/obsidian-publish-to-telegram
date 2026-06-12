@@ -229,7 +229,104 @@ Currently supported formats:
 
 ## Rich-text formatting
 
+Rich-text formatting is available for posts made via the “Bot + rich text” method. Telegram’s Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note’s Markdown through almost verbatim: everything listed under [Standard formatting](#standard-formatting) is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
 
+<table>
+  <thead>
+    <tr>
+      <th>Obsidian Input</th>
+      <th>Telegram Result</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code># Heading 1</code> … <code>###### Heading 6</code></td>
+      <td>Six heading levels (H1–H6), each at its own size</td>
+    </tr>
+    <tr>
+      <td><code>==Highlight==</code></td>
+      <td><mark>Highlight</mark></td>
+    </tr>
+    <tr>
+      <td><code>||Spoiler||</code></td>
+      <td>Spoiler (hidden until tapped)</td>
+    </tr>
+    <tr>
+      <td><code>H&lt;sub&gt;2&lt;/sub&gt;O</code></td>
+      <td>H<sub>2</sub>O</td>
+    </tr>
+    <tr>
+      <td><code>x&lt;sup&gt;2&lt;/sup&gt;</code></td>
+      <td>x<sup>2</sup></td>
+    </tr>
+    <tr>
+      <td><code>$x^2 + y^2$</code></td>
+      <td>Inline LaTeX formula</td>
+    </tr>
+    <tr>
+      <td><code>$$E = mc^2$$</code> or <codeblock>```math<br>E = mc^2<br>```</codeblock></td>
+      <td>Centered LaTeX formula block</td>
+    </tr>
+    <tr>
+      <td><code>1. First</code><br><code>2. Second</code></td>
+      <td><ol><li>First</li><li>Second</li></ol></td>
+    </tr>
+    <tr>
+      <td><code>- [ ] To do</code><br><code>- [x] Done</code></td>
+      <td>☐ To do<br>☑ Done</td>
+    </tr>
+    <tr>
+      <td><codeblock>| A | B |<br>|---|---|<br>| 1 | 2 |</codeblock></td>
+      <td><table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table></td>
+    </tr>
+    <tr>
+      <td><code>Text[^1]</code><br><code>[^1]: Footnote</code></td>
+      <td>Text<sup>1</sup>, with the footnote shown at the bottom</td>
+    </tr>
+    <tr>
+      <td><codeblock>```python<br>print("hi")<br>```</codeblock></td>
+      <td><pre><code>print("hi")</code></pre>code block with syntax highlighting for the named language</td>
+    </tr>
+    <tr>
+      <td><code>&lt;details&gt;&lt;summary&gt;Title&lt;/summary&gt;Content&lt;/details&gt;</code></td>
+      <td><details><summary>Title</summary>Content</details></td>
+    </tr>
+    <tr>
+      <td><code>&lt;aside&gt;Pull quote&lt;/aside&gt;</code></td>
+      <td>Centered pull quote</td>
+    </tr>
+    <tr>
+      <td><code>![](https://example.com/photo.jpg)</code><br><code>![](https://example.com/photo.jpg "Caption")</code></td>
+      <td>Photo, video, or audio rendered inline in the message, with an optional caption</td>
+    </tr>
+  </tbody>
+</table>
+
+### Auto-detected entities
+
+Telegram automatically detects and links several kinds of inline text — you don’t need any special syntax, just type them:
+
+`#hashtag`, `$USD` (cashtag), `@username`, `/command`, phone numbers, and bank-card numbers.
+
+A `#hashtag` is written exactly as in Obsidian; the plugin escapes it automatically so Telegram renders it as a clickable hashtag rather than a heading.
+
+### Advanced elements
+
+Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’s rich-message tags directly in your note for elements that have no Markdown shorthand:
+
+* `<u>…</u>` / `<ins>…</ins>` — underline
+* `<a name="anchor"></a>` and `<a href="#anchor">…</a>` — in-document anchors and links
+* `<tg-collage>…</tg-collage>` / `<tg-slideshow>…</tg-slideshow>` — media collages and slideshows
+* `<tg-map lat="41.9" long="12.5" zoom="14"/>` — a map block
+* `![](tg://emoji?id=…)` — a custom emoji (Telegram Premium)
+* `[label](tg://time?unix=…&format=…)` — a formatted date-time entity
+
+See Telegram’s [rich message formatting options](https://core.telegram.org/bots/api#rich-message-formatting-options) for the full list of supported tags and attributes.
+
+**Notes:**
+
+* Inline media must be an **HTTP(S) web link** — local attachments can’t be embedded inside a rich-text message (use the “Bot” or “Account” method, or a web URL). Local files attached to a “Bot + rich text” post are rejected with an error.
+* A rich message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns.
 
 ## Pre-written comments
 
