@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.0.0
+
+### Major update
+
+Version 4.0.0 brings bots back and unifies every posting method into a single, more powerful preset. The headline addition is rich-text formatting for bots, alongside multiple accounts and reusable bot tokens. Now you can:
+
+* **Post as a bot again.** The Bot API posting method returns alongside accounts — a single preset can use either or both. Bots must be channel admins to post, and need "Group Privacy" disabled in @BotFather to post in groups (see the user guide for the full setup).
+* **Use rich-text formatting.** Bot presets can post using Telegram's Rich Messages: headings, tables, ordered and task lists, block quotes, collapsible blocks, footnotes, formulas, inline media and more. Pick the "Bot + rich text" method when creating a preset. Rich Messages render only in up-to-date Telegram apps, and their inline media must be added via web (HTTP/HTTPS) links — local file attachments aren't supported with this method; use the "Bot" or "Account" method for those.
+* **Send rich-text comments.** Pre-written comments can also be sent as Rich Messages — toggle it in the advanced publishing settings.
+* **Add multiple accounts.** Authorize into more than one Telegram account and choose which one each preset posts from.
+* **Save and reuse bot tokens.** Bot tokens are stored securely in your Obsidian Keychain, can be named, and reused across multiple presets.
+* **Mix posting methods in one preset.** A preset now holds account, bot and bot-with-rich-text configurations together with a default method, and the advanced publishing settings let you switch the method for an individual post.
+* **Send .md attachments as documents.** When the "Treat .md embeds as post comments" option is off, embedded .md files are attached to the post as documents.
+
+Upgrading from 3.x is seamless: your authorized account and presets carry over automatically — you don't need to log in again or rebuild your presets, and your previous account becomes the first entry in the new multiple-accounts list.
+
+### UI/UX enhancements and bug fixes
+
+* Authorization cards were completely redesigned.
+* Preset sorting was added to the advanced publishing settings.
+* General UI/UX cleanup and refinements throughout the plugin.
+* New error notification when a "Bot + rich text" post includes local attachments, which Rich Messages don't support.
+* New error notification when a bot post's caption exceeds Telegram's 1024-character limit. Classic "Bot" posts now send the note's text as the media caption, in a single combined message.
+* READMEs and user guides were updated with full rich-text formatting documentation.
+* Locales were updated, corrected and cleaned up.
+* Fixed a bug when hashtags in rich-text posts were rendered as headings.
+* Fixed a bug when comment links were not saved to the property.
+* Fixed rich-text commenting and various UI bugs.
+* Various markdown and API parsing fixes.
+* Linter fixes.
+
+
 ## 3.1.1
 
 * **Hotfix.** Fixed an bug when changelog and user guide were not opening.
