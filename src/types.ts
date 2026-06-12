@@ -26,7 +26,8 @@ export type PostMethod = "account" | "bot" | "bot-rich";
 export interface TelegramChannel {
     id: string;
     name: string;
-    defaultMethod: PostMethod;  // method used when publishing without an explicit override
+    defaultMethod: PostMethod;  // primary method; used when publishing without an explicit override
+    useSecondaryMethods?: boolean; // when set, the preset also configures the non-primary method
     accountId?: string;    // references a TelegramAccount to post from (account method)
     botTokenId?: string;   // references a BotToken in settings.botTokens (bot methods)
     botToken?: string;     // in-memory token value resolved from botTokenId, never written to data.json

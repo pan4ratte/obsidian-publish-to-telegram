@@ -35,15 +35,23 @@ export default {
     SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "Contents of .md-attachments will be sent as comments to the post discussion",
     SECTION_PRESETS: "Presets",
     SETTING_ADD_CHANNEL_NAME: "Preset creation and usage",
-    SETTING_ADD_CHANNEL_DESC: `We strongly recommend that you carefully read the user guide before getting started: it provides detailed instructions on all setup steps, the differences between bot and user presets, the plugin’s features, and the supported formatting options.`,
+    SETTING_ADD_CHANNEL_DESC: `We strongly recommend that you carefully read the user guide, it describes all plugin features and supported formatting options. Key differencec between publication methods:
+
+1. Accounts can use Telegram Premium features, but can't post rich-text mesages due to Telegram’s restrictions.
+2. Bots can post rich-text messages, but can't use Telegram Premium features due to Telegram's restrictions.
+3. Optionally, bots can post texts with standard formatting, without rich-text formatting.
+
+Limitations of rich-text messages: you cannot edit them or attach local files to them (web-embeds are supported). Both limitations are imposed by Telegram.`,
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
     SETTING_OPEN_BOTFATHER: "Open @BotFather",
     SETTING_FORMATTING_HELP: "User guide",
     SETTING_ADD_CHANNEL: "Create new preset",
     SETTING_ADD_PRESET: "Create preset",
     SETTING_ADD_PRESET_TOOLTIP: "A preset can publish via your account, via a bot, or via a bot with rich text",
-    SETTING_METHOD_NAME: "Default posting method",
-    SETTING_METHOD_DESC: "Used when publishing without overriding the method",
+    SETTING_METHOD_NAME: "Select primary publishing method",
+    SETTING_METHOD_DESC: "The method used by default; you can switch methods per post in advanced settings",
+    SETTING_SECONDARY_NAME: "Use secondary publishing methods",
+    SETTING_SECONDARY_DESC: "Also set up the other method so you can switch to it for this preset when needed",
     METHOD_ACCOUNT: "Account",
     METHOD_BOT: "Bot",
     METHOD_BOT_RICH: "Bot + rich text",
@@ -55,10 +63,10 @@ export default {
     BOT_TOKEN_INCOMPLETE: "Enter a bot token",
     BOT_TOKEN_INVALID: "Couldn't verify the bot token",
     BOT_TOKEN_DEFAULT_NAME: "Bot",
-    SETTING_BOT_TOKEN_SELECT_NAME: "Bot token",
-    SETTING_BOT_TOKEN_SELECT_DESC: "Choose a saved bot token for this preset",
-    SETTING_BOT_TOKEN_SELECT_PLACEHOLDER: "Select a bot token…",
-    SETTING_BOT_TOKEN_EMPTY_HINT: "No bot tokens yet — add one with \"Add bot token\" above",
+    SETTING_BOT_TOKEN_SELECT_NAME: "Bot",
+    SETTING_BOT_TOKEN_SELECT_DESC: "Choose a saved bot for this preset",
+    SETTING_BOT_TOKEN_SELECT_PLACEHOLDER: "Select a bot…",
+    SETTING_BOT_TOKEN_EMPTY_HINT: "No bots yet — add one with \"Add a bot\" above",
     SETTING_ACCOUNT_NAME: "Account",
     SETTING_ACCOUNT_DESC: "Choose the Telegram account to post from",
     SETTING_ACCOUNT_PLACEHOLDER: "Select an account…",

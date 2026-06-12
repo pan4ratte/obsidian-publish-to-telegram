@@ -93,7 +93,7 @@ To post notes to Telegram, you need to set up a preset. When creating a preset, 
 
 Now you can post notes to Telegram using your preset’s name via the command palette, the note’s context menu, or keyboard shortcuts.
 
-## Posting as a bot
+## Publishing as a bot
 
 **Important aspects of this posting method:**
 
@@ -204,7 +204,7 @@ In addition to the formatting that will be reflected in the Telegram post, you c
 
 You can also use the special command `<!-- \split -->` or `%% \split %%` to split the text of your note into separate posts. If you use this command, the plugin will publish all posts at the same time. Attachments (see below), including pre-written comments, must appear before the special command that marks the end of the post.
 
-## Attachments
+### Attachments
 
 Media, album (groups of media) and document attachments are supported. To attach a file to your post, use any of the standard Obsidian embed syntax options:
 
@@ -226,6 +226,10 @@ Currently supported formats:
 | `.gif`                                             | Animation       |
 | `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`            | Video / Album   |
 | `.pdf`                                             | Document        |
+
+## Rich-text formatting
+
+
 
 ## Pre-written comments
 

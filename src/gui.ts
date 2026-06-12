@@ -47,6 +47,12 @@ function methodOptions(): Array<[PostMethod, string]> {
     ];
 }
 
+// Normalizes a chat id (preset target or a link's parsed chat) for comparison so
+// "@Channel", "channel" and a -100… id compare consistently.
+function normChatId(id: string): string {
+    return id.trim().toLowerCase().replace(/^@/, "");
+}
+
 // Builds a minimal TelegramChannel from a link's parsed chat ID (no preset needed).
 function channelFromLink(link: string, name: string): TelegramChannel | null {
     const parsed = parseLinkComponents(link);
@@ -260,23 +266,69 @@ export class MultiPresetModal extends Modal {
             if (this.commentLinkDropdown && this.commentLinkDropdown.getValue() !== "none") {
                 this.commentLinkDropdown.setValue("none");
                 this.updatePublishBtn();
-                if (!this.anyLinkSelected()) this.setChannelRowsDisabled(false);
+                this.applyEditLinkFilter();
             }
         }
         this.updateLinkDropdown?.setDisabled(disabled);
         this.commentLinkDropdown?.setDisabled(disabled);
     }
 
-    private setChannelRowsDisabled(disabled: boolean) {
+    // Collects the normalized chat ids of the links currently chosen for editing.
+    // Returns null when an "all" bulk option is chosen (no single chat to match against).
+    private editingChatIds(): Set<string> | null {
+        const ids = new Set<string>();
+        const post = this.updateLinkDropdown?.getValue() ?? "none";
+        if (post === "all") return null;
+        if (post !== "none") {
+            const parsed = parseLinkComponents(post);
+            if (parsed) ids.add(normChatId(parsed.chatId));
+        }
+        const comment = this.commentLinkDropdown?.getValue() ?? "none";
+        if (comment === "all") return null;
+        if (comment !== "none") ids.add(normChatId(comment)); // comment option value is the chat id
+        return ids;
+    }
+
+    // Reflects the current edit-link selection on the preset rows: enables only the
+    // presets whose chat targets match the chosen link's chat (all disabled for the
+    // "all" bulk option), and removes the "bot + rich text" method while editing — it
+    // would strip the rich formatting. With no link selected every preset is re-enabled.
+    private applyEditLinkFilter() {
+        const editing = this.anyLinkSelected();
+        this.updateRichMethodOption(editing);
+
+        if (!editing) {
+            this.channelRows.forEach(row => row.container.removeClass("is-disabled"));
+            return;
+        }
+
+        const chatIds = this.editingChatIds();
         this.channelRows.forEach(row => {
-            if (disabled) {
-                row.container.addClass("is-disabled");
-                row.toggle.setValue(false);
-                this.selectedChannels.delete(row.id);
-            } else {
+            const channel = this.plugin.settings.channels.find(c => c.id === row.id);
+            const matches = chatIds !== null && !!channel
+                && (channel.chatTargets ?? []).some(target => chatIds.has(normChatId(target.id)));
+            if (matches) {
                 row.container.removeClass("is-disabled");
+            } else {
+                row.container.addClass("is-disabled");
+                if (this.selectedChannels.has(row.id)) row.toggle.setValue(false);
             }
         });
+    }
+
+    // Removes the "bot + rich text" option from every preset's method dropdown while a
+    // link is being edited; restores it otherwise. A row currently set to bot-rich
+    // falls back to plain "bot".
+    private updateRichMethodOption(removeRich: boolean) {
+        for (const row of this.channelRows) {
+            const opt = row.methodDropdown.selectEl.querySelector<HTMLOptionElement>('option[value="bot-rich"]');
+            if (removeRich) {
+                if (row.method === "bot-rich") { row.method = "bot"; row.methodDropdown.setValue("bot"); }
+                opt?.remove();
+            } else if (!opt) {
+                row.methodDropdown.addOption("bot-rich", t.METHOD_BOT_RICH);
+            }
+        }
     }
 
     private showHint(el: HTMLElement | null, descEl: HTMLElement | null, text: string, isError: boolean) {
@@ -295,14 +347,12 @@ export class MultiPresetModal extends Modal {
 
     private handleLinkSelection(value: string) {
         this.updatePublishBtn();
+        this.applyEditLinkFilter();
         if (value === "none") {
             this.builtUpdateChannel = null;
-            if (!this.anyLinkSelected()) this.setChannelRowsDisabled(false);
             this.hideHint(this.updateHintEl, this.updateDescEl);
             return;
         }
-
-        this.setChannelRowsDisabled(true);
 
         if (value === "all") {
             this.builtUpdateChannel = null;
@@ -344,21 +394,22 @@ export class MultiPresetModal extends Modal {
             const isPreToggled = this.initialChannelId === channel.id;
             if (isPreToggled) this.selectedChannels.add(channel.id);
 
-            const row = { id: channel.id, container: itemEl, toggle: null as unknown as ToggleComponent, method: channel.defaultMethod ?? "account" };
-
             const controlEl = itemEl.createDiv("telegram-multi-preset-control");
 
             // Per-publish method override, defaulting to the preset's configured method.
             const methodDropdown = new DropdownComponent(controlEl);
             for (const [value, label] of methodOptions()) methodDropdown.addOption(value, label);
-            methodDropdown.setValue(row.method);
+            methodDropdown.setValue(channel.defaultMethod ?? "account");
+            methodDropdown.selectEl.addClass("telegram-multi-preset-method");
+
+            const row = { id: channel.id, container: itemEl, toggle: null as unknown as ToggleComponent, method: channel.defaultMethod ?? "account", methodDropdown };
+
             methodDropdown.onChange(value => {
                 row.method = value as PostMethod;
                 this.updateScheduleState();
                 this.updateCommentsRichToggleState();
                 this.updateEditingState();
             });
-            methodDropdown.selectEl.addClass("telegram-multi-preset-method");
 
             const toggle = new ToggleComponent(controlEl)
                 .setValue(isPreToggled)
@@ -506,13 +557,9 @@ export class MultiPresetModal extends Modal {
                         this.commentLinkDropdown!.addOption(chatId, group.title ?? chatId);
                     });
                     this.commentLinkDropdown.setValue("none");
-                    this.commentLinkDropdown.onChange(value => {
+                    this.commentLinkDropdown.onChange(() => {
                         this.updatePublishBtn();
-                        if (value === "none") {
-                            if (!this.anyLinkSelected()) this.setChannelRowsDisabled(false);
-                        } else {
-                            this.setChannelRowsDisabled(true);
-                        }
+                        this.applyEditLinkFilter();
                     });
                 } else {
                     commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
@@ -875,11 +922,19 @@ export class TelegramSettingTab extends PluginSettingTab {
                     ).open();
                 }).buttonEl.addClass("telegram-delete-button");
 
-            // A preset can use any posting method, so it always offers an account picker,
-            // a bot picker, and a default-method picker — then the chat search and toggle.
-            this.renderAccountField(channelDiv, channel);
-            this.renderBotTokenField(channelDiv, channel);
+            // Primary publishing method, then the picker for that method's resource; an
+            // optional "use secondary methods" toggle reveals the other method's picker.
             this.renderMethodField(channelDiv, channel);
+            const primaryIsAccount = (channel.defaultMethod ?? "account") === "account";
+            if (primaryIsAccount) this.renderAccountField(channelDiv, channel);
+            else this.renderBotTokenField(channelDiv, channel);
+
+            this.renderSecondaryToggle(channelDiv, channel);
+            if (channel.useSecondaryMethods) {
+                if (primaryIsAccount) this.renderBotTokenField(channelDiv, channel);
+                else this.renderAccountField(channelDiv, channel);
+            }
+
             this.renderChatPicker(channelDiv, channel);
 
             new Setting(channelDiv).setName(t.SETTING_DEFAULT_CHANNEL).setDesc(t.SETTING_DEFAULT_DESC)
@@ -938,9 +993,27 @@ export class TelegramSettingTab extends PluginSettingTab {
                 dd.onChange(async (value) => {
                     channel.defaultMethod = value as PostMethod;
                     await this.plugin.saveSettings();
+                    // Re-render so the primary/secondary pickers reflect the new method.
+                    this.render();
                 });
             });
         setting.settingEl.addClass("telegram-method-setting");
+    }
+
+    private renderSecondaryToggle(container: HTMLElement, channel: TelegramChannel): void {
+        new Setting(container)
+            .setName(t.SETTING_SECONDARY_NAME)
+            .setDesc(t.SETTING_SECONDARY_DESC)
+            .addToggle(toggle => {
+                toggle.setValue(channel.useSecondaryMethods ?? false)
+                    .onChange(async (v) => {
+                        channel.useSecondaryMethods = v;
+                        await this.plugin.saveSettings();
+                        // Re-render to show/hide the secondary method's picker.
+                        this.render();
+                    });
+            })
+            .settingEl.addClass("telegram-secondary-setting");
     }
 
     private renderBotTokenField(container: HTMLElement, channel: TelegramChannel): void {
@@ -969,6 +1042,12 @@ export class TelegramSettingTab extends PluginSettingTab {
     private renderAddBotTokenForm(container: HTMLElement): void {
         const card = container.createDiv({ cls: "telegram-add-token-form" });
         let tokenValue = "";
+
+        const linkRow = card.createDiv({ cls: "telegram-add-token-links" });
+        new ButtonComponent(linkRow)
+            .setButtonText(t.SETTING_OPEN_BOTFATHER)
+            .onClick(() => { window.open("https://t.me/BotFather", "_blank"); })
+            .buttonEl.addClass("telegram-link-button");
 
         const save = async (saveBtn: ButtonComponent) => {
             const token = tokenValue.trim();

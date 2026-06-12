@@ -216,6 +216,11 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     padding: 0;
 }
 
+.telegram-add-token-links {
+    display: flex;
+    margin-bottom: 16px;
+}
+
 /* Keep the label compact so the token input + Save button fill the row */
 .telegram-add-token-input .setting-item-info {
     flex: 0 1 auto;
@@ -248,6 +253,12 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
 
 /* ── Default posting method picker ── */
 .telegram-method-setting.setting-item {
+    padding: 16px 0;
+    margin-bottom: 0;
+}
+
+/* ── "Use secondary publishing methods" toggle ── */
+.telegram-secondary-setting.setting-item {
     padding: 16px 0;
     margin-bottom: 0;
 }
