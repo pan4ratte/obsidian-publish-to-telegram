@@ -11,6 +11,7 @@ import { mdToTelegramHtml, obsidianToRichMarkdown } from "./markdown";
 interface SendResult {
     link: string;
     messageId: number;
+    commentLinks?: string[];
 }
 
 interface MediaFile {
@@ -244,40 +245,42 @@ async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile
     return { link: buildBotPostLink(chatId, result[0].message_id), messageId: result[0].message_id };
 }
 
-async function sendReplyBot(token: string, chatId: string, replyToMessageId: number, text: string, silent: boolean, topicId?: number): Promise<void> {
-    await callBotJson(token, "sendMessage", {
+async function sendReplyBot(token: string, chatId: string, replyToMessageId: number, text: string, silent: boolean, topicId?: number): Promise<number> {
+    const result = await callBotJson(token, "sendMessage", {
         ...baseBody(chatId, silent, topicId),
         reply_to_message_id: replyToMessageId,
         text,
         parse_mode: "HTML",
-    });
+    }) as { message_id: number };
+    return result.message_id;
 }
 
 // Rich Message reply — sendRichMessage uses a reply_parameters object rather than
 // the reply_to_message_id field used by classic sendMessage.
-async function sendRichReplyBot(token: string, chatId: string, replyToMessageId: number, markdown: string, silent: boolean, topicId?: number): Promise<void> {
-    await callBotJson(token, "sendRichMessage", {
+async function sendRichReplyBot(token: string, chatId: string, replyToMessageId: number, markdown: string, silent: boolean, topicId?: number): Promise<number> {
+    const result = await callBotJson(token, "sendRichMessage", {
         ...baseBody(chatId, silent, topicId),
         rich_message: { markdown },
         reply_parameters: { message_id: replyToMessageId },
-    });
+    }) as { message_id: number };
+    return result.message_id;
 }
 
 // Sends a comment reply as a Rich Message when markdown is provided, falling back
 // to a classic HTML reply if Rich Messages are unavailable. Passing an empty
 // markdown string forces the classic path (used when the "rich comments" toggle is off).
-async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number): Promise<void> {
+// Returns the sent message's ID, or null if sending failed entirely.
+async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number): Promise<number | null> {
     if (markdown.length > 0) {
         try {
-            await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
-            return;
+            return await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.warn("[publish-to-telegram] rich comment failed, falling back to HTML reply:", msg);
             new Notice(`Rich comment unavailable — sending as standard text. (${msg})`);
         }
     }
-    await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId);
+    return await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId);
 }
 
 async function getLinkedChatId(token: string, chatId: string): Promise<number | null> {
@@ -380,6 +383,7 @@ async function sendPartViaBotApi(
         result = await sendRichOrClassicText(token, chatId, richMarkdown, htmlContent, silent, topicId);
     }
 
+    const commentLinks: string[] = [];
     if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0) {
         const linkedChatId = await getLinkedChatId(token, chatId).catch(() => null);
         for (const mdFile of mdEmbeds) {
@@ -394,12 +398,14 @@ async function sendPartViaBotApi(
                 if (linkedChatId !== null) {
                     const discussionId = await findDiscussionMessageId(token, linkedChatId, result.messageId);
                     if (discussionId !== null) {
-                        await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
+                        const commentMsgId = await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
+                        if (commentMsgId !== null) commentLinks.push(buildBotPostLink(String(linkedChatId), commentMsgId));
                     } else {
                         new Notice("Couldn't find the discussion message to comment under.");
                     }
                 } else {
-                    await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
+                    const commentMsgId = await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
+                    if (commentMsgId !== null) commentLinks.push(buildBotPostLink(chatId, commentMsgId));
                 }
             } catch (err) {
                 new Notice(`Comment failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -407,7 +413,7 @@ async function sendPartViaBotApi(
         }
     }
 
-    return result;
+    return result ? { ...result, commentLinks } : null;
 }
 
 // ─── Edit helpers ─────────────────────────────────────────────────────────────
@@ -447,7 +453,7 @@ export async function sendNoteViaBotApi(
     treatMdEmbedsAsComments: boolean,
     updateLink?: string,
     commentsAsRich = false,
-): Promise<{ links: string[]; errors: Error[] }> {
+): Promise<{ links: string[]; commentLinks: string[]; errors: Error[] }> {
     const token = channel.botToken ?? "";
     if (!token) throw new Error("Bot token is not configured for this preset.");
 
@@ -481,6 +487,7 @@ export async function sendNoteViaBotApi(
     const effectiveParts = parts.length > 0 ? parts : [body];
 
     const links: string[] = [];
+    const commentLinks: string[] = [];
     const errors: Error[] = [];
 
     for (const target of targets) {
@@ -493,12 +500,15 @@ export async function sendNoteViaBotApi(
                     app, part, token, chatId, silent, attachUnderText,
                     treatMdEmbedsAsComments, file, topicId, commentsAsRich,
                 );
-                if (result) links.push(result.link);
+                if (result) {
+                    links.push(result.link);
+                    if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);
+                }
             } catch (err) {
                 errors.push(err instanceof Error ? err : new Error(String(err)));
             }
         }
     }
 
-    return { links, errors };
+    return { links, commentLinks, errors };
 }

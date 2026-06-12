@@ -170,11 +170,12 @@ export default class SendToTelegramPlugin extends Plugin {
         try {
             if (channel.type === "bot") {
                 // ── Bot API path ──────────────────────────────────────────────
-                const { links, errors } = await sendNoteViaBotApi(
+                const { links, commentLinks, errors } = await sendNoteViaBotApi(
                     this.app, file, channel, this.settings,
                     silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink, commentsAsRich,
                 );
                 allLinks.push(...links);
+                allCommentLinks.push(...commentLinks);
                 allErrors.push(...errors);
             } else {
                 // ── GramJS (User API) path ────────────────────────────────────
