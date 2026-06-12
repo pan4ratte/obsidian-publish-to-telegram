@@ -65,21 +65,73 @@ If you want to test beta-versions of the plugin or use previous versions, you ca
 
 # User guide
 
-## Presets
+To post notes to Telegram, you need to set up a preset. When creating a preset, you can choose any posting method as the primary one and use the others optionally, when necessary.
 
-To publish notes to Telegram, you need to configure a preset.
+## Publishing as an account
 
-1. In the plugin settings, log in to your account and make sure you have the relevant permissions to post to the target channels/groups. Phone number and QR authorizations are available.
+**Important aspects of this posting method:**
 
-2. Create a new preset and click on the search field to load chat list. You can also enter `@username` or `ID` manually. You can get the `ID` of any user, channel, or group with [@userinfobot](https://t.me/userinfobot).
+* Posting as an account allows you to use Telegram Premium features, but does not allow rich-text formatting due to Telegram’s restrictions.
 
-3. Add one or multiple target channels, groups, forum topics, chats or bots to the preset.
+* The plugin supports logging into multiple accounts.
+
+* Accounts can post not only to channels but also to groups, private chats, and bots without additional settings (provided you have permission to send messages).
+
+**Setup:**
+
+1. In the plugin settings, click the “Log In” button and sign in to your account. You can authorize using a phone number or a QR code. Your sessions are stored locally in encrypted form in your Obsidian Keychain.
+
+2. Create a new preset, and under “Select primary publishing method,” choose “Account.”
+
+3. In the option that appears, select one of your authorized accounts.
+
+4. Under “Use secondary publishing methods,” check the box if you want to post as a bot when necessary. You can change this setting at any time.
+
+5. If the “Use secondary publishing methods” option is selected, choose previously added bot from the list that appears (see below for instructions on how to add a bot)
+
+6. Click on the search field to load the list of chats for the selected account, and choose one or more target chats. Alternatively, enter `@username` or `ID` manually. You can get the `@username` or `ID` of any chat from [@userinfobot](https://t.me/userinfobot).
 
 Now you can post notes to Telegram using your preset’s name via the command palette, the note’s context menu, or keyboard shortcuts.
 
-## Formatting
+## Posting as a bot
 
-All standard Telegram formatting elements are supported as well as some additional:
+**Important aspects of this posting method:**
+
+* Posting as a bot allows you to use rich-text formatting, but does not allow you to use Telegram Premium features due to Telegram's restrictions.
+
+* You can add multiple bots to the plugin.
+
+* Without additional configuration, bots can only post messages to channels (provided the bot is added to the channel, has admin rights, and is allowed to send messages).
+
+  * To send messages to groups, you must disable the “Group Privacy” option in the [@BotFather](https://t.me/BotFather) mini-app in the bot’s settings.
+  * To send messages to other bots, you must enable the “Bot to Bot Communication Mode” option in the [@BotFather](https://t.me/BotFather) mini-app in the bot's settings.
+  * Bots cannot send messages to users unless the user has initiated a chat with that bot.
+
+* The bot can optionally post text with standard formatting, without rich-text formatting.
+
+**Setup:**
+
+1. In the plugin settings, click the “Add bot” button, and in the window that appears, click “[Open @BotFather](https://t.me/BotFather)”.
+
+2. In the chat that opens, follow the instructions to create your own bot and copy its token.
+
+4. Paste your bot’s token into the corresponding field in the plugin and click “Save.” Your bot tokens are stored locally in encrypted form in your Obsidian Keychain.
+
+5. Create a new preset, and under “Select primary publishing method,” choose either “Bot” or “Bot + rich text.”
+
+6. In the menu that appears, select one of your saved bots.
+
+7. Under “Use secondary publishing methods,” check the box if you want to post as an account when necessary. You can change this setting at any time.
+
+8. If the “Use secondary publishing methods” option is selected, choose a previously authorized account from the menu that appears (see above for instructions on how to authorize).
+
+9. Click on the search field to load the list of chats for the selected account and choose one or more target chats. Alternatively, enter `@username` or `ID` manually. You can find the `@username` or `ID` of any chat using [@userinfobot](https://t.me/userinfobot).
+
+Now you can post notes to Telegram using your preset’s name via the command palette, the note’s context menu, or keyboard shortcuts.
+
+## Standard formatting
+
+Standard formatting is available for posts made via the “Account” and “Bot” methods. All standard Telegram formatting elements are supported, as well as some additional ones:
 
 <table>
   <thead>
