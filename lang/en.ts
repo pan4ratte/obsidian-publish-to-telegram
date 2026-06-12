@@ -13,6 +13,7 @@ export default {
     AUTH_LOGIN_BTN: "Log in",
     AUTH_ADD_ACCOUNT_BTN: "Add account",
     AUTH_MANAGE_CREDENTIALS_TOOLTIP: "Manage tokens and accounts",
+    AUTH_MANAGE_CREDENTIALS_BTN: "Your accounts and bots",
     AUTH_STEP_1: "Authorization: Step 1 of 2",
     AUTH_PHONE_PLACEHOLDER: "+1234567890",
     AUTH_SEND_CODE_BTN: "Send code",

@@ -793,14 +793,6 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         const accounts = this.plugin.settings.accounts;
         const authStatusEl = containerEl.createDiv({ cls: "telegram-auth-status" });
-        authStatusEl.createSpan({
-            text: accounts.length === 0
-                ? t.AUTH_NOT_CONNECTED
-                : accounts.length === 1
-                    ? t.AUTH_AUTHORIZED_AS.replace("{name}", accounts[0].displayName || accounts[0].id)
-                    : t.AUTH_ACCOUNTS_CONNECTED.replace("{count}", String(accounts.length)),
-            cls: "telegram-auth-status-name"
-        });
         const authActionsEl = authStatusEl.createDiv({ cls: "telegram-auth-actions" });
 
         // Containers rendered just below the bar; revealed on demand by the buttons.
@@ -811,7 +803,12 @@ export class TelegramSettingTab extends PluginSettingTab {
             loginContainer.empty(); loginContainer.addClass("is-hidden");
         };
 
-        new ButtonComponent(authActionsEl)
+        // ButtonComponent's text and icon overwrite each other, so prepend the icon manually.
+        const prependIcon = (btn: ButtonComponent, icon: string) => {
+            setIcon(btn.buttonEl.createSpan({ cls: "telegram-btn-icon", prepend: true }), icon);
+        };
+
+        const addTokenBtn = new ButtonComponent(authActionsEl)
             .setButtonText(t.AUTH_ADD_BOT_TOKEN_BTN)
             .onClick(() => {
                 const wasOpen = !addTokenContainer.hasClass("is-hidden");
@@ -820,9 +817,11 @@ export class TelegramSettingTab extends PluginSettingTab {
                     addTokenContainer.removeClass("is-hidden");
                     this.renderAddBotTokenForm(addTokenContainer);
                 }
-            }).buttonEl.addClass("telegram-link-button");
+            });
+        addTokenBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(addTokenBtn, "bot-message-square");
 
-        new ButtonComponent(authActionsEl)
+        const loginBtn = new ButtonComponent(authActionsEl)
             .setButtonText(accounts.length > 0 ? t.AUTH_ADD_ACCOUNT_BTN : t.AUTH_LOGIN_BTN)
             .onClick(() => {
                 const wasOpen = !loginContainer.hasClass("is-hidden");
@@ -831,16 +830,18 @@ export class TelegramSettingTab extends PluginSettingTab {
                     loginContainer.removeClass("is-hidden");
                     this.renderInlinePhoneStep(loginContainer);
                 }
-            }).buttonEl.addClass("telegram-link-button");
+            });
+        loginBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(loginBtn, "user-plus");
 
-        const keyBtn = authActionsEl.createEl("button", {
-            cls: "clickable-icon telegram-credentials-button",
-            attr: { "aria-label": t.AUTH_MANAGE_CREDENTIALS_TOOLTIP }
-        });
-        setIcon(keyBtn, "key-round");
-        keyBtn.addEventListener("click", () => {
-            new CredentialsModal(this.app, this.plugin, () => this.render()).open();
-        });
+        const credsBtn = new ButtonComponent(authActionsEl)
+            .setButtonText(t.AUTH_MANAGE_CREDENTIALS_BTN)
+            .setTooltip(t.AUTH_MANAGE_CREDENTIALS_TOOLTIP)
+            .onClick(() => {
+                new CredentialsModal(this.app, this.plugin, () => this.render()).open();
+            });
+        credsBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(credsBtn, "key-round");
 
         new Setting(containerEl).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.savePostLinks)

@@ -133,27 +133,36 @@ body .telegram-logout-button:hover {
       border: 1px solid var(--background-modifier-border);
       border-radius: var(--setting-items-radius);
       background-color: var(--setting-items-background);
-      padding: 24px 24px;
+      padding: 16px 24px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       margin-bottom: 8px;
-}
-
-.telegram-auth-status-name {
-    font-size: var(--font-ui-medium);
-    color: var(--text-normal);
 }
 
 .telegram-auth-actions {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-shrink: 0;
+    width: 100%;
 }
 
-.telegram-auth-actions .telegram-credentials-button:hover {
-    color: var(--text-accent);
+.telegram-auth-actions .telegram-link-button {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.telegram-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 6px;
+}
+
+.telegram-btn-icon .svg-icon {
+    width: 16px;
+    height: 16px;
 }
 
 .telegram-bordered-setting.setting-item {
