@@ -135,6 +135,16 @@ async function callBotJson(token: string, method: string, body: Record<string, u
     return data.result;
 }
 
+// Resolves a bot's display label from its token via the Bot API getMe method.
+// Returns "First name (@username)" (either part omitted if absent). Throws on an
+// invalid token so callers can surface the error.
+export async function getBotInfo(token: string): Promise<string> {
+    const me = await callBotJson(token, "getMe", {}) as { first_name?: string; username?: string };
+    const name = me.first_name ?? "";
+    const username = me.username ? ` (@${me.username})` : "";
+    return `${name}${username}`.trim();
+}
+
 // FormData (multipart) cannot be passed to requestUrl whose body type is string|ArrayBuffer.
 async function callBotFetch(token: string, method: string, form: FormData): Promise<unknown> {
     // eslint-disable-next-line no-restricted-globals

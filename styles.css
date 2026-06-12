@@ -130,6 +130,8 @@ body .telegram-logout-button:hover {
 }
 
 .telegram-auth-status {
+      position: relative;
+      z-index: 1;
       border: 1px solid var(--background-modifier-border);
       border-radius: var(--setting-items-radius);
       background-color: var(--setting-items-background);
@@ -152,6 +154,18 @@ body .telegram-logout-button:hover {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Highlight the button whose inline panel is currently open */
+body .telegram-auth-actions .telegram-link-button.is-active {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+body .telegram-auth-actions .telegram-link-button.is-active:hover {
+    background-color: var(--interactive-accent-hover);
+    border-color: var(--interactive-accent-hover);
 }
 
 .telegram-btn-icon {
@@ -186,14 +200,37 @@ body .telegram-logout-button:hover {
 
 /* ── Inline "Add bot token" form ── */
 .telegram-add-token-form {
+    position: relative;
+    z-index: 0;
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
     background-color: var(--setting-items-background);
-    padding: 8px 24px 16px;
+    padding: 24px;
+    padding-top: 40px;
+    margin-top: -24px;
 }
 
 .telegram-add-token-form .setting-item {
     border: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Keep the label compact so the token input + Save button fill the row */
+.telegram-add-token-input .setting-item-info {
+    flex: 0 1 auto;
+    margin-right: 16px;
+}
+
+.telegram-add-token-input .setting-item-control {
+    flex: 1;
+    gap: 8px;
+}
+
+.telegram-add-token-input .setting-item-control input[type="password"],
+.telegram-add-token-input .setting-item-control input[type="text"] {
+    flex: 1;
+    width: 100%;
 }
 
 .telegram-add-token-actions {
@@ -208,14 +245,22 @@ body .telegram-logout-button:hover {
     padding-top: 8px;
 }
 
-/* ── Credentials modal ── */
+/* ── Credentials card (tucked behind the auth-status bar, like the other panels) ── */
+.telegram-credentials-card {
+    position: relative;
+    z-index: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--setting-items-radius);
+    background-color: var(--setting-items-background);
+    padding: 24px;
+    padding-top: 40px;
+    margin-top: -24px;
+}
+
 .telegram-credentials-heading {
-    margin: 16px 0 8px;
-    font-size: var(--font-ui-small);
-    font-weight: var(--font-semibold);
+    margin: 16px 0px 12px;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
 }
 
 .telegram-credentials-heading:first-child {
@@ -264,8 +309,11 @@ body .telegram-logout-button:hover {
 }
 
 .telegram-auth-card {
-    margin: 0 auto;
+    position: relative;
+    z-index: 0;
+    margin: -24px auto 0;
     padding: 24px;
+    padding-top: 40px;
     display: flex;
     flex-direction: column;
     gap: 12px;

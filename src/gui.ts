@@ -8,6 +8,7 @@ import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
 import { TelegramChannel, TelegramSecrets, BotToken, PostMethod } from "./types";
 import { createClient, getUserDialogs, DialogData, parseLinkComponents, DEFAULT_TG_API_ID, DEFAULT_TG_API_HASH, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
+import { getBotInfo } from "./telegram-bot";
 import { errMessage, errCode } from "./util";
 
 // Wraps an async handler so it can be used where a void-returning callback is
@@ -162,133 +163,6 @@ class ConfirmationModal extends Modal {
     onClose() { this.contentEl.empty(); }
 }
 
-// ─── Credentials Modal ────────────────────────────────────────────────────────
-// Manage stored credentials in one place: named bot tokens (rename / delete) and
-// the authorized Telegram account (log out). `onChange` refreshes the settings tab.
-class CredentialsModal extends Modal {
-    private plugin: SendToTelegramPlugin;
-    private onChange: () => void;
-
-    constructor(app: App, plugin: SendToTelegramPlugin, onChange: () => void) {
-        super(app);
-        this.plugin = plugin;
-        this.onChange = onChange;
-    }
-
-    onOpen() {
-        this.titleEl.setText(t.CREDENTIALS_MODAL_TITLE);
-        this.modalEl.addClass("telegram-credentials-modal");
-        this.renderBody();
-    }
-
-    private renderBody(): void {
-        const { contentEl } = this;
-        contentEl.empty();
-
-        // ── Bot tokens ──
-        contentEl.createEl("h4", { text: t.CREDENTIALS_BOT_TOKENS_HEADING, cls: "telegram-credentials-heading" });
-        const tokens = this.plugin.settings.botTokens;
-        if (tokens.length === 0) {
-            contentEl.createEl("p", { text: t.CREDENTIALS_NO_TOKENS, cls: "telegram-credentials-empty" });
-        } else {
-            const list = contentEl.createDiv({ cls: "telegram-credentials-list" });
-            for (const token of tokens) {
-                const row = list.createDiv({ cls: "telegram-credentials-row" });
-                row.createSpan({ text: token.name, cls: "telegram-credentials-row-name" });
-                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
-                new ButtonComponent(rowActions)
-                    .setIcon("pencil").setTooltip(t.CREDENTIALS_RENAME_TOKEN)
-                    .onClick(() => this.renameToken(token, row))
-                    .buttonEl.addClass("clickable-icon");
-                new ButtonComponent(rowActions)
-                    .setIcon("trash").setTooltip(t.CREDENTIALS_DELETE_TOKEN_BTN)
-                    .onClick(() => {
-                        new ConfirmationModal(
-                            this.app,
-                            t.CREDENTIALS_DELETE_TOKEN_TITLE,
-                            t.CREDENTIALS_DELETE_TOKEN_MSG.replace("{name}", token.name),
-                            t.CREDENTIALS_DELETE_TOKEN_BTN,
-                            async () => { await this.deleteToken(token.id); },
-                        ).open();
-                    })
-                    .buttonEl.addClass("clickable-icon");
-            }
-        }
-
-        // ── Accounts ──
-        contentEl.createEl("h4", { text: t.CREDENTIALS_ACCOUNT_HEADING, cls: "telegram-credentials-heading" });
-        const accounts = this.plugin.settings.accounts;
-        if (accounts.length === 0) {
-            contentEl.createEl("p", { text: t.AUTH_NOT_CONNECTED, cls: "telegram-credentials-empty" });
-        } else {
-            const list = contentEl.createDiv({ cls: "telegram-credentials-list" });
-            for (const account of accounts) {
-                const row = list.createDiv({ cls: "telegram-credentials-row" });
-                row.createSpan({ text: account.displayName || account.id, cls: "telegram-credentials-row-name" });
-                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
-                new ButtonComponent(rowActions)
-                    .setIcon("log-out").setTooltip(t.AUTH_LOGOUT_BTN)
-                    .onClick(() => {
-                        new ConfirmationModal(
-                            this.app,
-                            t.CONFIRM_LOGOUT_TITLE,
-                            t.CONFIRM_LOGOUT_MSG.replace("{name}", account.displayName || account.id),
-                            t.CONFIRM_LOGOUT_BTN,
-                            async () => {
-                                this.plugin.removeAccount(account.id);
-                                await this.plugin.saveSettings();
-                                this.onChange();
-                                this.renderBody();
-                            },
-                        ).open();
-                    })
-                    .buttonEl.addClass("clickable-icon");
-            }
-        }
-    }
-
-    private renameToken(token: BotToken, row: HTMLElement): void {
-        row.empty();
-        const input = new TextComponent(row);
-        input.setValue(token.name);
-        input.inputEl.addClass("telegram-credentials-rename-input");
-        input.inputEl.focus();
-        input.inputEl.select();
-
-        let saved = false;
-        const save = async () => {
-            if (saved) return;
-            saved = true;
-            const v = input.getValue().trim();
-            if (v) {
-                token.name = v;
-                await this.plugin.saveSettings();
-                this.onChange();
-            }
-            this.renderBody();
-        };
-
-        input.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-            if (e.key === "Enter") { e.preventDefault(); void save(); }
-            else if (e.key === "Escape") { saved = true; this.renderBody(); }
-        });
-        input.inputEl.addEventListener("blur", voidListener(save));
-    }
-
-    private async deleteToken(id: string): Promise<void> {
-        this.plugin.settings.botTokens = this.plugin.settings.botTokens.filter(tk => tk.id !== id);
-        this.plugin.deleteBotToken(id);
-        // Drop the reference from any preset that used this token.
-        for (const ch of this.plugin.settings.channels) {
-            if (ch.botTokenId === id) { ch.botTokenId = undefined; ch.botToken = ""; }
-        }
-        await this.plugin.saveSettings();
-        this.onChange();
-        this.renderBody();
-    }
-
-    onClose() { this.contentEl.empty(); }
-}
 
 // ─── Multi Preset Modal ───────────────────────────────────────────────────────
 
@@ -741,6 +615,8 @@ export class TelegramSettingTab extends PluginSettingTab {
     private inlineLocalClient: TelegramClient | null = null;
     // Dialog lists are fetched lazily per account and cached for the tab's lifetime.
     private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
+    // Persisted across re-renders so the credentials card stays open after edits.
+    private credentialsCardOpen = false;
 
     constructor(app: App, plugin: SendToTelegramPlugin) { super(app, plugin); this.plugin = plugin; }
 
@@ -798,9 +674,14 @@ export class TelegramSettingTab extends PluginSettingTab {
         // Containers rendered just below the bar; revealed on demand by the buttons.
         const addTokenContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
         const loginContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const credsContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
         const closeInline = () => {
             addTokenContainer.empty(); addTokenContainer.addClass("is-hidden");
             loginContainer.empty(); loginContainer.addClass("is-hidden");
+            credsContainer.empty(); credsContainer.addClass("is-hidden");
+            this.credentialsCardOpen = false;
+            authActionsEl.querySelectorAll(".telegram-link-button.is-active")
+                .forEach(el => el.classList.remove("is-active"));
         };
 
         // ButtonComponent's text and icon overwrite each other, so prepend the icon manually.
@@ -815,6 +696,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 closeInline();
                 if (!wasOpen) {
                     addTokenContainer.removeClass("is-hidden");
+                    addTokenBtn.buttonEl.addClass("is-active");
                     this.renderAddBotTokenForm(addTokenContainer);
                 }
             });
@@ -828,20 +710,33 @@ export class TelegramSettingTab extends PluginSettingTab {
                 closeInline();
                 if (!wasOpen) {
                     loginContainer.removeClass("is-hidden");
+                    loginBtn.buttonEl.addClass("is-active");
                     this.renderInlinePhoneStep(loginContainer);
                 }
             });
         loginBtn.buttonEl.addClass("telegram-link-button");
         prependIcon(loginBtn, "user-plus");
 
+        const openCredentials = () => {
+            this.credentialsCardOpen = true;
+            credsContainer.removeClass("is-hidden");
+            credsBtn.buttonEl.addClass("is-active");
+            this.renderCredentialsCard(credsContainer);
+        };
         const credsBtn = new ButtonComponent(authActionsEl)
             .setButtonText(t.AUTH_MANAGE_CREDENTIALS_BTN)
             .setTooltip(t.AUTH_MANAGE_CREDENTIALS_TOOLTIP)
             .onClick(() => {
-                new CredentialsModal(this.app, this.plugin, () => this.render()).open();
+                const wasOpen = !credsContainer.hasClass("is-hidden");
+                closeInline();
+                if (!wasOpen) openCredentials();
             });
         credsBtn.buttonEl.addClass("telegram-link-button");
         prependIcon(credsBtn, "key-round");
+
+        // Re-open the credentials card after a full re-render (e.g. following a
+        // token delete or account logout triggered from inside the card).
+        if (this.credentialsCardOpen) openCredentials();
 
         new Setting(containerEl).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.savePostLinks)
@@ -1033,15 +928,27 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     private renderAddBotTokenForm(container: HTMLElement): void {
         const card = container.createDiv({ cls: "telegram-add-token-form" });
-        let nameValue = "";
         let tokenValue = "";
 
-        new Setting(card)
-            .setName(t.BOT_TOKEN_FORM_NAME_LABEL)
-            .addText(text => text
-                .setPlaceholder(t.BOT_TOKEN_NAME_PLACEHOLDER)
-                .onChange((v) => { nameValue = v; }));
+        const save = async (saveBtn: ButtonComponent) => {
+            const token = tokenValue.trim();
+            if (!token) { new Notice(t.BOT_TOKEN_INCOMPLETE); return; }
+            saveBtn.setDisabled(true).setButtonText(t.AUTH_LOADING);
+            try {
+                // Resolve the bot's name from Telegram so the token is labelled automatically.
+                const name = (await getBotInfo(token)) || t.BOT_TOKEN_DEFAULT_NAME;
+                const id = Date.now().toString();
+                this.plugin.settings.botTokens.push({ id, name });
+                this.plugin.saveBotToken(id, token);
+                await this.plugin.saveSettings();
+                this.render();
+            } catch (err) {
+                saveBtn.setDisabled(false).setButtonText(t.BOT_TOKEN_SAVE_BTN);
+                new Notice(`${t.BOT_TOKEN_INVALID}: ${errMessage(err)}`);
+            }
+        };
 
+        // Token input, show/hide toggle and Save button all share one row.
         const tokenSetting = new Setting(card)
             .setName(t.SETTING_BOT_TOKEN_NAME)
             .setDesc(t.SETTING_BOT_TOKEN_DESC)
@@ -1057,22 +964,116 @@ export class TelegramSettingTab extends PluginSettingTab {
                         if (!input) return;
                         input.type = input.type === "password" ? "text" : "password";
                     });
+            })
+            .addButton(btn => {
+                btn.setButtonText(t.BOT_TOKEN_SAVE_BTN).setCta()
+                    .onClick(() => { void save(btn); });
             });
+        tokenSetting.settingEl.addClass("telegram-add-token-input");
+    }
 
-        const actions = card.createDiv({ cls: "telegram-add-token-actions" });
-        new ButtonComponent(actions)
-            .setButtonText(t.BOT_TOKEN_SAVE_BTN)
-            .setCta()
-            .onClick(voidListener(async () => {
-                const name = nameValue.trim();
-                const token = tokenValue.trim();
-                if (!name || !token) { new Notice(t.BOT_TOKEN_INCOMPLETE); return; }
-                const id = Date.now().toString();
-                this.plugin.settings.botTokens.push({ id, name });
-                this.plugin.saveBotToken(id, token);
+    // Inline equivalent of the old credentials modal: lists named bot tokens
+    // (rename / delete) and connected accounts (log out). `refresh()` rebuilds the
+    // card in place; mutations that affect the rest of the tab call this.render(),
+    // which re-opens the card via credentialsCardOpen.
+    private renderCredentialsCard(container: HTMLElement): void {
+        const card = container.createDiv({ cls: "telegram-credentials-card" });
+
+        // ── Bot tokens ──
+        card.createDiv({ text: t.CREDENTIALS_BOT_TOKENS_HEADING, cls: "telegram-credentials-heading" });
+        const tokens = this.plugin.settings.botTokens;
+        if (tokens.length === 0) {
+            card.createEl("p", { text: t.CREDENTIALS_NO_TOKENS, cls: "telegram-credentials-empty" });
+        } else {
+            const list = card.createDiv({ cls: "telegram-credentials-list" });
+            for (const token of tokens) {
+                const row = list.createDiv({ cls: "telegram-credentials-row" });
+                row.createSpan({ text: token.name, cls: "telegram-credentials-row-name" });
+                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
+                new ButtonComponent(rowActions)
+                    .setIcon("pencil").setTooltip(t.CREDENTIALS_RENAME_TOKEN)
+                    .onClick(() => this.renameCredential(token, row))
+                    .buttonEl.addClass("clickable-icon");
+                new ButtonComponent(rowActions)
+                    .setIcon("trash").setTooltip(t.CREDENTIALS_DELETE_TOKEN_BTN)
+                    .onClick(() => {
+                        new ConfirmationModal(
+                            this.app,
+                            t.CREDENTIALS_DELETE_TOKEN_TITLE,
+                            t.CREDENTIALS_DELETE_TOKEN_MSG.replace("{name}", token.name),
+                            t.CREDENTIALS_DELETE_TOKEN_BTN,
+                            async () => {
+                                this.plugin.settings.botTokens = this.plugin.settings.botTokens.filter(tk => tk.id !== token.id);
+                                this.plugin.deleteBotToken(token.id);
+                                // Drop the reference from any preset that used this token.
+                                for (const ch of this.plugin.settings.channels) {
+                                    if (ch.botTokenId === token.id) { ch.botTokenId = undefined; ch.botToken = ""; }
+                                }
+                                await this.plugin.saveSettings();
+                                this.render();
+                            },
+                        ).open();
+                    })
+                    .buttonEl.addClass("clickable-icon");
+            }
+        }
+
+        // ── Accounts ──
+        card.createDiv({ text: t.CREDENTIALS_ACCOUNT_HEADING, cls: "telegram-credentials-heading" });
+        const accounts = this.plugin.settings.accounts;
+        if (accounts.length === 0) {
+            card.createEl("p", { text: t.AUTH_NOT_CONNECTED, cls: "telegram-credentials-empty" });
+        } else {
+            const list = card.createDiv({ cls: "telegram-credentials-list" });
+            for (const account of accounts) {
+                const row = list.createDiv({ cls: "telegram-credentials-row" });
+                row.createSpan({ text: account.displayName || account.id, cls: "telegram-credentials-row-name" });
+                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
+                new ButtonComponent(rowActions)
+                    .setIcon("log-out").setTooltip(t.AUTH_LOGOUT_BTN)
+                    .onClick(() => {
+                        new ConfirmationModal(
+                            this.app,
+                            t.CONFIRM_LOGOUT_TITLE,
+                            t.CONFIRM_LOGOUT_MSG.replace("{name}", account.displayName || account.id),
+                            t.CONFIRM_LOGOUT_BTN,
+                            async () => {
+                                this.plugin.removeAccount(account.id);
+                                await this.plugin.saveSettings();
+                                this.render();
+                            },
+                        ).open();
+                    })
+                    .buttonEl.addClass("clickable-icon");
+            }
+        }
+    }
+
+    private renameCredential(token: BotToken, row: HTMLElement): void {
+        row.empty();
+        const input = new TextComponent(row);
+        input.setValue(token.name);
+        input.inputEl.addClass("telegram-credentials-rename-input");
+        input.inputEl.focus();
+        input.inputEl.select();
+
+        let saved = false;
+        const save = async () => {
+            if (saved) return;
+            saved = true;
+            const v = input.getValue().trim();
+            if (v) {
+                token.name = v;
                 await this.plugin.saveSettings();
-                this.render();
-            }));
+            }
+            this.render();
+        };
+
+        input.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Enter") { e.preventDefault(); void save(); }
+            else if (e.key === "Escape") { saved = true; this.render(); }
+        });
+        input.inputEl.addEventListener("blur", voidListener(save));
     }
 
     private renderChatPicker(container: HTMLElement, channel: TelegramChannel): void {
