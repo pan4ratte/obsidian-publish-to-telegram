@@ -1,6 +1,6 @@
 import { Plugin, Notice, TFile, TFolder, Menu } from "obsidian";
 import { t, getUserGuideContent, changelogContent } from "./lang/helpers";
-import { TelegramChannel, TelegramSettings, TelegramSecrets, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
+import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks } from "./src/telegram";
 import { sendNoteViaBotApi } from "./src/telegram-bot";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
@@ -129,13 +129,15 @@ export default class SendToTelegramPlugin extends Plugin {
     }
 
     private async isChannelForum(channel: TelegramChannel): Promise<boolean> {
-        if (channel.type === "bot") return false; // Bot API: user configures topicId directly in chat picker
+        // Only the account (GramJS) path can detect forums; bot methods set topicId manually.
+        if (channel.defaultMethod !== "account") return false;
         if (this.forumCache.has(channel.id)) return this.forumCache.get(channel.id)!;
-        if (!this.secrets.telegramSession) return false;
+        const accSecrets = this.getAccountSecrets(channel.accountId);
+        if (!accSecrets.telegramSession) return false;
         try {
             const chatId = (channel.chatTargets?.[0]?.id ?? channel.chatId ?? "").trim();
             const entity = /^-?\d+$/.test(chatId) ? parseInt(chatId) : (chatId.startsWith("@") ? chatId : `@${chatId}`);
-            const client = await createClient(this.secrets.telegramSession, this.secrets.telegramApiId, this.secrets.telegramApiHash);
+            const client = await createClient(accSecrets.telegramSession, accSecrets.telegramApiId, accSecrets.telegramApiHash);
             try {
                 const result = await checkIsForum(client, entity);
                 this.forumCache.set(channel.id, result);
@@ -148,9 +150,13 @@ export default class SendToTelegramPlugin extends Plugin {
         }
     }
 
-    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date, commentsAsRich = false): Promise<void> {
-        // Bot presets use their own send path and don't need a GramJS session.
-        if (channel.type !== "bot" && !this.secrets.telegramSession) {
+    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date, method?: PostMethod, commentsAsRich = false): Promise<void> {
+        // Resolve the effective posting method: explicit override, else the preset default.
+        const effectiveMethod = method ?? channel.defaultMethod ?? "account";
+        const isBotMethod = effectiveMethod === "bot" || effectiveMethod === "bot-rich";
+        // Account (GramJS) publishing needs a session; bot methods use the Bot API instead.
+        const accountSecrets = isBotMethod ? null : this.getAccountSecrets(channel.accountId);
+        if (!isBotMethod && !accountSecrets!.telegramSession) {
             new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED);
             return;
         }
@@ -168,11 +174,13 @@ export default class SendToTelegramPlugin extends Plugin {
         const allScheduled: PendingScheduledLink[] = [];
 
         try {
-            if (channel.type === "bot") {
+            if (isBotMethod) {
                 // ── Bot API path ──────────────────────────────────────────────
                 const { links, commentLinks, errors } = await sendNoteViaBotApi(
                     this.app, file, channel, this.settings,
-                    silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink, commentsAsRich,
+                    silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink,
+                    effectiveMethod === "bot-rich",   // post as Rich Message
+                    commentsAsRich,                    // comments as Rich Message (separate option)
                 );
                 allLinks.push(...links);
                 allCommentLinks.push(...commentLinks);
@@ -182,7 +190,7 @@ export default class SendToTelegramPlugin extends Plugin {
                 for (const target of targets) {
                     const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title };
                     const { links, commentLinks, errors, scheduled } = await sendNoteToTelegram(
-                        this.app, file, singleChannel, this.settings, this.secrets, silent, attachUnderText,
+                        this.app, file, singleChannel, this.settings, accountSecrets!, silent, attachUnderText,
                         this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
                         () => { progressNotice.setMessage(t.NOTICE_PUBLISHING_COMMENTS); }
                     );
@@ -190,7 +198,7 @@ export default class SendToTelegramPlugin extends Plugin {
                     allCommentLinks.push(...commentLinks);
                     allErrors.push(...errors);
                     for (const s of scheduled) {
-                        allScheduled.push({ ...s, notePath: file.path, noteTitle: file.basename, createdAt: Date.now() });
+                        allScheduled.push({ ...s, notePath: file.path, noteTitle: file.basename, accountId: channel.accountId, createdAt: Date.now() });
                     }
                 }
             }
@@ -258,7 +266,7 @@ export default class SendToTelegramPlugin extends Plugin {
     // scheduled message was cancelled/deleted, and keeps tasks that haven't sent yet.
     async resolvePendingScheduledLinks(): Promise<void> {
         if (this.resolvingScheduledLinks) return;
-        if (!this.secrets.telegramSession) return;
+        if (this.settings.accounts.length === 0) return;
         if (this.settings.pendingScheduledLinks.length === 0) return;
 
         const nowSec = Math.floor(Date.now() / 1000);
@@ -267,7 +275,20 @@ export default class SendToTelegramPlugin extends Plugin {
 
         this.resolvingScheduledLinks = true;
         try {
-            const resolutions = await resolveScheduledLinks(this.secrets, due);
+            // Resolve each task with the account that scheduled it (grouped to reuse one
+            // client per account); tasks without an accountId fall back to the primary.
+            const byAccount = new Map<string, PendingScheduledLink[]>();
+            for (const task of due) {
+                const key = this.settings.accounts.some(a => a.id === task.accountId)
+                    ? task.accountId! : (this.settings.accounts[0]?.id ?? "");
+                const group = byAccount.get(key) ?? [];
+                group.push(task);
+                byAccount.set(key, group);
+            }
+            const resolutions = (await Promise.all(
+                [...byAccount.entries()].map(([accountId, tasks]) =>
+                    resolveScheduledLinks(this.getAccountSecrets(accountId), tasks))
+            )).flat();
             const settled = new Set<PendingScheduledLink>();
 
             for (const { task, status, link, updatedScheduledDate } of resolutions) {
@@ -311,7 +332,8 @@ export default class SendToTelegramPlugin extends Plugin {
     }
 
     async editNoteComments(file: TFile, commentLinks: string[], silent: boolean, embedOffset = 0): Promise<void> {
-        if (!this.secrets.telegramSession) { new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED); return; }
+        // Comment editing isn't tied to a preset, so it uses the primary account.
+        if (this.settings.accounts.length === 0) { new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED); return; }
         const progressNotice = new Notice(t.NOTICE_EDITING_COMMENTS, 0);
         try {
             const { errors } = await editNoteCommentsOnly(this.app, file, this.secrets, commentLinks, silent, embedOffset);
@@ -335,29 +357,38 @@ export default class SendToTelegramPlugin extends Plugin {
             telegramApiHash?: string;
         };
         this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
-        // Migrate single chatId/chatTitle → chatTargets array; default type to "user"
+        // Migrate single chatId/chatTitle → chatTargets array; legacy bot/user type → defaultMethod
         let migrated = false;
         for (const ch of this.settings.channels) {
+            const legacy = ch as TelegramChannel & { type?: "bot" | "user" };
             if (!ch.chatTargets) {
                 ch.chatTargets = ch.chatId ? [{ id: ch.chatId, title: ch.chatTitle }] : [];
                 migrated = true;
             }
-            if (!ch.type) {
-                ch.type = "user";
+            if (!ch.defaultMethod) {
+                ch.defaultMethod = legacy.type === "bot" ? "bot" : "account";
+                migrated = true;
+            }
+            if (legacy.type !== undefined) {
+                delete legacy.type;
                 migrated = true;
             }
         }
         if (migrated) await this.saveData(this.settings);
-        // Migrate bot tokens from data.json to SecretStorage
-        let botTokenMigrated = false;
+        // Named bot tokens supersede per-preset tokens. Clear any legacy per-preset
+        // token (stored either in data.json or under `bot-token-${ch.id}`) — presets
+        // now reference a shared BotToken via botTokenId. Start fresh, no migration.
+        let botTokenCleared = false;
         for (const ch of this.settings.channels) {
             if (ch.botToken) {
-                this.app.secretStorage.setSecret(`bot-token-${ch.id}`, ch.botToken);
                 delete ch.botToken;
-                botTokenMigrated = true;
+                botTokenCleared = true;
+            }
+            if (!ch.botTokenId) {
+                this.app.secretStorage.setSecret(`bot-token-${ch.id}`, "");
             }
         }
-        if (botTokenMigrated) await this.saveData(this.settings);
+        if (botTokenCleared) await this.saveData(this.settings);
         // Migrate secrets from data.json to SecretStorage — reuse raw, no second loadData()
         if (raw?.telegramSession) {
             this.app.secretStorage.setSecret("telegram-session", raw.telegramSession);
@@ -368,44 +399,80 @@ export default class SendToTelegramPlugin extends Plugin {
             delete raw.telegramApiHash;
             await this.saveData(raw);
         }
+        // Migrate the single legacy session → accounts[]. The old session lived under
+        // `telegram-session`; move it into one account and point existing user presets at it.
+        if (this.settings.accounts.length === 0) {
+            const legacySession = this.app.secretStorage.getSecret("telegram-session");
+            if (legacySession) {
+                const id = Date.now().toString();
+                this.settings.accounts.push({
+                    id,
+                    displayName: this.settings.telegramDisplayName || "",
+                    apiId: Number(this.app.secretStorage.getSecret("telegram-api-id") ?? 0),
+                    apiHash: this.app.secretStorage.getSecret("telegram-api-hash") ?? "",
+                });
+                this.app.secretStorage.setSecret(`account-session-${id}`, legacySession);
+                this.app.secretStorage.setSecret("telegram-session", "");
+                this.app.secretStorage.setSecret("telegram-api-id", "0");
+                this.app.secretStorage.setSecret("telegram-api-hash", "");
+                for (const ch of this.settings.channels) {
+                    if (ch.defaultMethod === "account" && !ch.accountId) ch.accountId = id;
+                }
+                await this.saveData(this.settings);
+            }
+        }
         await this.loadSecrets();
     }
 
     async loadSecrets() {
-        const session = this.app.secretStorage.getSecret("telegram-session");
-        const apiId = this.app.secretStorage.getSecret("telegram-api-id");
-        const apiHash = this.app.secretStorage.getSecret("telegram-api-hash");
-        this.secrets = {
-            telegramSession: session ?? "",
-            telegramApiId: Number(apiId ?? 0),
-            telegramApiHash: apiHash ?? "",
-        };
+        // `this.secrets` mirrors the primary (first) account for auxiliary flows that
+        // aren't tied to a specific preset (comment editing). Per-preset publishing
+        // resolves its own account via getAccountSecrets(channel.accountId).
+        this.secrets = this.getAccountSecrets();
         for (const ch of this.settings.channels) {
-            if (ch.type === "bot") {
-                ch.botToken = this.app.secretStorage.getSecret(`bot-token-${ch.id}`) ?? "";
-            }
+            ch.botToken = ch.botTokenId
+                ? (this.app.secretStorage.getSecret(`bot-token-${ch.botTokenId}`) ?? "")
+                : "";
         }
     }
 
-    async saveSecrets() {
-        this.app.secretStorage.setSecret("telegram-session", this.secrets.telegramSession);
-        this.app.secretStorage.setSecret("telegram-api-id", String(this.secrets.telegramApiId));
-        this.app.secretStorage.setSecret("telegram-api-hash", this.secrets.telegramApiHash);
+    // Resolves the GramJS credentials for the given account (defaults to the primary
+    // account when no/unknown id). Returns empty secrets when no account exists.
+    getAccountSecrets(accountId?: string): TelegramSecrets {
+        const acc = this.settings.accounts.find(a => a.id === accountId) ?? this.settings.accounts[0];
+        if (!acc) return { telegramSession: "", telegramApiId: 0, telegramApiHash: "" };
+        return {
+            telegramSession: this.app.secretStorage.getSecret(`account-session-${acc.id}`) ?? "",
+            telegramApiId: acc.apiId,
+            telegramApiHash: acc.apiHash,
+        };
     }
 
-    async clearSecrets() {
-        this.secrets = { telegramSession: "", telegramApiId: 0, telegramApiHash: "" };
-        this.app.secretStorage.setSecret("telegram-session", "");
-        this.app.secretStorage.setSecret("telegram-api-id", "0");
-        this.app.secretStorage.setSecret("telegram-api-hash", "");
+    addAccount(account: TelegramAccount, session: string): void {
+        this.app.secretStorage.setSecret(`account-session-${account.id}`, session);
+        this.settings.accounts.push(account);
+        this.secrets = this.getAccountSecrets();
     }
 
-    saveBotToken(channelId: string, token: string): void {
-        this.app.secretStorage.setSecret(`bot-token-${channelId}`, token);
+    removeAccount(accountId: string): void {
+        this.app.secretStorage.setSecret(`account-session-${accountId}`, "");
+        this.settings.accounts = this.settings.accounts.filter(a => a.id !== accountId);
+        for (const ch of this.settings.channels) {
+            if (ch.accountId === accountId) ch.accountId = undefined;
+        }
+        this.secrets = this.getAccountSecrets();
     }
 
-    deleteBotToken(channelId: string): void {
-        this.app.secretStorage.setSecret(`bot-token-${channelId}`, "");
+    saveBotToken(tokenId: string, token: string): void {
+        this.app.secretStorage.setSecret(`bot-token-${tokenId}`, token);
+    }
+
+    deleteBotToken(tokenId: string): void {
+        this.app.secretStorage.setSecret(`bot-token-${tokenId}`, "");
+    }
+
+    getBotTokenValue(tokenId: string): string {
+        return this.app.secretStorage.getSecret(`bot-token-${tokenId}`) ?? "";
     }
 
     async saveSettings() {

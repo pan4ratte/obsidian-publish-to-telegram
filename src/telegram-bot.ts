@@ -1,5 +1,5 @@
 // telegram-bot.ts
-// Telegram Bot API send path — used by presets with type === "bot".
+// Telegram Bot API send path — used when a preset posts via a "bot" or "bot-rich" method.
 // Self-contained: only imports from markdown.ts and Obsidian's API.
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
@@ -325,10 +325,14 @@ async function sendPartViaBotApi(
     treatMdEmbedsAsComments: boolean,
     sourceFile: TFile,
     topicId?: number,
+    postAsRich = false,
     commentsAsRich = false,
 ): Promise<SendResult | null> {
     const richMarkdown = obsidianToRichMarkdown(body);
     const htmlFallback = mdToBotApiHtml(body);
+    // The "bot" method posts a regular (classic HTML) message; "bot + rich" posts a
+    // Rich Message. Forcing empty markdown routes sendRichOrClassicText to the classic path.
+    const postMarkdown = postAsRich ? richMarkdown : "";
     const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile);
 
     const photoAndVideoFiles = attachments.filter(f =>
@@ -340,7 +344,7 @@ async function sendPartViaBotApi(
     // richMarkdown carries the post text AND any HTTP(S) media embeds (as rich media
     // blocks). uploadMedia is only the locally-stored / non-rich files that the Rich
     // Message API can't reference by URL and must be uploaded separately.
-    const hasRichContent = richMarkdown.length > 0 || htmlFallback.length > 0;
+    const hasPostText = postMarkdown.length > 0 || htmlFallback.length > 0;
     const hasUploadMedia = photoAndVideoFiles.length > 0 || gifFiles.length > 0 || docFiles.length > 0;
 
     // Uploads the local / non-rich media files without captions; returns the first
@@ -384,23 +388,23 @@ async function sendPartViaBotApi(
         return mediaResult;
     }
 
-    // Post text (with URL media blocks) always goes as a Rich Message, which supports
-    // the full formatting tag set. Local uploads are sent without captions as separate
-    // messages. attachUnderText controls which comes first in the chat.
+    // Post text goes as a Rich Message ("bot + rich", postMarkdown set) or a classic
+    // HTML message ("bot", postMarkdown empty). Local uploads are sent without captions
+    // as separate messages. attachUnderText controls which comes first in the chat.
     let result: SendResult | null = null;
 
     if (!hasUploadMedia) {
-        if (hasRichContent) result = await sendRichOrClassicText(token, chatId, richMarkdown, htmlFallback, silent, topicId);
-    } else if (!hasRichContent) {
+        if (hasPostText) result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
+    } else if (!hasPostText) {
         result = await sendUploadMedia();
     } else if (attachUnderText) {
-        // Text above media: send the rich message first, then the uploads
-        result = await sendRichOrClassicText(token, chatId, richMarkdown, htmlFallback, silent, topicId);
+        // Text above media: send the text message first, then the uploads
+        result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
         await sendUploadMedia();
     } else {
-        // Media above text (default): send the uploads first, then the rich message
+        // Media above text (default): send the uploads first, then the text message
         result = await sendUploadMedia();
-        await sendRichOrClassicText(token, chatId, richMarkdown, htmlFallback, silent, topicId);
+        await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
     }
 
     const commentLinks: string[] = [];
@@ -472,6 +476,7 @@ export async function sendNoteViaBotApi(
     attachUnderText: boolean,
     treatMdEmbedsAsComments: boolean,
     updateLink?: string,
+    postAsRich = false,
     commentsAsRich = false,
 ): Promise<{ links: string[]; commentLinks: string[]; errors: Error[] }> {
     const token = channel.botToken ?? "";
@@ -518,7 +523,7 @@ export async function sendNoteViaBotApi(
             try {
                 const result = await sendPartViaBotApi(
                     app, part, token, chatId, silent, attachUnderText,
-                    treatMdEmbedsAsComments, file, topicId, commentsAsRich,
+                    treatMdEmbedsAsComments, file, topicId, postAsRich, commentsAsRich,
                 );
                 if (result) {
                     links.push(result.link);

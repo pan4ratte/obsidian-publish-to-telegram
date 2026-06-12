@@ -1,4 +1,4 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, AbstractInputSuggest } from "obsidian";
+import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, AbstractInputSuggest } from "obsidian";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Api } from "telegram";
@@ -6,7 +6,7 @@ import { LogLevel } from "telegram/extensions/Logger";
 import { t, getUserGuideContent, changelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
-import { TelegramChannel, TelegramSecrets } from "./types";
+import { TelegramChannel, TelegramSecrets, BotToken, PostMethod } from "./types";
 import { createClient, getUserDialogs, DialogData, parseLinkComponents, DEFAULT_TG_API_ID, DEFAULT_TG_API_HASH, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
 import { errMessage, errCode } from "./util";
 
@@ -14,14 +14,6 @@ import { errMessage, errCode } from "./util";
 // expected (e.g. addEventListener); the returned promise is explicitly discarded.
 function voidListener<E extends Event = Event>(handler: (evt: E) => Promise<void>): (evt: E) => void {
     return (evt: E) => { void handler(evt); };
-}
-
-// Renders a preset type badge (lucide icon + label) into the given container.
-function renderPresetBadge(container: HTMLElement, type: TelegramChannel["type"] | undefined): void {
-    const isBot = type === "bot";
-    const badge = container.createEl("span", { cls: `tg-preset-badge tg-preset-badge--${isBot ? "bot" : "user"}` });
-    setTooltip(badge, isBot ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER);
-    setIcon(badge.createSpan({ cls: "tg-preset-badge-icon" }), isBot ? "bot-message-square" : "user");
 }
 
 // ─── Channel resolution helpers ───────────────────────────────────────────────
@@ -45,6 +37,15 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
     }
 }
 
+// The selectable posting methods with their localized labels, in display order.
+function methodOptions(): Array<[PostMethod, string]> {
+    return [
+        ["account", t.METHOD_ACCOUNT],
+        ["bot", t.METHOD_BOT],
+        ["bot-rich", t.METHOD_BOT_RICH],
+    ];
+}
+
 // Builds a minimal TelegramChannel from a link's parsed chat ID (no preset needed).
 function channelFromLink(link: string, name: string): TelegramChannel | null {
     const parsed = parseLinkComponents(link);
@@ -52,7 +53,7 @@ function channelFromLink(link: string, name: string): TelegramChannel | null {
     return {
         id: "update-temp",
         name,
-        type: "user",
+        defaultMethod: "account",
         chatId: parsed.chatId,
         chatTargets: [{ id: parsed.chatId, title: name }],
         isDefault: false,
@@ -161,6 +162,134 @@ class ConfirmationModal extends Modal {
     onClose() { this.contentEl.empty(); }
 }
 
+// ─── Credentials Modal ────────────────────────────────────────────────────────
+// Manage stored credentials in one place: named bot tokens (rename / delete) and
+// the authorized Telegram account (log out). `onChange` refreshes the settings tab.
+class CredentialsModal extends Modal {
+    private plugin: SendToTelegramPlugin;
+    private onChange: () => void;
+
+    constructor(app: App, plugin: SendToTelegramPlugin, onChange: () => void) {
+        super(app);
+        this.plugin = plugin;
+        this.onChange = onChange;
+    }
+
+    onOpen() {
+        this.titleEl.setText(t.CREDENTIALS_MODAL_TITLE);
+        this.modalEl.addClass("telegram-credentials-modal");
+        this.renderBody();
+    }
+
+    private renderBody(): void {
+        const { contentEl } = this;
+        contentEl.empty();
+
+        // ── Bot tokens ──
+        contentEl.createEl("h4", { text: t.CREDENTIALS_BOT_TOKENS_HEADING, cls: "telegram-credentials-heading" });
+        const tokens = this.plugin.settings.botTokens;
+        if (tokens.length === 0) {
+            contentEl.createEl("p", { text: t.CREDENTIALS_NO_TOKENS, cls: "telegram-credentials-empty" });
+        } else {
+            const list = contentEl.createDiv({ cls: "telegram-credentials-list" });
+            for (const token of tokens) {
+                const row = list.createDiv({ cls: "telegram-credentials-row" });
+                row.createSpan({ text: token.name, cls: "telegram-credentials-row-name" });
+                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
+                new ButtonComponent(rowActions)
+                    .setIcon("pencil").setTooltip(t.CREDENTIALS_RENAME_TOKEN)
+                    .onClick(() => this.renameToken(token, row))
+                    .buttonEl.addClass("clickable-icon");
+                new ButtonComponent(rowActions)
+                    .setIcon("trash").setTooltip(t.CREDENTIALS_DELETE_TOKEN_BTN)
+                    .onClick(() => {
+                        new ConfirmationModal(
+                            this.app,
+                            t.CREDENTIALS_DELETE_TOKEN_TITLE,
+                            t.CREDENTIALS_DELETE_TOKEN_MSG.replace("{name}", token.name),
+                            t.CREDENTIALS_DELETE_TOKEN_BTN,
+                            async () => { await this.deleteToken(token.id); },
+                        ).open();
+                    })
+                    .buttonEl.addClass("clickable-icon");
+            }
+        }
+
+        // ── Accounts ──
+        contentEl.createEl("h4", { text: t.CREDENTIALS_ACCOUNT_HEADING, cls: "telegram-credentials-heading" });
+        const accounts = this.plugin.settings.accounts;
+        if (accounts.length === 0) {
+            contentEl.createEl("p", { text: t.AUTH_NOT_CONNECTED, cls: "telegram-credentials-empty" });
+        } else {
+            const list = contentEl.createDiv({ cls: "telegram-credentials-list" });
+            for (const account of accounts) {
+                const row = list.createDiv({ cls: "telegram-credentials-row" });
+                row.createSpan({ text: account.displayName || account.id, cls: "telegram-credentials-row-name" });
+                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
+                new ButtonComponent(rowActions)
+                    .setIcon("log-out").setTooltip(t.AUTH_LOGOUT_BTN)
+                    .onClick(() => {
+                        new ConfirmationModal(
+                            this.app,
+                            t.CONFIRM_LOGOUT_TITLE,
+                            t.CONFIRM_LOGOUT_MSG.replace("{name}", account.displayName || account.id),
+                            t.CONFIRM_LOGOUT_BTN,
+                            async () => {
+                                this.plugin.removeAccount(account.id);
+                                await this.plugin.saveSettings();
+                                this.onChange();
+                                this.renderBody();
+                            },
+                        ).open();
+                    })
+                    .buttonEl.addClass("clickable-icon");
+            }
+        }
+    }
+
+    private renameToken(token: BotToken, row: HTMLElement): void {
+        row.empty();
+        const input = new TextComponent(row);
+        input.setValue(token.name);
+        input.inputEl.addClass("telegram-credentials-rename-input");
+        input.inputEl.focus();
+        input.inputEl.select();
+
+        let saved = false;
+        const save = async () => {
+            if (saved) return;
+            saved = true;
+            const v = input.getValue().trim();
+            if (v) {
+                token.name = v;
+                await this.plugin.saveSettings();
+                this.onChange();
+            }
+            this.renderBody();
+        };
+
+        input.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Enter") { e.preventDefault(); void save(); }
+            else if (e.key === "Escape") { saved = true; this.renderBody(); }
+        });
+        input.inputEl.addEventListener("blur", voidListener(save));
+    }
+
+    private async deleteToken(id: string): Promise<void> {
+        this.plugin.settings.botTokens = this.plugin.settings.botTokens.filter(tk => tk.id !== id);
+        this.plugin.deleteBotToken(id);
+        // Drop the reference from any preset that used this token.
+        for (const ch of this.plugin.settings.channels) {
+            if (ch.botTokenId === id) { ch.botTokenId = undefined; ch.botToken = ""; }
+        }
+        await this.plugin.saveSettings();
+        this.onChange();
+        this.renderBody();
+    }
+
+    onClose() { this.contentEl.empty(); }
+}
+
 // ─── Multi Preset Modal ───────────────────────────────────────────────────────
 
 export class MultiPresetModal extends Modal {
@@ -183,7 +312,7 @@ export class MultiPresetModal extends Modal {
     private commentLinkDropdown: DropdownComponent | null = null;
 
     private publishBtn: ButtonComponent | null = null;
-    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent }> = [];
+    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod }> = [];
     private scheduleOptionEl: HTMLElement | null = null;
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
 
@@ -207,32 +336,32 @@ export class MultiPresetModal extends Modal {
 
     private updateScheduleState() {
         if (!this.scheduleOptionEl || !this.scheduleInput) return;
-        const selected = this.plugin.settings.channels.filter(c => this.selectedChannels.has(c.id));
         // Scheduling isn't supported by the Bot API. Keep the field visible but disable
         // it — both visually (greyed, non-interactive) and physically (input disabled +
-        // value cleared) — when every selected preset is a Bot preset. Mixed selections
-        // stay active: the schedule applies to the User presets and is ignored for Bot ones.
-        const allBot = selected.length > 0 && selected.every(c => c.type === "bot");
+        // value cleared) — when every selected preset posts via a bot method. Mixed
+        // selections stay active: the schedule applies to account-method presets only.
+        const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
+        const allBot = selectedRows.length > 0 && selectedRows.every(r => r.method !== "account");
         this.scheduleInput.disabled = allBot;
         if (allBot) this.scheduleInput.value = "";
         this.scheduleOptionEl.toggleClass("is-disabled", allBot);
     }
 
-    // Rich-text comments only work for Bot presets. Lock the toggle off — visually
-    // (greyed, non-interactive) and physically (value forced to false) — only when the
-    // selection has NO Bot preset to apply it to. Mixed Bot+User selections stay
-    // enabled: rich comments apply to the Bot presets and are ignored for User ones.
+    // Rich-text comments only apply to bot-method posts. Lock the toggle off — visually
+    // (greyed, non-interactive) and physically (value forced to false) — when no selected
+    // preset posts via a bot method. Mixed selections stay enabled: rich comments apply
+    // to the bot-method presets and are ignored for account-method ones.
     private updateCommentsRichToggleState() {
         if (!this.commentsAsRichToggle) return;
-        const selected = this.plugin.settings.channels.filter(c => this.selectedChannels.has(c.id));
-        const noBotPreset = selected.length > 0 && selected.every(c => c.type !== "bot");
-        if (noBotPreset) {
+        const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
+        const noBotMethod = selectedRows.length > 0 && selectedRows.every(r => r.method === "account");
+        if (noBotMethod) {
             this.commentsAsRichToggle.setValue(false);
             this.commentsAsRichToggle.setDisabled(true);
         } else {
             this.commentsAsRichToggle.setDisabled(false);
         }
-        this.commentsAsRichOptionEl?.toggleClass("is-disabled", noBotPreset);
+        this.commentsAsRichOptionEl?.toggleClass("is-disabled", noBotMethod);
     }
 
     private setChannelRowsDisabled(disabled: boolean) {
@@ -304,21 +433,29 @@ export class MultiPresetModal extends Modal {
 
         const listContainer = contentEl.createDiv("telegram-multi-preset-list");
 
-        const sortedChannels = [...this.plugin.settings.channels].sort((a, b) => {
-            if (a.type === b.type) return 0;
-            return a.type === "bot" ? -1 : 1;
-        });
-
-        sortedChannels.forEach(channel => {
+        this.plugin.settings.channels.forEach(channel => {
             const itemEl = listContainer.createDiv("telegram-multi-preset-item");
             const nameEl = itemEl.createDiv("telegram-multi-preset-name");
             nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
-            renderPresetBadge(nameEl, channel.type);
 
             const isPreToggled = this.initialChannelId === channel.id;
             if (isPreToggled) this.selectedChannels.add(channel.id);
 
+            const row = { id: channel.id, container: itemEl, toggle: null as unknown as ToggleComponent, method: channel.defaultMethod ?? "account" };
+
             const controlEl = itemEl.createDiv("telegram-multi-preset-control");
+
+            // Per-publish method override, defaulting to the preset's configured method.
+            const methodDropdown = new DropdownComponent(controlEl);
+            for (const [value, label] of methodOptions()) methodDropdown.addOption(value, label);
+            methodDropdown.setValue(row.method);
+            methodDropdown.onChange(value => {
+                row.method = value as PostMethod;
+                this.updateScheduleState();
+                this.updateCommentsRichToggleState();
+            });
+            methodDropdown.selectEl.addClass("telegram-multi-preset-method");
+
             const toggle = new ToggleComponent(controlEl)
                 .setValue(isPreToggled)
                 .onChange(value => {
@@ -327,8 +464,9 @@ export class MultiPresetModal extends Modal {
                     this.updateScheduleState();
                     this.updateCommentsRichToggleState();
                 });
+            row.toggle = toggle;
 
-            this.channelRows.push({ id: channel.id, container: itemEl, toggle });
+            this.channelRows.push(row);
         });
 
         contentEl.createDiv({
@@ -350,8 +488,9 @@ export class MultiPresetModal extends Modal {
         this.attachToggle = new ToggleComponent(attachOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
-        // Rich-text comments only apply to the .md-embeds-as-comments feature (Bot presets),
-        // so only surface the toggle when that feature is enabled globally.
+        // Rich-text comments only apply to the .md-embeds-as-comments feature (bot methods),
+        // so only surface the toggle when that feature is enabled globally. It is separate
+        // from the "Bot + rich text" method, which controls the post itself.
         if (this.plugin.settings.treatMdEmbedsAsComments) {
             this.commentsAsRichOptionEl = contentEl.createDiv("telegram-option-item");
             const commentsRichTextEl = this.commentsAsRichOptionEl.createDiv("telegram-option-text");
@@ -402,7 +541,7 @@ export class MultiPresetModal extends Modal {
         const commentControlEl = commentOptionEl.createDiv("telegram-option-control");
 
         const hasAnyLinks = allStoredPostLinks.length > 0 || allStoredCommentLinks.length > 0;
-        if (!hasAnyLinks || !this.plugin.secrets.telegramSession) {
+        if (!hasAnyLinks || this.plugin.settings.accounts.length === 0) {
             updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NO_LINKS, cls: "telegram-option-desc" });
             commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
         } else {
@@ -542,7 +681,8 @@ export class MultiPresetModal extends Modal {
                 if (!isUpdatingPost && !isEditingComments) {
                     for (const channelId of this.selectedChannels) {
                         const channel = this.plugin.settings.channels.find(c => c.id === channelId);
-                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, commentsAsRich);
+                        const method = this.channelRows.find(r => r.id === channelId)?.method;
+                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, method, commentsAsRich);
                     }
                 }
             });
@@ -599,8 +739,8 @@ export class TelegramSettingTab extends PluginSettingTab {
     plugin: SendToTelegramPlugin;
     private inlineQrClient: TelegramClient | null = null;
     private inlineLocalClient: TelegramClient | null = null;
-    private dialogsFetch: Promise<DialogData[]> | null = null;
-    private dialogsLoading = false;
+    // Dialog lists are fetched lazily per account and cached for the tab's lifetime.
+    private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
 
     constructor(app: App, plugin: SendToTelegramPlugin) { super(app, plugin); this.plugin = plugin; }
 
@@ -617,13 +757,6 @@ export class TelegramSettingTab extends PluginSettingTab {
         }
         const { containerEl } = this;
         containerEl.empty();
-
-        if (this.plugin.secrets.telegramSession) {
-            if (!this.dialogsFetch) this.dialogsFetch = this.fetchDialogs();
-        } else {
-            this.dialogsFetch = null;
-            this.dialogsLoading = false;
-        }
 
         new Setting(containerEl).setHeading().setName(t.SETTING_HEADER);
 
@@ -658,35 +791,56 @@ export class TelegramSettingTab extends PluginSettingTab {
       // ── General ──
       new Setting(containerEl).setHeading().setName(t.SECTION_GENERAL);
 
-        if (this.plugin.secrets.telegramSession) {
-            const authStatusEl = containerEl.createDiv({ cls: "telegram-auth-status" });
-            authStatusEl.createSpan({
-                text: t.AUTH_AUTHORIZED_AS.replace("{name}", this.plugin.settings.telegramDisplayName),
-                cls: "telegram-auth-status-name"
-            });
-            const logoutBtn = authStatusEl.createEl("button", {
-                cls: "clickable-icon telegram-logout-button",
-                attr: { "aria-label": t.AUTH_LOGOUT_BTN }
-            });
-            setIcon(logoutBtn, "log-out");
-            logoutBtn.addEventListener("click", () => {
-                new ConfirmationModal(
-                    this.app,
-                    t.CONFIRM_LOGOUT_TITLE,
-                    t.CONFIRM_LOGOUT_MSG,
-                    t.CONFIRM_LOGOUT_BTN,
-                    async () => {
-                        await this.plugin.clearSecrets();
-                        this.plugin.settings.telegramDisplayName = "";
-                        await this.plugin.saveSettings();
-                        this.render();
-                    }
-                ).open();
-            });
-        } else {
-            const authContainer = containerEl.createDiv({ cls: "telegram-auth-inline" });
-            this.renderInlinePhoneStep(authContainer);
-        }
+        const accounts = this.plugin.settings.accounts;
+        const authStatusEl = containerEl.createDiv({ cls: "telegram-auth-status" });
+        authStatusEl.createSpan({
+            text: accounts.length === 0
+                ? t.AUTH_NOT_CONNECTED
+                : accounts.length === 1
+                    ? t.AUTH_AUTHORIZED_AS.replace("{name}", accounts[0].displayName || accounts[0].id)
+                    : t.AUTH_ACCOUNTS_CONNECTED.replace("{count}", String(accounts.length)),
+            cls: "telegram-auth-status-name"
+        });
+        const authActionsEl = authStatusEl.createDiv({ cls: "telegram-auth-actions" });
+
+        // Containers rendered just below the bar; revealed on demand by the buttons.
+        const addTokenContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const loginContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const closeInline = () => {
+            addTokenContainer.empty(); addTokenContainer.addClass("is-hidden");
+            loginContainer.empty(); loginContainer.addClass("is-hidden");
+        };
+
+        new ButtonComponent(authActionsEl)
+            .setButtonText(t.AUTH_ADD_BOT_TOKEN_BTN)
+            .onClick(() => {
+                const wasOpen = !addTokenContainer.hasClass("is-hidden");
+                closeInline();
+                if (!wasOpen) {
+                    addTokenContainer.removeClass("is-hidden");
+                    this.renderAddBotTokenForm(addTokenContainer);
+                }
+            }).buttonEl.addClass("telegram-link-button");
+
+        new ButtonComponent(authActionsEl)
+            .setButtonText(accounts.length > 0 ? t.AUTH_ADD_ACCOUNT_BTN : t.AUTH_LOGIN_BTN)
+            .onClick(() => {
+                const wasOpen = !loginContainer.hasClass("is-hidden");
+                closeInline();
+                if (!wasOpen) {
+                    loginContainer.removeClass("is-hidden");
+                    this.renderInlinePhoneStep(loginContainer);
+                }
+            }).buttonEl.addClass("telegram-link-button");
+
+        const keyBtn = authActionsEl.createEl("button", {
+            cls: "clickable-icon telegram-credentials-button",
+            attr: { "aria-label": t.AUTH_MANAGE_CREDENTIALS_TOOLTIP }
+        });
+        setIcon(keyBtn, "key-round");
+        keyBtn.addEventListener("click", () => {
+            new CredentialsModal(this.app, this.plugin, () => this.render()).open();
+        });
 
         new Setting(containerEl).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.savePostLinks)
@@ -728,25 +882,13 @@ export class TelegramSettingTab extends PluginSettingTab {
         const addRow = addSection.createDiv("telegram-add-preset-button-row");
 
         new ButtonComponent(addRow)
-            .setButtonText(t.SETTING_ADD_USER_PRESET)
-            .setTooltip(t.SETTING_ADD_USER_PRESET_TOOLTIP)
+            .setButtonText(t.SETTING_ADD_PRESET)
+            .setTooltip(t.SETTING_ADD_PRESET_TOOLTIP)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
                 while (existingNames.has(`${t.CHANNEL_DEFAULT_NAME} ${idx}`)) idx++;
-                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, type: "user", chatTargets: [], chatId: "", isDefault: false });
-                await this.plugin.saveSettings();
-                this.render();
-            }).buttonEl.addClass("telegram-add-button");
-
-        new ButtonComponent(addRow)
-            .setButtonText(t.SETTING_ADD_BOT_PRESET)
-            .setTooltip(t.SETTING_ADD_BOT_PRESET_TOOLTIP)
-            .onClick(async () => {
-                const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
-                let idx = 1;
-                while (existingNames.has(`${t.CHANNEL_DEFAULT_NAME} ${idx}`)) idx++;
-                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, type: "bot", botToken: "", chatTargets: [], chatId: "", isDefault: false });
+                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, defaultMethod: "account", chatTargets: [], chatId: "", isDefault: false });
                 await this.plugin.saveSettings();
                 this.render();
             }).buttonEl.addClass("telegram-add-button");
@@ -756,7 +898,6 @@ export class TelegramSettingTab extends PluginSettingTab {
             const header = channelDiv.createDiv("telegram-channel-header");
             const titleContainer = header.createDiv("telegram-header-title-container");
             titleContainer.createEl("span", { text: channel.name || t.CHANNEL_DEFAULT_NAME, cls: "telegram-header-name" });
-            renderPresetBadge(titleContainer, channel.type);
 
             new ButtonComponent(titleContainer.createDiv("telegram-edit-container"))
                 .setIcon("pencil").onClick(() => {
@@ -789,7 +930,8 @@ export class TelegramSettingTab extends PluginSettingTab {
                         t.CONFIRM_DELETE_MSG.replace("{name}", channel.name || t.CHANNEL_DEFAULT_NAME),
                         t.CONFIRM_DELETE_BTN,
                         async () => {
-                            if (channel.type === "bot") this.plugin.deleteBotToken(channel.id);
+                            // Bot tokens are shared, named entities now — deleting a preset
+                            // must not delete the token (managed via the credentials modal).
                             this.plugin.settings.channels.splice(index, 1);
                             await this.plugin.saveSettings();
                             this.render();
@@ -797,11 +939,12 @@ export class TelegramSettingTab extends PluginSettingTab {
                     ).open();
                 }).buttonEl.addClass("telegram-delete-button");
 
+            // A preset can use any posting method, so it always offers an account picker,
+            // a bot picker, and a default-method picker — then the chat search and toggle.
+            this.renderAccountField(channelDiv, channel);
+            this.renderBotTokenField(channelDiv, channel);
+            this.renderMethodField(channelDiv, channel);
             this.renderChatPicker(channelDiv, channel);
-
-            if (channel.type === "bot") {
-                this.renderBotTokenField(channelDiv, channel);
-            }
 
             new Setting(channelDiv).setName(t.SETTING_DEFAULT_CHANNEL).setDesc(t.SETTING_DEFAULT_DESC)
                 .addToggle(toggle => {
@@ -821,28 +964,114 @@ export class TelegramSettingTab extends PluginSettingTab {
         });
     }
 
-    private renderBotTokenField(container: HTMLElement, channel: TelegramChannel): void {
+    private renderAccountField(container: HTMLElement, channel: TelegramChannel): void {
+        const accounts = this.plugin.settings.accounts;
+        // With exactly one account and no explicit choice, select it automatically.
+        if (!channel.accountId && accounts.length === 1) {
+            channel.accountId = accounts[0].id;
+            void this.plugin.saveSettings();
+        }
         const setting = new Setting(container)
+            .setName(t.SETTING_ACCOUNT_NAME)
+            .setDesc(accounts.length ? t.SETTING_ACCOUNT_DESC : t.SETTING_ACCOUNT_EMPTY_HINT);
+
+        if (accounts.length > 0) {
+            setting.addDropdown(dd => {
+                dd.addOption("", t.SETTING_ACCOUNT_PLACEHOLDER);
+                for (const acc of accounts) dd.addOption(acc.id, acc.displayName || acc.id);
+                const current = accounts.some(a => a.id === channel.accountId) ? channel.accountId! : "";
+                dd.setValue(current);
+                dd.onChange(async (value) => {
+                    channel.accountId = value || undefined;
+                    await this.plugin.saveSettings();
+                    // Re-render so the chat picker rebinds to the newly chosen account.
+                    this.render();
+                });
+            });
+        }
+        setting.settingEl.addClass("telegram-account-setting");
+    }
+
+    private renderMethodField(container: HTMLElement, channel: TelegramChannel): void {
+        const setting = new Setting(container)
+            .setName(t.SETTING_METHOD_NAME)
+            .setDesc(t.SETTING_METHOD_DESC)
+            .addDropdown(dd => {
+                for (const [value, label] of methodOptions()) dd.addOption(value, label);
+                dd.setValue(channel.defaultMethod ?? "account");
+                dd.onChange(async (value) => {
+                    channel.defaultMethod = value as PostMethod;
+                    await this.plugin.saveSettings();
+                });
+            });
+        setting.settingEl.addClass("telegram-method-setting");
+    }
+
+    private renderBotTokenField(container: HTMLElement, channel: TelegramChannel): void {
+        const tokens = this.plugin.settings.botTokens;
+        const setting = new Setting(container)
+            .setName(t.SETTING_BOT_TOKEN_SELECT_NAME)
+            .setDesc(tokens.length ? t.SETTING_BOT_TOKEN_SELECT_DESC : t.SETTING_BOT_TOKEN_EMPTY_HINT);
+
+        if (tokens.length > 0) {
+            setting.addDropdown(dd => {
+                dd.addOption("", t.SETTING_BOT_TOKEN_SELECT_PLACEHOLDER);
+                for (const token of tokens) dd.addOption(token.id, token.name);
+                // If the referenced token was deleted, fall back to the placeholder.
+                const current = tokens.some(tk => tk.id === channel.botTokenId) ? channel.botTokenId! : "";
+                dd.setValue(current);
+                dd.onChange(async (value) => {
+                    channel.botTokenId = value || undefined;
+                    channel.botToken = value ? this.plugin.getBotTokenValue(value) : "";
+                    await this.plugin.saveSettings();
+                });
+            });
+        }
+        setting.settingEl.addClass("telegram-bot-token-setting");
+    }
+
+    private renderAddBotTokenForm(container: HTMLElement): void {
+        const card = container.createDiv({ cls: "telegram-add-token-form" });
+        let nameValue = "";
+        let tokenValue = "";
+
+        new Setting(card)
+            .setName(t.BOT_TOKEN_FORM_NAME_LABEL)
+            .addText(text => text
+                .setPlaceholder(t.BOT_TOKEN_NAME_PLACEHOLDER)
+                .onChange((v) => { nameValue = v; }));
+
+        const tokenSetting = new Setting(card)
             .setName(t.SETTING_BOT_TOKEN_NAME)
             .setDesc(t.SETTING_BOT_TOKEN_DESC)
             .addText(text => {
                 text.inputEl.type = "password";
-                text.setValue(channel.botToken ?? "")
-                    .setPlaceholder("123456789:abc…")
-                    .onChange((v) => {
-                        channel.botToken = v.trim();
-                        this.plugin.saveBotToken(channel.id, v.trim());
-                    });
+                text.setPlaceholder("123456789:abc…")
+                    .onChange((v) => { tokenValue = v; });
             })
             .addButton(btn => {
                 btn.setIcon("eye").setTooltip("Show / hide token")
                     .onClick(() => {
-                        const input = setting.settingEl.querySelector<HTMLInputElement>("input");
+                        const input = tokenSetting.settingEl.querySelector<HTMLInputElement>("input");
                         if (!input) return;
                         input.type = input.type === "password" ? "text" : "password";
                     });
             });
-        setting.settingEl.addClass("telegram-bot-token-setting");
+
+        const actions = card.createDiv({ cls: "telegram-add-token-actions" });
+        new ButtonComponent(actions)
+            .setButtonText(t.BOT_TOKEN_SAVE_BTN)
+            .setCta()
+            .onClick(voidListener(async () => {
+                const name = nameValue.trim();
+                const token = tokenValue.trim();
+                if (!name || !token) { new Notice(t.BOT_TOKEN_INCOMPLETE); return; }
+                const id = Date.now().toString();
+                this.plugin.settings.botTokens.push({ id, name });
+                this.plugin.saveBotToken(id, token);
+                await this.plugin.saveSettings();
+                this.render();
+            }));
     }
 
     private renderChatPicker(container: HTMLElement, channel: TelegramChannel): void {
@@ -880,23 +1109,33 @@ export class TelegramSettingTab extends PluginSettingTab {
             const hasChips = (channel.chatTargets?.length ?? 0) > 0;
             // Shrink the input to sit inline after chips (replaces a :has() selector)
             fieldEl.classList.toggle("has-chips", hasChips);
+            // Chats are suggested from the preset's chosen account (no fetch until one is
+            // picked). Manual @username/ID entry stays available regardless — needed for
+            // bot-method presets used without an account.
+            const suggestAccountId = this.plugin.settings.accounts.some(a => a.id === channel.accountId)
+                ? channel.accountId : undefined;
+            const needsAccountChoice = !suggestAccountId && this.plugin.settings.accounts.length > 0;
+
             input.placeholder = hasChips ? "" : (
-                !this.plugin.secrets.telegramSession ? t.SETTING_PLACEHOLDER_CHAT :
-                this.dialogsLoading ? t.SETTING_CHAT_PICKER_LOADING :
+                needsAccountChoice ? t.SETTING_CHOOSE_ACCOUNT_FIRST :
+                !suggestAccountId ? t.SETTING_PLACEHOLDER_CHAT :
+                this.dialogsFor(suggestAccountId).loading ? t.SETTING_CHAT_PICKER_LOADING :
                 t.SETTING_PLACEHOLDER_CHAT_SEARCH
             );
 
-            if (this.plugin.secrets.telegramSession) {
+            if (suggestAccountId) {
+                const accountId = suggestAccountId;
                 const suggest = new ChatSuggest(
                     this.app, input,
-                    () => this.dialogsFetch ?? Promise.resolve([]),
+                    () => this.dialogsFor(accountId).fetch,
                     () => channel.chatTargets ?? [],
                 );
                 activeSuggest = suggest;
                 input.addEventListener("focus", () => {
-                    if (this.dialogsLoading) {
+                    const entry = this.dialogsFor(accountId);
+                    if (entry.loading) {
                         // Wait for data before opening — avoids showing an empty dropdown
-                        void this.dialogsFetch?.then(() => {
+                        void entry.fetch.then(() => {
                             if (activeDocument.activeElement === input) suggest.open();
                         });
                     } else {
@@ -917,37 +1156,25 @@ export class TelegramSettingTab extends PluginSettingTab {
                     }
                     renderField();
                 };
-                // Registered after the suggest's own keydown listener so it fires second.
-                // If the suggest selected an item it already called setValue(""), so input.value
-                // is empty by the time this runs — that's the signal to skip.
-                input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
-                    if (e.key !== "Enter") return;
-                    const id = input.value.trim();
-                    if (!id) return;
-                    e.preventDefault();
-                    if ((channel.chatTargets ?? []).some(t => t.id === id)) { renderField(); return; }
-                    if (!channel.chatTargets) channel.chatTargets = [];
-                    channel.chatTargets.push({ id });
-                    channel.chatId = channel.chatTargets[0]?.id ?? "";
-                    channel.chatTitle = channel.chatTargets[0]?.title;
-                    await this.plugin.saveSettings();
-                    renderField();
-                }));
-            } else {
-                // No auth: Enter key adds a manual chat ID chip
-                input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
-                    if (e.key !== "Enter") return;
-                    e.preventDefault();
-                    const id = input.value.trim();
-                    if (!id || (channel.chatTargets ?? []).some(t => t.id === id)) return;
-                    if (!channel.chatTargets) channel.chatTargets = [];
-                    channel.chatTargets.push({ id });
-                    channel.chatId = channel.chatTargets[0]?.id ?? "";
-                    await this.plugin.saveSettings();
-                    renderField();
-                    fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
-                }));
             }
+
+            // Manual entry: Enter adds an @username/ID chip. Registered after the suggest's
+            // own keydown so it fires second — if the suggest selected an item it already
+            // cleared the input, so input.value is empty here and we skip.
+            input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
+                if (e.key !== "Enter") return;
+                const id = input.value.trim();
+                if (!id) return;
+                e.preventDefault();
+                if ((channel.chatTargets ?? []).some(t => t.id === id)) { renderField(); return; }
+                if (!channel.chatTargets) channel.chatTargets = [];
+                channel.chatTargets.push({ id });
+                channel.chatId = channel.chatTargets[0]?.id ?? "";
+                channel.chatTitle = channel.chatTargets[0]?.title;
+                await this.plugin.saveSettings();
+                renderField();
+                fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+            }));
         };
 
         // Clicking the field background focuses the input
@@ -960,17 +1187,20 @@ export class TelegramSettingTab extends PluginSettingTab {
         renderField();
     }
 
-    private fetchDialogs(): Promise<DialogData[]> {
-        this.dialogsLoading = true;
-        return (async () => {
+    // Returns (creating + caching on first use) the dialog-fetch state for an account.
+    // One fetch per account for the tab's lifetime; presets sharing an account share it.
+    private dialogsFor(accountId: string): { fetch: Promise<DialogData[]>; loading: boolean } {
+        const cached = this.dialogsByAccount.get(accountId);
+        if (cached) return cached;
+        const secrets = this.plugin.getAccountSecrets(accountId);
+        const entry: { fetch: Promise<DialogData[]>; loading: boolean } = { fetch: Promise.resolve([]), loading: true };
+        entry.fetch = (async () => {
             const client = await createClient(
-                this.plugin.secrets.telegramSession,
-                this.plugin.secrets.telegramApiId,
-                this.plugin.secrets.telegramApiHash
+                secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash
             ).catch(() => null);
             const dialogs = client ? await getUserDialogs(client) : [];
             await client?.destroy().catch(() => {});
-            this.dialogsLoading = false;
+            entry.loading = false;
             this.containerEl.querySelectorAll<HTMLInputElement>('.telegram-chat-search').forEach(input => {
                 if (input.placeholder === t.SETTING_CHAT_PICKER_LOADING) {
                     input.placeholder = t.SETTING_PLACEHOLDER_CHAT_SEARCH;
@@ -978,6 +1208,8 @@ export class TelegramSettingTab extends PluginSettingTab {
             });
             return dialogs;
         })();
+        this.dialogsByAccount.set(accountId, entry);
+        return entry;
     }
 
     private buildAuthCard(
@@ -1220,23 +1452,24 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     private async saveInlineQrSession(client: TelegramClient): Promise<void> {
         const session = client.session.save() as unknown as string;
-        this.plugin.secrets.telegramSession = session;
-        this.plugin.secrets.telegramApiId = 0;
-        this.plugin.secrets.telegramApiHash = "";
-        await this.plugin.saveSecrets();
-        try {
-            const me = await client.getMe();
-            const parts = [me.firstName, me.lastName].filter(Boolean).join(" ");
-            const username = me.username ? ` (@${me.username})` : "";
-            this.plugin.settings.telegramDisplayName = `${parts}${username}`;
-        } catch {
-            this.plugin.settings.telegramDisplayName = "";
-        }
+        const displayName = await this.resolveDisplayName(client);
+        this.plugin.addAccount({ id: Date.now().toString(), displayName, apiId: 0, apiHash: "" }, session);
         await client.disconnect();
         this.inlineQrClient = null;
         await this.plugin.saveSettings();
         new Notice(t.AUTH_SUCCESS);
         this.render();
+    }
+
+    private async resolveDisplayName(client: TelegramClient): Promise<string> {
+        try {
+            const me = await client.getMe();
+            const parts = [me.firstName, me.lastName].filter(Boolean).join(" ");
+            const username = me.username ? ` (@${me.username})` : "";
+            return `${parts}${username}`.trim();
+        } catch {
+            return "";
+        }
     }
 
     private renderInlineLocalCodeStep(
@@ -1325,20 +1558,15 @@ export class TelegramSettingTab extends PluginSettingTab {
     private async saveInlineLocalSession(apiId: number, apiHash: string): Promise<void> {
         if (!this.inlineLocalClient) return;
         const session = this.inlineLocalClient.session.save() as unknown as string;
-        this.plugin.secrets.telegramSession = session;
         // Don't persist bundled credentials — session alone is enough for reconnection.
         const isBundled = apiId === AUTH_API_ID;
-        this.plugin.secrets.telegramApiId = isBundled ? 0 : apiId;
-        this.plugin.secrets.telegramApiHash = isBundled ? "" : apiHash;
-        await this.plugin.saveSecrets();
-        try {
-            const me = await this.inlineLocalClient.getMe();
-            const parts = [me.firstName, me.lastName].filter(Boolean).join(" ");
-            const username = me.username ? ` (@${me.username})` : "";
-            this.plugin.settings.telegramDisplayName = `${parts}${username}`;
-        } catch {
-            this.plugin.settings.telegramDisplayName = "";
-        }
+        const displayName = await this.resolveDisplayName(this.inlineLocalClient);
+        this.plugin.addAccount({
+            id: Date.now().toString(),
+            displayName,
+            apiId: isBundled ? 0 : apiId,
+            apiHash: isBundled ? "" : apiHash,
+        }, session);
         await this.inlineLocalClient.disconnect();
         this.inlineLocalClient = null;
         await this.plugin.saveSettings();

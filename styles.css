@@ -145,6 +145,17 @@ body .telegram-logout-button:hover {
     color: var(--text-normal);
 }
 
+.telegram-auth-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.telegram-auth-actions .telegram-credentials-button:hover {
+    color: var(--text-accent);
+}
+
 .telegram-bordered-setting.setting-item {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
@@ -158,6 +169,89 @@ body .telegram-logout-button:hover {
 
 .telegram-auth-inline {
     margin-bottom: 8px;
+}
+
+.telegram-auth-inline.is-hidden {
+    display: none;
+}
+
+/* ── Inline "Add bot token" form ── */
+.telegram-add-token-form {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--setting-items-radius);
+    background-color: var(--setting-items-background);
+    padding: 8px 24px 16px;
+}
+
+.telegram-add-token-form .setting-item {
+    border: none;
+}
+
+.telegram-add-token-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+/* ── Account selector (user presets) ── */
+.telegram-account-setting.setting-item {
+    border-top: none;
+    padding-top: 8px;
+}
+
+/* ── Credentials modal ── */
+.telegram-credentials-heading {
+    margin: 16px 0 8px;
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-semibold);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.telegram-credentials-heading:first-child {
+    margin-top: 0;
+}
+
+.telegram-credentials-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.telegram-credentials-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--input-radius);
+    background-color: var(--background-secondary);
+}
+
+.telegram-credentials-row-name {
+    color: var(--text-normal);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.telegram-credentials-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.telegram-credentials-rename-input {
+    width: 100%;
+}
+
+.telegram-credentials-empty {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    margin: 0 0 4px;
 }
 
 .telegram-auth-card {
@@ -366,6 +460,16 @@ body .telegram-auth-submit:disabled {
     border-top-right-radius: 0px;
     border-top-left-radius: 0px;
     transition: opacity 0.15s ease;
+}
+
+.telegram-multi-preset-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.telegram-multi-preset-method {
+    max-width: 150px;
 }
 
 .telegram-multi-preset-item.is-disabled,
