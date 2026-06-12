@@ -347,6 +347,16 @@ export default class SendToTelegramPlugin extends Plugin {
             }
         }
         if (migrated) await this.saveData(this.settings);
+        // Migrate bot tokens from data.json to SecretStorage
+        let botTokenMigrated = false;
+        for (const ch of this.settings.channels) {
+            if (ch.botToken) {
+                this.app.secretStorage.setSecret(`bot-token-${ch.id}`, ch.botToken);
+                delete ch.botToken;
+                botTokenMigrated = true;
+            }
+        }
+        if (botTokenMigrated) await this.saveData(this.settings);
         // Migrate secrets from data.json to SecretStorage — reuse raw, no second loadData()
         if (raw?.telegramSession) {
             this.app.secretStorage.setSecret("telegram-session", raw.telegramSession);
@@ -369,6 +379,11 @@ export default class SendToTelegramPlugin extends Plugin {
             telegramApiId: Number(apiId ?? 0),
             telegramApiHash: apiHash ?? "",
         };
+        for (const ch of this.settings.channels) {
+            if (ch.type === "bot") {
+                ch.botToken = this.app.secretStorage.getSecret(`bot-token-${ch.id}`) ?? "";
+            }
+        }
     }
 
     async saveSecrets() {
@@ -384,8 +399,20 @@ export default class SendToTelegramPlugin extends Plugin {
         this.app.secretStorage.setSecret("telegram-api-hash", "");
     }
 
+    saveBotToken(channelId: string, token: string): void {
+        this.app.secretStorage.setSecret(`bot-token-${channelId}`, token);
+    }
+
+    deleteBotToken(channelId: string): void {
+        this.app.secretStorage.setSecret(`bot-token-${channelId}`, "");
+    }
+
     async saveSettings() {
-        await this.saveData(this.settings);
+        const stripped = {
+            ...this.settings,
+            channels: this.settings.channels.map(({ botToken: _t, ...ch }) => ch),
+        };
+        await this.saveData(stripped);
         this.syncChannelCommands();
     }
 }

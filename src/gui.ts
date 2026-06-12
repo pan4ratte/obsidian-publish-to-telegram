@@ -16,6 +16,14 @@ function voidListener<E extends Event = Event>(handler: (evt: E) => Promise<void
     return (evt: E) => { void handler(evt); };
 }
 
+// Renders a preset type badge (lucide icon + label) into the given container.
+function renderPresetBadge(container: HTMLElement, type: TelegramChannel["type"] | undefined): void {
+    const isBot = type === "bot";
+    const badge = container.createEl("span", { cls: `tg-preset-badge tg-preset-badge--${isBot ? "bot" : "user"}` });
+    setIcon(badge.createSpan({ cls: "tg-preset-badge-icon" }), isBot ? "bot-message-square" : "user");
+    badge.createSpan({ text: isBot ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER });
+}
+
 // ─── Channel resolution helpers ───────────────────────────────────────────────
 
 // Resolves the display title and entity type of any Telegram chat from its link.
@@ -300,10 +308,7 @@ export class MultiPresetModal extends Modal {
             const itemEl = listContainer.createDiv("telegram-multi-preset-item");
             const nameEl = itemEl.createDiv("telegram-multi-preset-name");
             nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
-            nameEl.createEl("span", {
-                text: channel.type === "bot" ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER,
-                cls: `tg-preset-badge tg-preset-badge--${channel.type ?? "user"}`,
-            });
+            renderPresetBadge(nameEl, channel.type);
 
             const isPreToggled = this.initialChannelId === channel.id;
             if (isPreToggled) this.selectedChannels.add(channel.id);
@@ -696,21 +701,28 @@ export class TelegramSettingTab extends PluginSettingTab {
         infoDiv.createEl("div", { text: t.SETTING_ADD_CHANNEL_NAME, cls: "telegram-add-preset-title" });
         infoDiv.createEl("div", { text: t.SETTING_ADD_CHANNEL_DESC, cls: "telegram-add-preset-description" });
 
-        const buttonContainer = addSection.createDiv("telegram-add-preset-button-container");
+        const linkRow = addSection.createDiv("telegram-add-preset-button-row");
 
-        new ButtonComponent(buttonContainer)
+        new ButtonComponent(linkRow)
             .setButtonText(t.SETTING_OPEN_USERINFOBOT)
             .onClick(() => { window.open("https://t.me/userinfobot", "_blank"); })
             .buttonEl.addClass("telegram-link-button");
 
-        new ButtonComponent(buttonContainer)
+        new ButtonComponent(linkRow)
+            .setButtonText(t.SETTING_OPEN_BOTFATHER)
+            .onClick(() => { window.open("https://t.me/BotFather", "_blank"); })
+            .buttonEl.addClass("telegram-link-button");
+
+        new ButtonComponent(linkRow)
             .setButtonText(t.SETTING_FORMATTING_HELP)
             .onClick(() => {
                 new FormattingHelpModal(this.app, getUserGuideContent()).open();
             })
             .buttonEl.addClass("telegram-link-button");
 
-        new ButtonComponent(buttonContainer)
+        const addRow = addSection.createDiv("telegram-add-preset-button-row");
+
+        new ButtonComponent(addRow)
             .setButtonText(t.SETTING_ADD_USER_PRESET)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
@@ -721,7 +733,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 this.render();
             }).buttonEl.addClass("telegram-add-button");
 
-        new ButtonComponent(buttonContainer)
+        new ButtonComponent(addRow)
             .setButtonText(t.SETTING_ADD_BOT_PRESET)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
@@ -737,10 +749,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             const header = channelDiv.createDiv("telegram-channel-header");
             const titleContainer = header.createDiv("telegram-header-title-container");
             titleContainer.createEl("span", { text: channel.name || t.CHANNEL_DEFAULT_NAME, cls: "telegram-header-name" });
-            titleContainer.createEl("span", {
-                text: channel.type === "bot" ? t.PRESET_BADGE_BOT : t.PRESET_BADGE_USER,
-                cls: `tg-preset-badge tg-preset-badge--${channel.type ?? "user"}`,
-            });
+            renderPresetBadge(titleContainer, channel.type);
 
             new ButtonComponent(titleContainer.createDiv("telegram-edit-container"))
                 .setIcon("pencil").onClick(() => {
@@ -773,6 +782,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                         t.CONFIRM_DELETE_MSG.replace("{name}", channel.name || t.CHANNEL_DEFAULT_NAME),
                         t.CONFIRM_DELETE_BTN,
                         async () => {
+                            if (channel.type === "bot") this.plugin.deleteBotToken(channel.id);
                             this.plugin.settings.channels.splice(index, 1);
                             await this.plugin.saveSettings();
                             this.render();
@@ -780,11 +790,11 @@ export class TelegramSettingTab extends PluginSettingTab {
                     ).open();
                 }).buttonEl.addClass("telegram-delete-button");
 
+            this.renderChatPicker(channelDiv, channel);
+
             if (channel.type === "bot") {
                 this.renderBotTokenField(channelDiv, channel);
             }
-
-            this.renderChatPicker(channelDiv, channel);
 
             new Setting(channelDiv).setName(t.SETTING_DEFAULT_CHANNEL).setDesc(t.SETTING_DEFAULT_DESC)
                 .addToggle(toggle => {
@@ -812,9 +822,9 @@ export class TelegramSettingTab extends PluginSettingTab {
                 text.inputEl.type = "password";
                 text.setValue(channel.botToken ?? "")
                     .setPlaceholder("123456789:ABC…")
-                    .onChange(async (v) => {
+                    .onChange((v) => {
                         channel.botToken = v.trim();
-                        await this.plugin.saveSettings();
+                        this.plugin.saveBotToken(channel.id, v.trim());
                     });
             })
             .addButton(btn => {
@@ -869,7 +879,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 t.SETTING_PLACEHOLDER_CHAT_SEARCH
             );
 
-            if (this.plugin.secrets.telegramSession && channel.type !== "bot") {
+            if (this.plugin.secrets.telegramSession) {
                 const suggest = new ChatSuggest(
                     this.app, input,
                     () => this.dialogsFetch ?? Promise.resolve([]),

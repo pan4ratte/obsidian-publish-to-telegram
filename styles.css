@@ -33,14 +33,12 @@
       white-space: pre-wrap;
 }
 
-.telegram-add-preset-button-container {
-    align-items: center;
+.telegram-add-preset-button-row {
     display: flex;
-    gap: 12px;
     flex-direction: row;
-    margin-top: 20px;
-    justify-content: space-between;
     flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 12px;
 }
 
 /* Specificity increased with body prefix to safely override Obsidian defaults */
@@ -722,8 +720,10 @@ body .telegram-changelog-close:hover {
 /* ─── Preset type badge ──────────────────────────────────────────────────────── */
 
 .tg-preset-badge {
-    display: inline-block;
-    font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: var(--font-smallest);
     font-weight: var(--font-semibold);
     letter-spacing: 0.04em;
     padding: 1px 6px;
@@ -733,22 +733,29 @@ body .telegram-changelog-close:hover {
     line-height: 1.6;
     pointer-events: none;
     user-select: none;
+    color: var(--tag-color);
+    background-color: var(--tag-background);
 }
 
-.tg-preset-badge--user {
-    background-color: var(--interactive-accent);
-    color: var(--text-on-accent);
+.tg-preset-badge .tg-preset-badge-icon {
+    display: inline-flex;
+    align-items: center;
 }
 
-.tg-preset-badge--bot {
-    background-color: var(--color-green);
-    color: #fff;
+.tg-preset-badge .tg-preset-badge-icon svg {
+    --icon-size: var(--icon-xs);
+    --stroke-width: var(--icon-xs-stroke-width);
 }
 
 /* ─── Bot token field ────────────────────────────────────────────────────────── */
 
-.telegram-bot-token-setting {
-    border-bottom: 1px solid var(--background-modifier-border);
-    padding-bottom: 12px;
-    margin-bottom: 4px;
+.setting-item.telegram-bot-token-setting {
+    padding: 16px 0;
+    margin-bottom: 0;
+}
+
+.setting-item.telegram-bot-token-setting input[type="text"],
+.setting-item.telegram-bot-token-setting input[type="password"] {
+    width: 100%;
+    min-width: 0;
 }

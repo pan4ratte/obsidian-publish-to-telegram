@@ -8,7 +8,7 @@ export interface TelegramChannel {
     id: string;
     name: string;
     type: "bot" | "user";
-    botToken?: string;     // only set when type === "bot"
+    botToken?: string;     // type === "bot" only; in-memory, loaded from SecretStorage, never written to data.json
     chatTargets: ChatTarget[];
     chatId: string;        // legacy field — kept for telegram.ts compat; synced to chatTargets[0].id
     chatTitle?: string;    // legacy field — synced to chatTargets[0].title

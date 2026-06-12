@@ -39,6 +39,7 @@ export default {
 * Узнать ID любого пользователя, канала, группы или бота можно у @userinfobot.
 ** В руководстве пользователя детально описаны все функции плагина и поддерживаемые опции форматирования.`,
     SETTING_OPEN_USERINFOBOT: "Открыть @userinfobot",
+    SETTING_OPEN_BOTFATHER: "Открыть @BotFather",
     SETTING_FORMATTING_HELP: "Руководство пользователя",
     SETTING_ADD_CHANNEL: "Создать новый пресет",
     SETTING_ADD_USER_PRESET: "Новый пресет Пользователь",

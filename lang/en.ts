@@ -28,25 +28,27 @@ export default {
     SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "If enabled, the contents of .md-attachments will be sent as comments to the post discussion",
     SECTION_PRESETS: "Presets",
     SETTING_ADD_CHANNEL_NAME: "Preset creation and usage",
-    SETTING_ADD_CHANNEL_DESC: `User preset — publishes from your personal Telegram account (requires one-time authorization).
+    SETTING_ADD_CHANNEL_DESC: `Note: The user guide describes all features and supported formatting options in detail.
+
+User preset publishes from your personal Telegram account and cannot post rich-text messages:
 1. Authorize into your account and make sure that you have relevant permissions to post to the target channels/groups.
-2. Create a new User preset and click on the search field to load chat list. You can also enter @username or ID manually.
+2. Create a new User preset and click on the search field to load chat list. You can also enter @usernames or IDs manually*.
 
-Bot preset — publishes via a Telegram bot token (no account login required).
+Bot preset publishes via a Telegram bot that you create and can post rich-text messages:
 1. Create a bot with @BotFather and make it an admin of the target channel/group.
-2. Create a new Bot preset, enter the bot token, then add target chat IDs or @usernames.
+2. Create a new Bot preset, add target chat IDs or @usernames*, then enter the bot token.
 
-* You can get the ID of any user, channel, group or bot with the @userinfobot.
-** The user guide describes all features and supported formatting options in detail.`,
+* You can get the ID of any user, channel, group or bot with the @userinfobot.`,
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
-    SETTING_FORMATTING_HELP: "User guide",
+    SETTING_OPEN_BOTFATHER: "Open @BotFather",
+    SETTING_FORMATTING_HELP: "Open user guide",
     SETTING_ADD_CHANNEL: "Create new preset",
-    SETTING_ADD_USER_PRESET: "New User preset",
-    SETTING_ADD_BOT_PRESET: "New Bot preset",
+    SETTING_ADD_USER_PRESET: "New user preset",
+    SETTING_ADD_BOT_PRESET: "New bot preset",
     PRESET_BADGE_USER: "USER",
     PRESET_BADGE_BOT: "BOT",
-    SETTING_BOT_TOKEN_NAME: "Bot Token",
-    SETTING_BOT_TOKEN_DESC: "Token from @BotFather. The bot must be an admin of the target channel/group.",
+    SETTING_BOT_TOKEN_NAME: "Enter bot token",
+    SETTING_BOT_TOKEN_DESC: "Get it from @BotFather",
     CHANNEL_DEFAULT_NAME: "New Preset",
     SETTING_PLACE_HOLDER_NAME: "Preset name…",
     SETTING_PLACEHOLDER_CHAT: "@username or ID…",
