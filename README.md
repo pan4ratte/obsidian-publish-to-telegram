@@ -2,36 +2,42 @@
 
 English | [Русский](https://github.com/pan4ratte/obsidian-publish-to-telegram/blob/main/README_RU.md)
 
-This plugin allows you to post notes directly to Telegram channels, groups and personal messages with different presets. All Telegram formatting options are supported, as well as media and document attachments. Advanced publishing settings are available to schedule posts, send them to multiple channels/groups at once and more.
+This plugin allows you to post notes directly to Telegram channels, groups and personal messages with different presets. Standard Telegram formatting, rich-text formatting for bots, as well as media and document attachments are supported. Advanced publishing settings allow you to schedule posts, edit posts and comments, send them using multiple presets at once and more.
 
 ![](media/plugin-demo-settings.png)
 
 
 ## Features
 
-1. Create multiple presets to post to different channels, groups, forum topics and personal messages.
+1. Create presets to post to different channels, groups, forum topics and personal messages:
 
-2. Post in different ways: with hotkeys, command palette and context menus.
+    * A preset can hold multiple target chats at once.
+    * Three optional publication methods: by account, bot or bot with rich-text formatting.
+    * Search field, that loads chat list if authorization is complete and account is picked.
+    * Option to enter target chat `@username` or `ID` manually.
 
-3. Attach photos, videos, albums and documents to your posts.
+2. Post in different ways: with hotkeys, command palette and context menus, as well as through advanced publishing settings menu.
 
-4. Advanced publishing settings:
+3. Advanced publishing settings:
 
-  	* Post, using multiple presets at once.
+    * Post with preset, using alternative publication method.
+    * Post, using multiple presets at once.
   	* Post without sound.
   	* Post with attached media under the text.
     * Schedule the publication.
     * Edit already existing posts or pre-written comments.
 
+4. Photo, video, album and document attachments.
+
 5. Publish pre-written commentaries to the post discussion (or as replies to the message if it was posted in a group or sent to a user).
 
 6. Set up a default preset to post quickly with it or use command palette or hotkeys.
 
-7. Optionally enable automatic post link saving to the note's properties after publishing.   
+7. Option to enable automatic posts and comments links saving to the note's properties.   
 
 8. Publish multiple posts in a row from a single note using a special command that splits the note's text into separate posts.
 
-9. Detailed user guide in the plugin settings with detailed description of all features of the plugin and supported formatting options.
+9. Detailed user guide in the plugin settings with detailed description of all features and supported formatting options.
 
 
 ## Installation
