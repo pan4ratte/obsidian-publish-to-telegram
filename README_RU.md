@@ -158,7 +158,7 @@
       <td><s>Зачёркивание</s></td>
     </tr>
     <tr>
-      <td><code><spoiler>Спойлер</spoiler></code></td>
+      <td><code><tg-spoiler>Спойлер</tg-spoiler></code></td>
       <td>Спойлер</td>
     </tr>
     <tr>
@@ -225,7 +225,7 @@
 | `.jpg`, `.jpeg`, `.png`, `.webp`                   | Фото / Альбом   |
 | `.gif`                                             | Анимация        |
 | `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`            | Видео / Альбом  |
-| `.pdf`                                             | Документ        |
+| `.pdf`, `.md`                                      | Документ        |
 
 ## Rich-text форматирование
 

@@ -158,7 +158,7 @@ Standard formatting is available for posts made via the “Account” and “Bot
       <td><s>Strikethrough</s></td>
     </tr>
     <tr>
-      <td><code><spoiler>Spoiler</spoiler></code></td>
+      <td><code><tg-spoiler>Spoiler</tg-spoiler></code></td>
       <td>Spoiler</td>
     </tr>
     <tr>
@@ -225,7 +225,7 @@ Currently supported formats:
 | `.jpg`, `.jpeg`, `.png`, `.webp` 		             	 | Photo / Album   |
 | `.gif`                                             | Animation       |
 | `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`            | Video / Album   |
-| `.pdf`                                             | Document        |
+| `.pdf`, `.md`                                      | Document        |
 
 ## Rich-text formatting
 

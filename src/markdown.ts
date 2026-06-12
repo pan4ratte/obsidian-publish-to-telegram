@@ -58,7 +58,35 @@ export function obsidianToRichMarkdown(body: string): string {
         (_, target: string, alias?: string) => (alias ?? target).trim()
     );
 
+    text = escapeRichHashtags(text);
+
     return text.trim();
+}
+
+// Telegram Rich Markdown reads a leading #word as a heading, so an Obsidian hashtag
+// renders as a heading instead of a clickable tag. Escaping it (\#word) makes Telegram
+// emit the literal #word, which it then auto-links as a hashtag.
+//
+// A hashtag is a # at line start or after whitespace, directly followed by tag characters
+// (letters/digits/_/-/ /) that include at least one letter or underscore. That excludes
+// "# heading" (the space after # means it isn't matched) and purely numeric "#123".
+// Fenced and inline code are stashed first so genuine '#' usage there (#define, #id, …)
+// is left alone.
+function escapeRichHashtags(text: string): string {
+    const stashed: string[] = [];
+    const stash = (s: string): string => `\x00H${stashed.push(s) - 1}\x00`;
+
+    let out = text
+        .replace(/```[\s\S]*?```/g, stash)   // fenced code blocks
+        .replace(/`[^`\n]+`/g, stash);       // inline code spans
+
+    out = out.replace(
+        /(^|\s)#([\p{L}\p{N}_/-]*[\p{L}_][\p{L}\p{N}_/-]*)/gmu,
+        (_, pre: string, tag: string) => `${pre}\\#${tag}`
+    );
+
+    // eslint-disable-next-line no-control-regex -- \x00 sentinels delimit stashed code spans
+    return out.replace(/\x00H(\d+)\x00/g, (_, i: string) => stashed[parseInt(i)]);
 }
 
 // Converts Obsidian markdown directly to Telegram-compatible HTML

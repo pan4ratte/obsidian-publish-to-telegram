@@ -41,7 +41,7 @@ All standard Telegram formatting elements are supported as well as some addition
       <td><s>Strikethrough</s></td>
     </tr>
     <tr>
-      <td><code>&lt;spoiler&gt;Spoiler&lt;/spoiler&gt;</code></td>
+      <td><code>&lt;tg-spoiler&gt;Spoiler&lt;/tg-spoiler&gt;</code></td>
       <td>Spoiler</td>
     </tr>
     <tr>
@@ -103,12 +103,12 @@ You can also embed files with external web-link embeds:
 
 Currently supported formats:
 
-| Extension                                          | Attachment type  |
-| -------------------------------------------------- | ---------------- |
-| `.jpg`, `.jpeg`, `.png`, `.webp`           | Photo / Album    |
-| `.gif`                                           | Animation        |
-| `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`  | Video / Album    |
-| `.pdf`                                           | Document         |
+| Extension                                           | Attachment type  |
+| --------------------------------------------------- | ---------------- |
+| `.jpg`, `.jpeg`, `.png`, `.webp`                    | Photo / Album    |
+| `.gif`                                              | Animation        |
+| `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`             | Video / Album    |
+| `.pdf`, `.md`                                       | Document         |
 
 ### Pre-written comments
 
