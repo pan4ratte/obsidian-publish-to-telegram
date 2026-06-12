@@ -304,7 +304,12 @@ export class MultiPresetModal extends Modal {
 
         const listContainer = contentEl.createDiv("telegram-multi-preset-list");
 
-        this.plugin.settings.channels.forEach(channel => {
+        const sortedChannels = [...this.plugin.settings.channels].sort((a, b) => {
+            if (a.type === b.type) return 0;
+            return a.type === "bot" ? -1 : 1;
+        });
+
+        sortedChannels.forEach(channel => {
             const itemEl = listContainer.createDiv("telegram-multi-preset-item");
             const nameEl = itemEl.createDiv("telegram-multi-preset-name");
             nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
