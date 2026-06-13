@@ -172,9 +172,6 @@ class ConfirmationModal extends Modal {
         contentEl.createEl("p", { text: this.message });
         const btnContainer = contentEl.createDiv("telegram-modal-buttons");
         new ButtonComponent(btnContainer).setButtonText(t.CONFIRM_CANCEL_BTN).onClick(() => this.close());
-        // setWarning is deprecated in favor of setDestructive, but setDestructive requires Obsidian
-        // v1.13.0 while this plugin still supports minAppVersion 1.11.4.
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
         new ButtonComponent(btnContainer).setButtonText(this.confirmText).setWarning().onClick(() => {
             void this.onSubmit();
             this.close();
