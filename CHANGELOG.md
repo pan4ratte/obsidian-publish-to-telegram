@@ -8,7 +8,7 @@ Version 4.0.0 brings bots back with a more important purpose: a full support of 
 
 * **Post as a bot again.** The Bot API posting method is back, alongside accounts. Any preset can post as an account, as a bot with classic text formatting and completely new, heavily extended rich-text formatting. See user guide to learn, how to use bot features properly.
 * **Post rich-text messages.** Bot presets can post using Telegram's Rich Messages: headings, tables, ordered and task lists, block quotes, collapsible blocks, footnotes, formulas, inline media and more. Pick the "Bot + rich text" method when creating a preset or in the advanced publishing settings later. One important limitation, *imposed by Telegram*: Rich Messages can accept only web-embedded media (HTTP/HTTPS links), local file attachments are not supported.
-* **Send rich-text comments.** Pre-written comments can also be sent as Rich Messages — toggle that option in the advanced publishing settings.
+* **Send rich-text comments.** Pre-written comments are send with the same publication method as the post.
 * **Add multiple accounts.** Authorize into more than one Telegram account and choose which one each preset posts from.
 * **Save and reuse bot tokens.** Bot tokens are now stored securely in your Obsidian Keychain, can be named, and reused across multiple presets.
 * **Send .md attachments as documents.** When the "Treat .md embeds as post comments" option is off, embedded .md files are attached to the post as documents.

@@ -1,5 +1,5 @@
 import { Plugin, Notice, TFile, TFolder, Menu } from "obsidian";
-import { t, getUserGuideContent, changelogContent } from "./lang/helpers";
+import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents } from "./src/telegram";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
@@ -94,7 +94,7 @@ export default class SendToTelegramPlugin extends Plugin {
             id: "show-changelog",
             name: t.COMMAND_SHOW_CHANGELOG,
             callback: () => {
-                new ChangelogModal(this.app, changelogContent).open();
+                new ChangelogModal(this.app, getChangelogContent()).open();
             }
         });
     }

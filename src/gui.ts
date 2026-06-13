@@ -3,7 +3,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Api } from "telegram";
 import { LogLevel } from "telegram/extensions/Logger";
-import { t, getUserGuideContent, changelogContent } from "../lang/helpers";
+import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
 import { TelegramChannel, TelegramSecrets, BotToken, PostMethod } from "./types";
@@ -778,7 +778,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 cls: "telegram-changelog-version-link",
             });
             versionBtn.addEventListener("click", () => {
-                new ChangelogModal(this.app, changelogContent).open();
+                new ChangelogModal(this.app, getChangelogContent()).open();
             });
             const closeBtn = bannerEl.createEl("button", {
                 cls: "clickable-icon telegram-changelog-close",
