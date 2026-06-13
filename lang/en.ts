@@ -41,7 +41,7 @@ export default {
 2. Bots can post rich-text messages, but can't use Telegram Premium features due to Telegram's restrictions.
 3. Optionally, bots can post texts with standard formatting, without rich-text formatting.
 
-Limitations of rich-text messages: you cannot edit them or attach local files to them (web-embeds are supported). Both limitations are imposed by Telegram.`,
+Limitation of rich-text messages: you can't attach local files to them (web-embeds are supported). This limitation is imposed by Telegram.`,
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
     SETTING_OPEN_BOTFATHER: "Open @BotFather",
     SETTING_FORMATTING_HELP: "User guide",
@@ -93,7 +93,6 @@ Limitations of rich-text messages: you cannot edit them or attach local files to
     MULTI_PRESET_SCHEDULE_NAME: "Schedule the post",
     MULTI_PRESET_SCHEDULE_DESC: "Leave empty to publish immediately",
     MULTI_PRESET_UPDATE_HEADING: "Editing",
-    MULTI_PRESET_EDIT_RICH_WARNING: "Editing a message that was published as rich text will strip its rich-text formatting — the Telegram Bot API doesn't allow editing Rich Messages.",
     MULTI_PRESET_UPDATE_NAME: "Edit post",
     MULTI_PRESET_UPDATE_NAME_DESC: "Links are stored in the tg_posts property",
     MULTI_PRESET_UPDATE_RESOLVING: "Loading…",

@@ -41,7 +41,7 @@ export default {
 2. Боты могут постить rich-text сообщения, но не могут постить с использованием функций Telegram Premium.
 3. Опционально, боты могут постить сообщения без использования rich-text форматирования
 
-Ограничения rich-text сообщений: их нельзя редактировать и к ним нельзя прикреплять локальные файлы (веб-встраивания файлов поддерживаются). Оба ограничения установлены самим Telegram.`,
+Ограничение rich-text сообщений: к ним нельзя прикреплять локальные файлы (веб-встраивания файлов поддерживаются). Это ограничение установлено самим Telegram.`,
     SETTING_OPEN_USERINFOBOT: "Открыть @userinfobot",
     SETTING_OPEN_BOTFATHER: "Открыть @BotFather",
     SETTING_FORMATTING_HELP: "Руководство пользователя",
@@ -93,7 +93,6 @@ export default {
     MULTI_PRESET_SCHEDULE_NAME: "Запланировать публикацию",
     MULTI_PRESET_SCHEDULE_DESC: "Оставьте пустым, чтобы опубликовать сейчас",
     MULTI_PRESET_UPDATE_HEADING: "Редактирование",
-    MULTI_PRESET_EDIT_RICH_WARNING: "Редактирование сообщения, опубликованного как rich-text, удалит его rich-text форматирование — Telegram Bot API не позволяет редактировать Rich-сообщения.",
     MULTI_PRESET_UPDATE_NAME: "Редактировать пост",
     MULTI_PRESET_UPDATE_NAME_DESC: "Ссылки хранятся в свойстве tg_posts",
     MULTI_PRESET_UPDATE_RESOLVING: "Загрузка…",

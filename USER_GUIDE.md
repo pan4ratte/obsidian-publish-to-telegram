@@ -319,10 +319,9 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram's 
 * All numerical HTML entities (e.g. `&#39;`).
 * Named entities: `&lt;`, `&gt;`, `&amp;`, `&quot;`, `&apos;`, `&nbsp;`, `&hellip;`, `&mdash;`, `&ndash;`, `&lsquo;`, `&rsquo;`, `&ldquo;`, `&rdquo;`.
 
-**Notes:**
+**Note:**
 
 * Inline media must be an **HTTP(S) web link** — local attachments can't be embedded inside a rich-text message (use the "Bot" or "Account" method, or a web URL). Local files attached to a "Bot + rich text" post are rejected with an error.
-* A rich message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns.
 
 ## 5. Pre-written comments
 
@@ -358,7 +357,7 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 ## 7. Limits
 
-Standard Telegram posting limits apply to limits of characters per post, limits of attached media size per post, etc. More about that: [https://limits.tginfo.me/](https://limits.tginfo.me/)
+Standard Telegram posting limits apply to limits apply to posts, send via "Account" and "Bot" methods. A rich-text message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns.of characters per post, limits of attached media size per post, etc. More about limits: [https://limits.tginfo.me/](https://limits.tginfo.me/)
 
 I also highly recommend my other plugin, [Advanced Word Count](https://community.obsidian.md/plugins/advanced-word-count), which lets you create detailed presets for word counts in notes and offers significantly greater functionality compared to the standard Obsidian word counter. This plugin can be configured to count characters exactly the same way Telegram does.
 
