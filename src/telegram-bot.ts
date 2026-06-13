@@ -41,6 +41,18 @@ function splitBodyByMarkers(body: string): string[] {
     return body.split(marker).map(p => p.trim()).filter(p => p.length > 0);
 }
 
+// Strips HTML tags to recover the visible text. A single pass of /<[^>]+>/g can leave
+// a dangerous sequence behind (e.g. "<<b>script>" -> "<script>"), so repeat until the
+// string stops changing.
+function stripHtmlTags(input: string): string {
+    let previous: string;
+    do {
+        previous = input;
+        input = input.replace(/<[^>]+>/g, "");
+    } while (input !== previous);
+    return input;
+}
+
 // ─── Post link builder ────────────────────────────────────────────────────────
 
 function buildBotPostLink(chatId: string, messageId: number): string {
@@ -374,7 +386,7 @@ async function sendPartViaBotApi(
     // The Bot API caps media captions at 1024 chars (bots get no Premium bump). The
     // length is counted on the visible text, so strip HTML tags before measuring.
     const BOT_CAPTION_LIMIT = 1024;
-    const captionPlainLength = htmlFallback.replace(/<[^>]+>/g, "").length;
+    const captionPlainLength = stripHtmlTags(htmlFallback).length;
 
     // Uploads the local / non-rich media files. The post text rides as the caption of the
     // first message produced (consumed once); the rest go caption-less. attachUnderText
