@@ -205,20 +205,12 @@ async function sendRichTextBot(token: string, chatId: string, markdown: string, 
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-// Prefers Rich Messages; falls back to a classic HTML message if sendRichMessage
-// is unavailable for this bot (e.g. the Bot API server predates 10.1, or the bot
-// lacks the capability). The fallback only fires before anything is sent, so there
-// is no risk of a double post.
+// Sends as a Rich Message when markdown is provided (the "bot + rich" method), or as a
+// classic HTML message otherwise (the plain "bot" method). A failed Rich Message is NOT
+// downgraded to HTML — the error propagates so the post isn't silently sent unformatted.
 async function sendRichOrClassicText(token: string, chatId: string, markdown: string, html: string, silent: boolean, topicId?: number): Promise<SendResult> {
     if (markdown.length > 0) {
-        try {
-            return await sendRichTextBot(token, chatId, markdown, silent, topicId);
-        } catch (err) {
-            console.warn(
-                "[publish-to-telegram] sendRichMessage failed, falling back to HTML sendMessage:",
-                err instanceof Error ? err.message : err
-            );
-        }
+        return await sendRichTextBot(token, chatId, markdown, silent, topicId);
     }
     return await sendTextBot(token, chatId, html, silent, topicId);
 }
@@ -304,19 +296,13 @@ async function sendRichReplyBot(token: string, chatId: string, replyToMessageId:
     return result.message_id;
 }
 
-// Sends a comment reply as a Rich Message when markdown is provided, falling back
-// to a classic HTML reply if Rich Messages are unavailable. Passing an empty
-// markdown string forces the classic path (used when the "rich comments" toggle is off).
-// Returns the sent message's ID, or null if sending failed entirely.
-async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number): Promise<number | null> {
+// Sends a comment reply as a Rich Message when markdown is provided (the "bot + rich"
+// method), or as a classic HTML reply otherwise (the plain "bot" method). A failed Rich
+// Message is NOT downgraded to HTML — the error propagates to the caller, which surfaces
+// it; the comment is not sent unformatted.
+async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number): Promise<number> {
     if (markdown.length > 0) {
-        try {
-            return await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn("[publish-to-telegram] rich comment failed, falling back to HTML reply:", msg);
-            new Notice(t.NOTICE_RICH_COMMENT_UNAVAILABLE.replace("{error}", msg));
-        }
+        return await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
     }
     return await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId);
 }
@@ -484,13 +470,13 @@ async function sendPartViaBotApi(
                     const discussionId = await findDiscussionMessageId(token, linkedChatId, result.messageId);
                     if (discussionId !== null) {
                         const commentMsgId = await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
-                        if (commentMsgId !== null) commentLinks.push(buildBotPostLink(String(linkedChatId), commentMsgId));
+                        commentLinks.push(buildBotPostLink(String(linkedChatId), commentMsgId));
                     } else {
                         new Notice(t.NOTICE_COMMENT_DISCUSSION_NOT_FOUND);
                     }
                 } else {
                     const commentMsgId = await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
-                    if (commentMsgId !== null) commentLinks.push(buildBotPostLink(chatId, commentMsgId));
+                    commentLinks.push(buildBotPostLink(chatId, commentMsgId));
                 }
             } catch (err) {
                 new Notice(t.NOTICE_COMMENT_FAILED.replace("{error}", err instanceof Error ? err.message : String(err)));
@@ -557,8 +543,9 @@ async function editRichMessageBot(token: string, chatId: string, messageId: numb
 // Edits comments that were published via the Bot API, in place — the bot counterpart
 // to editNoteCommentsOnly. Each stored comment is matched to an embedded .md file by
 // order (offset by embedOffset). asRich edits as a Rich Message ("bot + rich" method),
-// otherwise as classic HTML, with a rich→HTML fallback. Entries may be null to keep
-// alignment with the embeds when a link couldn't be parsed.
+// otherwise as classic HTML; a failed rich edit is reported as an error, not downgraded
+// to HTML. Entries may be null to keep alignment with the embeds when a link couldn't
+// be parsed.
 export async function editNoteCommentsViaBotApi(
     app: App,
     file: TFile,
@@ -585,15 +572,7 @@ export async function editNoteCommentsViaBotApi(
             if (asRich) {
                 const markdown = obsidianToRichMarkdown(mdBody);
                 if (!markdown.length) continue;
-                try {
-                    await editRichMessageBot(token, chatId, target.messageId, markdown);
-                } catch (err) {
-                    console.warn(
-                        "[publish-to-telegram] rich comment edit failed, falling back to HTML:",
-                        err instanceof Error ? err.message : err
-                    );
-                    await editMessageBot(token, chatId, target.messageId, mdToBotApiHtml(mdBody));
-                }
+                await editRichMessageBot(token, chatId, target.messageId, markdown);
             } else {
                 const html = mdToBotApiHtml(mdBody);
                 if (!html.length) continue;
@@ -640,25 +619,17 @@ export async function sendNoteViaBotApi(
         if (messageId) {
             // The edit follows the preset's *current* method: a "bot + rich" preset
             // re-publishes the edit as a Rich Message, a plain "bot" preset as HTML. The
-            // user picks the style at edit time by choosing which method they edit with.
+            // user picks the style at edit time by choosing which method they edit with. A
+            // failed rich edit is NOT downgraded to HTML — the error propagates instead.
             const richMarkdown = postAsRich ? obsidianToRichMarkdown(body) : "";
             const htmlContent = mdToBotApiHtml(body);
             for (const target of targets) {
                 const chatId = resolveChatId(target.id);
                 if (richMarkdown.length > 0) {
-                    try {
-                        await editRichMessageBot(token, chatId, messageId, richMarkdown);
-                        continue;
-                    } catch (err) {
-                        // Mirror the send path: if a rich edit isn't possible, degrade to HTML
-                        // rather than leaving the post unchanged.
-                        console.warn(
-                            "[publish-to-telegram] rich edit failed, falling back to HTML editMessageText:",
-                            err instanceof Error ? err.message : err
-                        );
-                    }
+                    await editRichMessageBot(token, chatId, messageId, richMarkdown);
+                } else {
+                    await editMessageBot(token, chatId, messageId, htmlContent);
                 }
-                await editMessageBot(token, chatId, messageId, htmlContent);
             }
             return { links: [updateLink], commentLinks: [], errors: [] };
         }
