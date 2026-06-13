@@ -6,9 +6,9 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
 
 <div align="center">
   <img src="media/1-cover.png"width="100%" />
-  <img src="media/2-general.png"width="33%" />
-  <img src="media/3-presets.png"width="33%" />
-  <img src="media/4-advanced.png"width="33%" />
+  <img src="media/2-general.png"width="32%" />
+  <img src="media/3-presets.png"width="32%" />
+  <img src="media/4-advanced.png"width="32%" />
 </div>
 
 
