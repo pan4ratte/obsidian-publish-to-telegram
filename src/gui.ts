@@ -1060,6 +1060,13 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     private renderBotTokenField(container: HTMLElement, channel: TelegramChannel): void {
         const tokens = this.plugin.settings.botTokens;
+        // With exactly one saved bot and no explicit choice, select it automatically;
+        // with multiple bots saved, leave the choice to the user.
+        if (!channel.botTokenId && tokens.length === 1) {
+            channel.botTokenId = tokens[0].id;
+            channel.botToken = this.plugin.getBotTokenValue(tokens[0].id);
+            void this.plugin.saveSettings();
+        }
         const setting = new Setting(container)
             .setName(t.SETTING_BOT_TOKEN_SELECT_NAME)
             .setDesc(tokens.length ? t.SETTING_BOT_TOKEN_SELECT_DESC : t.SETTING_BOT_TOKEN_EMPTY_HINT);
