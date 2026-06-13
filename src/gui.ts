@@ -3,11 +3,12 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { Api } from "telegram";
 import { LogLevel } from "telegram/extensions/Logger";
-import { t, getUserGuideContent, changelogContent } from "../lang/helpers";
+import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
-import { TelegramChannel, TelegramSecrets } from "./types";
+import { TelegramChannel, TelegramSecrets, BotToken, PostMethod } from "./types";
 import { createClient, getUserDialogs, DialogData, parseLinkComponents, DEFAULT_TG_API_ID, DEFAULT_TG_API_HASH, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
+import { getBotInfo } from "./telegram-bot";
 import { errMessage, errCode } from "./util";
 
 // Wraps an async handler so it can be used where a void-returning callback is
@@ -37,6 +38,33 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
     }
 }
 
+// The selectable posting methods with their localized labels, in display order.
+function methodOptions(): Array<[PostMethod, string]> {
+    return [
+        ["account", t.METHOD_ACCOUNT],
+        ["bot", t.METHOD_BOT],
+        ["bot-rich", t.METHOD_BOT_RICH],
+    ];
+}
+
+// The posting methods a preset offers in the advanced modal: its primary method's
+// family ("account", or "bot" + "bot-rich") is always available; the opposite family
+// is added only when the preset has "Use secondary publication methods" enabled.
+function availableMethods(channel: TelegramChannel): Set<PostMethod> {
+    const primaryIsAccount = (channel.defaultMethod ?? "account") === "account";
+    const accountFamily: PostMethod[] = ["account"];
+    const botFamily: PostMethod[] = ["bot", "bot-rich"];
+    const primary = primaryIsAccount ? accountFamily : botFamily;
+    if (!channel.useSecondaryMethods) return new Set(primary);
+    return new Set([...primary, ...(primaryIsAccount ? botFamily : accountFamily)]);
+}
+
+// Normalizes a chat id (preset target or a link's parsed chat) for comparison so
+// "@Channel", "channel" and a -100… id compare consistently.
+function normChatId(id: string): string {
+    return id.trim().toLowerCase().replace(/^@/, "");
+}
+
 // Builds a minimal TelegramChannel from a link's parsed chat ID (no preset needed).
 function channelFromLink(link: string, name: string): TelegramChannel | null {
     const parsed = parseLinkComponents(link);
@@ -44,6 +72,7 @@ function channelFromLink(link: string, name: string): TelegramChannel | null {
     return {
         id: "update-temp",
         name,
+        defaultMethod: "account",
         chatId: parsed.chatId,
         chatTargets: [{ id: parsed.chatId, title: name }],
         isDefault: false,
@@ -152,6 +181,7 @@ class ConfirmationModal extends Modal {
     onClose() { this.contentEl.empty(); }
 }
 
+
 // ─── Multi Preset Modal ───────────────────────────────────────────────────────
 
 export class MultiPresetModal extends Modal {
@@ -162,7 +192,11 @@ export class MultiPresetModal extends Modal {
 
     private silentToggle: ToggleComponent;
     private attachToggle: ToggleComponent;
+    private attachOptionEl: HTMLElement | null = null;
     private scheduleInput: HTMLInputElement | null = null;
+    // Guards programmatic preset-toggle changes so radio-style selection (only one
+    // preset at a time) doesn't re-enter the toggle's own onChange handler.
+    private updatingPresets = false;
 
     private updateLinkDropdown: DropdownComponent | null = null;
     private updateHintEl: HTMLElement | null = null;
@@ -172,7 +206,8 @@ export class MultiPresetModal extends Modal {
     private commentLinkDropdown: DropdownComponent | null = null;
 
     private publishBtn: ButtonComponent | null = null;
-    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent }> = [];
+    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod, methodsEl: HTMLElement }> = [];
+    private scheduleOptionEl: HTMLElement | null = null;
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
 
     constructor(app: App, plugin: SendToTelegramPlugin, file: TFile, initialChannelId?: string) {
@@ -193,16 +228,128 @@ export class MultiPresetModal extends Modal {
         this.publishBtn?.setButtonText(this.anyLinkSelected() ? t.MULTI_PRESET_EDIT_BTN : t.MULTI_PRESET_POST_BTN);
     }
 
-    private setChannelRowsDisabled(disabled: boolean) {
+    private updateScheduleState() {
+        if (!this.scheduleOptionEl || !this.scheduleInput) return;
+        // Scheduling isn't supported by the Bot API. Keep the field visible but disable
+        // it — both visually (greyed, non-interactive) and physically (input disabled +
+        // value cleared) — when the selected preset posts via a bot method.
+        const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
+        const allBot = selectedRows.length > 0 && selectedRows.every(r => r.method !== "account");
+        this.scheduleInput.disabled = allBot;
+        if (allBot) this.scheduleInput.value = "";
+        this.scheduleOptionEl.toggleClass("is-disabled", allBot);
+    }
+
+    // "Attachments below the text" only positions a caption above uploaded media. Rich
+    // Messages embed media inside the markdown and can't carry local uploads at all, so
+    // the option is meaningless there — disable it when the selected preset is bot-rich.
+    private updateAttachState() {
+        if (!this.attachOptionEl) return;
+        const anyRich = this.channelRows.some(r => this.selectedChannels.has(r.id) && r.method === "bot-rich");
+        this.attachToggle.setDisabled(anyRich);
+        if (anyRich) this.attachToggle.setValue(false);
+        this.attachOptionEl.toggleClass("is-disabled", anyRich);
+    }
+
+    // Selects a single preset (or none), enforcing radio-style behaviour: turning one on
+    // turns every other one off. Updates each row's toggle and method-picker visibility,
+    // then refreshes the option states that depend on the chosen method.
+    private selectOnlyPreset(id: string | null) {
+        this.updatingPresets = true;
+        this.selectedChannels.clear();
+        if (id) this.selectedChannels.add(id);
+        for (const r of this.channelRows) {
+            const on = r.id === id;
+            r.toggle.setValue(on);
+            r.methodsEl.toggleClass("is-hidden", !on);
+        }
+        this.updatingPresets = false;
+        this.updateScheduleState();
+        this.updateAttachState();
+    }
+
+    // Collects the normalized chat ids of the links currently chosen for editing.
+    // Returns null when an "all" bulk option is chosen (no single chat to match against).
+    private editingChatIds(): Set<string> | null {
+        const ids = new Set<string>();
+        const post = this.updateLinkDropdown?.getValue() ?? "none";
+        if (post === "all") return null;
+        if (post !== "none") {
+            const parsed = parseLinkComponents(post);
+            if (parsed) ids.add(normChatId(parsed.chatId));
+        }
+        const comment = this.commentLinkDropdown?.getValue() ?? "none";
+        if (comment === "all") return null;
+        if (comment !== "none") ids.add(normChatId(comment)); // comment option value is the chat id
+        return ids;
+    }
+
+    // Reflects the current edit-link selection on the preset rows: enables only the
+    // presets whose chat targets match the chosen link's chat (all disabled for the
+    // "all" bulk option). The matching preset the user toggles on supplies the method
+    // and token used to perform the edit. With no link selected every preset is re-enabled.
+    private applyEditLinkFilter() {
+        const editing = this.anyLinkSelected();
+
+        if (!editing) {
+            this.channelRows.forEach(row => row.container.removeClass("is-disabled"));
+            return;
+        }
+
+        const chatIds = this.editingChatIds();
         this.channelRows.forEach(row => {
-            if (disabled) {
-                row.container.addClass("is-disabled");
-                row.toggle.setValue(false);
-                this.selectedChannels.delete(row.id);
-            } else {
+            const channel = this.plugin.settings.channels.find(c => c.id === row.id);
+            const matches = chatIds !== null && !!channel
+                && (channel.chatTargets ?? []).some(target => chatIds.has(normChatId(target.id)));
+            if (matches) {
                 row.container.removeClass("is-disabled");
+            } else {
+                row.container.addClass("is-disabled");
+                if (this.selectedChannels.has(row.id)) {
+                    // Untoggle just this row (radio selection would otherwise cascade).
+                    this.updatingPresets = true;
+                    row.toggle.setValue(false);
+                    row.methodsEl.toggleClass("is-hidden", true);
+                    this.selectedChannels.delete(row.id);
+                    this.updatingPresets = false;
+                }
             }
         });
+        this.updateScheduleState();
+        this.updateAttachState();
+    }
+
+    // The first selected preset whose chat targets include the given chat, with the
+    // method chosen for it. Drives how an edit is routed: its method picks account vs.
+    // classic-bot vs. rich-bot editing, and (for bot methods) its token is used.
+    private editRouteFor(chatId: string): { channel: TelegramChannel; method: PostMethod } | null {
+        for (const row of this.channelRows) {
+            if (!this.selectedChannels.has(row.id)) continue;
+            const channel = this.plugin.settings.channels.find(c => c.id === row.id);
+            if (channel && (channel.chatTargets ?? []).some(target => normChatId(target.id) === normChatId(chatId))) {
+                return { channel, method: row.method };
+            }
+        }
+        return null;
+    }
+
+    // Edits a single stored post link, routing by the selected preset's method: a bot /
+    // bot-rich preset edits via its bot (preserving rich formatting for bot-rich), while
+    // no matching bot preset falls back to the account path (channelFromLink).
+    private async editPost(link: string, title: string | null, silent: boolean, attachUnderText: boolean): Promise<void> {
+        const parsed = parseLinkComponents(link);
+        const route = parsed ? this.editRouteFor(parsed.chatId) : null;
+        if (parsed && route && (route.method === "bot" || route.method === "bot-rich")) {
+            const editChannel: TelegramChannel = {
+                ...route.channel,
+                chatId: parsed.chatId,
+                chatTargets: [{ id: parsed.chatId, title: title ?? parsed.chatId }],
+            };
+            await this.plugin.sendNoteToTelegram(this.file, editChannel, silent, attachUnderText, link, undefined, route.method);
+        } else if (title) {
+            const channel = channelFromLink(link, title);
+            if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, link, undefined);
+        }
     }
 
     private showHint(el: HTMLElement | null, descEl: HTMLElement | null, text: string, isError: boolean) {
@@ -221,14 +368,12 @@ export class MultiPresetModal extends Modal {
 
     private handleLinkSelection(value: string) {
         this.updatePublishBtn();
+        this.applyEditLinkFilter();
         if (value === "none") {
             this.builtUpdateChannel = null;
-            if (!this.anyLinkSelected()) this.setChannelRowsDisabled(false);
             this.hideHint(this.updateHintEl, this.updateDescEl);
             return;
         }
-
-        this.setChannelRowsDisabled(true);
 
         if (value === "all") {
             this.builtUpdateChannel = null;
@@ -262,23 +407,77 @@ export class MultiPresetModal extends Modal {
 
         const listContainer = contentEl.createDiv("telegram-multi-preset-list");
 
+        const singlePreset = this.plugin.settings.channels.length === 1;
+
         this.plugin.settings.channels.forEach(channel => {
             const itemEl = listContainer.createDiv("telegram-multi-preset-item");
-            const nameEl = itemEl.createDiv("telegram-multi-preset-name");
-            nameEl.setText(channel.name || t.CHANNEL_DEFAULT_NAME);
+            if (singlePreset) itemEl.addClass("telegram-multi-preset-item--single");
+
+            const headerEl = itemEl.createDiv("telegram-multi-preset-header");
+            const nameEl = headerEl.createDiv("telegram-multi-preset-name");
+            nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
 
             const isPreToggled = this.initialChannelId === channel.id;
             if (isPreToggled) this.selectedChannels.add(channel.id);
 
-            const controlEl = itemEl.createDiv("telegram-multi-preset-control");
-            const toggle = new ToggleComponent(controlEl)
+            const defaultMethod = channel.defaultMethod ?? "account";
+
+            // Method picker: one toggle per method the preset exposes (secondary methods
+            // appear only when "Use secondary publication methods" is enabled). It behaves
+            // like a radio group — exactly one method stays selected — and is revealed only
+            // while the preset itself is toggled on. The preset's configured method is
+            // labelled "Default (…)", pinned to the top of the list, and selected initially.
+            const methodsEl = itemEl.createDiv("telegram-multi-preset-methods");
+            const row = { id: channel.id, container: itemEl, toggle: null as unknown as ToggleComponent, method: defaultMethod, methodsEl };
+
+            const allowedMethods = availableMethods(channel);
+            const methodToggles: Array<{ method: PostMethod; toggle: ToggleComponent }> = [];
+            let updatingMethods = false;
+
+            const selectMethod = (value: PostMethod) => {
+                updatingMethods = true;
+                row.method = value;
+                for (const mt of methodToggles) mt.toggle.setValue(mt.method === value);
+                updatingMethods = false;
+                this.updateScheduleState();
+                this.updateAttachState();
+            };
+
+            const orderedMethods = methodOptions().filter(([value]) => allowedMethods.has(value));
+            // The default method always sits at the top of the list.
+            orderedMethods.sort((a, b) => Number(b[0] === defaultMethod) - Number(a[0] === defaultMethod));
+
+            for (const [value, label] of orderedMethods) {
+                const isDefault = value === defaultMethod;
+                const optEl = methodsEl.createDiv("telegram-preset-method-option");
+                optEl.createSpan({
+                    text: isDefault ? t.MULTI_PRESET_METHOD_DEFAULT.replace("{method}", label) : label,
+                    cls: "telegram-preset-method-label",
+                });
+                const mToggle = new ToggleComponent(optEl.createDiv())
+                    .setValue(isDefault)
+                    .onChange(val => {
+                        if (updatingMethods) return;
+                        // Radio behaviour: selecting one clears the rest; the active one
+                        // can't be switched off (a method must always be chosen).
+                        if (val) selectMethod(value);
+                        else if (row.method === value) { updatingMethods = true; mToggle.setValue(true); updatingMethods = false; }
+                    });
+                methodToggles.push({ method: value, toggle: mToggle });
+            }
+
+            methodsEl.toggleClass("is-hidden", !isPreToggled);
+
+            // Only one preset can be selected at a time: toggling one on clears the rest.
+            const toggle = new ToggleComponent(headerEl.createDiv("telegram-multi-preset-control"))
                 .setValue(isPreToggled)
                 .onChange(value => {
-                    if (value) this.selectedChannels.add(channel.id);
-                    else this.selectedChannels.delete(channel.id);
+                    if (this.updatingPresets) return;
+                    this.selectOnlyPreset(value ? channel.id : null);
                 });
+            row.toggle = toggle;
 
-            this.channelRows.push({ id: channel.id, container: itemEl, toggle });
+            this.channelRows.push(row);
         });
 
         contentEl.createDiv({
@@ -293,19 +492,24 @@ export class MultiPresetModal extends Modal {
         this.silentToggle = new ToggleComponent(silentOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
-        const attachOptionEl = contentEl.createDiv("telegram-option-item");
-        const attachTextEl = attachOptionEl.createDiv("telegram-option-text");
+        this.attachOptionEl = contentEl.createDiv("telegram-option-item");
+        const attachTextEl = this.attachOptionEl.createDiv("telegram-option-text");
         attachTextEl.createDiv({ text: t.MULTI_PRESET_ATTACHMENTS_NAME, cls: "telegram-option-name" });
         attachTextEl.createDiv({ text: t.MULTI_PRESET_ATTACHMENTS_DESC, cls: "telegram-option-desc" });
-        this.attachToggle = new ToggleComponent(attachOptionEl.createDiv("telegram-option-control"))
+        this.attachToggle = new ToggleComponent(this.attachOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
-        const scheduleOptionEl = contentEl.createDiv("telegram-option-item");
+        this.scheduleOptionEl = contentEl.createDiv("telegram-option-item");
+        const scheduleOptionEl = this.scheduleOptionEl;
         const scheduleTextEl = scheduleOptionEl.createDiv("telegram-option-text");
         scheduleTextEl.createDiv({ text: t.MULTI_PRESET_SCHEDULE_NAME, cls: "telegram-option-name" });
         scheduleTextEl.createDiv({ text: t.MULTI_PRESET_SCHEDULE_DESC, cls: "telegram-option-desc" });
         this.scheduleInput = scheduleOptionEl.createDiv("telegram-option-control").createEl("input", { cls: "telegram-schedule-input" });
         this.scheduleInput.type = "datetime-local";
+
+        // Initial state now that all option elements exist.
+        this.updateScheduleState();
+        this.updateAttachState();
 
         // ─── Edit Post & Comments Section ─────────────────────────────────────────────
 
@@ -336,7 +540,7 @@ export class MultiPresetModal extends Modal {
         const commentControlEl = commentOptionEl.createDiv("telegram-option-control");
 
         const hasAnyLinks = allStoredPostLinks.length > 0 || allStoredCommentLinks.length > 0;
-        if (!hasAnyLinks || !this.plugin.secrets.telegramSession) {
+        if (!hasAnyLinks || this.plugin.settings.accounts.length === 0) {
             updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NO_LINKS, cls: "telegram-option-desc" });
             commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
         } else {
@@ -393,13 +597,9 @@ export class MultiPresetModal extends Modal {
                         this.commentLinkDropdown!.addOption(chatId, group.title ?? chatId);
                     });
                     this.commentLinkDropdown.setValue("none");
-                    this.commentLinkDropdown.onChange(value => {
+                    this.commentLinkDropdown.onChange(() => {
                         this.updatePublishBtn();
-                        if (value === "none") {
-                            if (!this.anyLinkSelected()) this.setChannelRowsDisabled(false);
-                        } else {
-                            this.setChannelRowsDisabled(true);
-                        }
+                        this.applyEditLinkFilter();
                     });
                 } else {
                     commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
@@ -443,11 +643,10 @@ export class MultiPresetModal extends Modal {
                         for (const link of allStoredPostLinks) {
                             const info = this.resolvedLinks.get(link);
                             if (!info?.title) continue;
-                            const channel = channelFromLink(link, info.title);
-                            if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, link, undefined);
+                            await this.editPost(link, info.title, silent, attachUnderText);
                         }
                     } else {
-                        await this.plugin.sendNoteToTelegram(this.file, this.builtUpdateChannel!, silent, attachUnderText, updateLinkRaw, undefined);
+                        await this.editPost(updateLinkRaw, this.resolvedLinks.get(updateLinkRaw)?.title ?? null, silent, attachUnderText);
                     }
                 }
                 if (isEditingComments) {
@@ -463,19 +662,27 @@ export class MultiPresetModal extends Modal {
                         links.sort((a, b) => (parseLinkComponents(a)?.messageId ?? 0) - (parseLinkComponents(b)?.messageId ?? 0));
                     });
 
+                    // Each comment chat routes by the preset selected for that chat: a bot /
+                    // bot-rich preset edits via its bot, otherwise editing uses the account.
+                    const editGroup = async (chatId: string, links: string[]) => {
+                        const route = this.editRouteFor(chatId);
+                        await this.plugin.editNoteComments(this.file, links, silent, route?.method ?? "account", route?.channel.botToken);
+                    };
+
                     if (commentDropdownValue === "all") {
-                        for (const links of commentGroupsByChatId.values()) {
-                            await this.plugin.editNoteComments(this.file, links, silent);
+                        for (const [chatId, links] of commentGroupsByChatId.entries()) {
+                            await editGroup(chatId, links);
                         }
                     } else {
                         const links = commentGroupsByChatId.get(commentDropdownValue) ?? [];
-                        await this.plugin.editNoteComments(this.file, links, silent);
+                        await editGroup(commentDropdownValue, links);
                     }
                 }
                 if (!isUpdatingPost && !isEditingComments) {
                     for (const channelId of this.selectedChannels) {
                         const channel = this.plugin.settings.channels.find(c => c.id === channelId);
-                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate);
+                        const method = this.channelRows.find(r => r.id === channelId)?.method;
+                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, method);
                     }
                 }
             });
@@ -532,8 +739,10 @@ export class TelegramSettingTab extends PluginSettingTab {
     plugin: SendToTelegramPlugin;
     private inlineQrClient: TelegramClient | null = null;
     private inlineLocalClient: TelegramClient | null = null;
-    private dialogsFetch: Promise<DialogData[]> | null = null;
-    private dialogsLoading = false;
+    // Dialog lists are fetched lazily per account and cached for the tab's lifetime.
+    private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
+    // Persisted across re-renders so the credentials card stays open after edits.
+    private credentialsCardOpen = false;
 
     constructor(app: App, plugin: SendToTelegramPlugin) { super(app, plugin); this.plugin = plugin; }
 
@@ -551,13 +760,6 @@ export class TelegramSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        if (this.plugin.secrets.telegramSession) {
-            if (!this.dialogsFetch) this.dialogsFetch = this.fetchDialogs();
-        } else {
-            this.dialogsFetch = null;
-            this.dialogsLoading = false;
-        }
-
         new Setting(containerEl).setHeading().setName(t.SETTING_HEADER);
 
         containerEl.createEl("p", { text: t.SETTING_DESCRIPTION, cls: "telegram-plugin-description" });
@@ -573,7 +775,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 cls: "telegram-changelog-version-link",
             });
             versionBtn.addEventListener("click", () => {
-                new ChangelogModal(this.app, changelogContent).open();
+                new ChangelogModal(this.app, getChangelogContent()).open();
             });
             const closeBtn = bannerEl.createEl("button", {
                 cls: "clickable-icon telegram-changelog-close",
@@ -591,35 +793,76 @@ export class TelegramSettingTab extends PluginSettingTab {
       // ── General ──
       new Setting(containerEl).setHeading().setName(t.SECTION_GENERAL);
 
-        if (this.plugin.secrets.telegramSession) {
-            const authStatusEl = containerEl.createDiv({ cls: "telegram-auth-status" });
-            authStatusEl.createSpan({
-                text: t.AUTH_AUTHORIZED_AS.replace("{name}", this.plugin.settings.telegramDisplayName),
-                cls: "telegram-auth-status-name"
+        const accounts = this.plugin.settings.accounts;
+        const authStatusEl = containerEl.createDiv({ cls: "telegram-auth-status" });
+        const authActionsEl = authStatusEl.createDiv({ cls: "telegram-auth-actions" });
+
+        // Containers rendered just below the bar; revealed on demand by the buttons.
+        const addTokenContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const loginContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const credsContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const closeInline = () => {
+            addTokenContainer.empty(); addTokenContainer.addClass("is-hidden");
+            loginContainer.empty(); loginContainer.addClass("is-hidden");
+            credsContainer.empty(); credsContainer.addClass("is-hidden");
+            this.credentialsCardOpen = false;
+            authActionsEl.querySelectorAll(".telegram-link-button.is-active")
+                .forEach(el => el.classList.remove("is-active"));
+        };
+
+        // ButtonComponent's text and icon overwrite each other, so prepend the icon manually.
+        const prependIcon = (btn: ButtonComponent, icon: string) => {
+            setIcon(btn.buttonEl.createSpan({ cls: "telegram-btn-icon", prepend: true }), icon);
+        };
+
+        const loginBtn = new ButtonComponent(authActionsEl)
+            .setButtonText(accounts.length > 0 ? t.AUTH_ADD_ACCOUNT_BTN : t.AUTH_LOGIN_BTN)
+            .onClick(() => {
+                const wasOpen = !loginContainer.hasClass("is-hidden");
+                closeInline();
+                if (!wasOpen) {
+                    loginContainer.removeClass("is-hidden");
+                    loginBtn.buttonEl.addClass("is-active");
+                    this.renderInlinePhoneStep(loginContainer);
+                }
             });
-            const logoutBtn = authStatusEl.createEl("button", {
-                cls: "clickable-icon telegram-logout-button",
-                attr: { "aria-label": t.AUTH_LOGOUT_BTN }
+        loginBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(loginBtn, "user-plus");
+
+        const addTokenBtn = new ButtonComponent(authActionsEl)
+            .setButtonText(t.AUTH_ADD_BOT_TOKEN_BTN)
+            .onClick(() => {
+                const wasOpen = !addTokenContainer.hasClass("is-hidden");
+                closeInline();
+                if (!wasOpen) {
+                    addTokenContainer.removeClass("is-hidden");
+                    addTokenBtn.buttonEl.addClass("is-active");
+                    this.renderAddBotTokenForm(addTokenContainer);
+                }
             });
-            setIcon(logoutBtn, "log-out");
-            logoutBtn.addEventListener("click", () => {
-                new ConfirmationModal(
-                    this.app,
-                    t.CONFIRM_LOGOUT_TITLE,
-                    t.CONFIRM_LOGOUT_MSG,
-                    t.CONFIRM_LOGOUT_BTN,
-                    async () => {
-                        await this.plugin.clearSecrets();
-                        this.plugin.settings.telegramDisplayName = "";
-                        await this.plugin.saveSettings();
-                        this.render();
-                    }
-                ).open();
+        addTokenBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(addTokenBtn, "bot-message-square");
+
+        const openCredentials = () => {
+            this.credentialsCardOpen = true;
+            credsContainer.removeClass("is-hidden");
+            credsBtn.buttonEl.addClass("is-active");
+            this.renderCredentialsCard(credsContainer);
+        };
+        const credsBtn = new ButtonComponent(authActionsEl)
+            .setButtonText(t.AUTH_MANAGE_CREDENTIALS_BTN)
+            .setTooltip(t.AUTH_MANAGE_CREDENTIALS_TOOLTIP)
+            .onClick(() => {
+                const wasOpen = !credsContainer.hasClass("is-hidden");
+                closeInline();
+                if (!wasOpen) openCredentials();
             });
-        } else {
-            const authContainer = containerEl.createDiv({ cls: "telegram-auth-inline" });
-            this.renderInlinePhoneStep(authContainer);
-        }
+        credsBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(credsBtn, "key-round");
+
+        // Re-open the credentials card after a full re-render (e.g. following a
+        // token delete or account logout triggered from inside the card).
+        if (this.credentialsCardOpen) openCredentials();
 
         new Setting(containerEl).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.savePostLinks)
@@ -639,27 +882,34 @@ export class TelegramSettingTab extends PluginSettingTab {
         infoDiv.createEl("div", { text: t.SETTING_ADD_CHANNEL_NAME, cls: "telegram-add-preset-title" });
         infoDiv.createEl("div", { text: t.SETTING_ADD_CHANNEL_DESC, cls: "telegram-add-preset-description" });
 
-        const buttonContainer = addSection.createDiv("telegram-add-preset-button-container");
+        const linkRow = addSection.createDiv("telegram-add-preset-button-row");
 
-        new ButtonComponent(buttonContainer)
+        new ButtonComponent(linkRow)
             .setButtonText(t.SETTING_OPEN_USERINFOBOT)
             .onClick(() => { window.open("https://t.me/userinfobot", "_blank"); })
             .buttonEl.addClass("telegram-link-button");
 
-        new ButtonComponent(buttonContainer)
+        new ButtonComponent(linkRow)
+            .setButtonText(t.SETTING_OPEN_BOTFATHER)
+            .onClick(() => { window.open("https://t.me/BotFather", "_blank"); })
+            .buttonEl.addClass("telegram-link-button");
+
+        new ButtonComponent(linkRow)
             .setButtonText(t.SETTING_FORMATTING_HELP)
             .onClick(() => {
                 new FormattingHelpModal(this.app, getUserGuideContent()).open();
             })
             .buttonEl.addClass("telegram-link-button");
 
-        new ButtonComponent(buttonContainer)
-            .setButtonText(t.SETTING_ADD_CHANNEL)
+        const addRow = addSection.createDiv("telegram-add-preset-button-row");
+
+        new ButtonComponent(addRow)
+            .setButtonText(t.SETTING_ADD_PRESET)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
                 while (existingNames.has(`${t.CHANNEL_DEFAULT_NAME} ${idx}`)) idx++;
-                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, chatTargets: [], chatId: "", isDefault: false });
+                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, defaultMethod: "account", chatTargets: [], chatId: "", isDefault: false });
                 await this.plugin.saveSettings();
                 this.render();
             }).buttonEl.addClass("telegram-add-button");
@@ -701,12 +951,27 @@ export class TelegramSettingTab extends PluginSettingTab {
                         t.CONFIRM_DELETE_MSG.replace("{name}", channel.name || t.CHANNEL_DEFAULT_NAME),
                         t.CONFIRM_DELETE_BTN,
                         async () => {
+                            // Bot tokens are shared, named entities now — deleting a preset
+                            // must not delete the token (managed via the credentials modal).
                             this.plugin.settings.channels.splice(index, 1);
                             await this.plugin.saveSettings();
                             this.render();
                         }
                     ).open();
                 }).buttonEl.addClass("telegram-delete-button");
+
+            // Primary publishing method, then the picker for that method's resource; an
+            // optional "use secondary methods" toggle reveals the other method's picker.
+            this.renderMethodField(channelDiv, channel);
+            const primaryIsAccount = (channel.defaultMethod ?? "account") === "account";
+            if (primaryIsAccount) this.renderAccountField(channelDiv, channel);
+            else this.renderBotTokenField(channelDiv, channel);
+
+            this.renderSecondaryToggle(channelDiv, channel);
+            if (channel.useSecondaryMethods) {
+                if (primaryIsAccount) this.renderBotTokenField(channelDiv, channel);
+                else this.renderAccountField(channelDiv, channel);
+            }
 
             this.renderChatPicker(channelDiv, channel);
 
@@ -726,6 +991,239 @@ export class TelegramSettingTab extends PluginSettingTab {
                 })
                 .settingEl.addClass("telegram-preset-default");
         });
+    }
+
+    private renderAccountField(container: HTMLElement, channel: TelegramChannel): void {
+        const accounts = this.plugin.settings.accounts;
+        // With exactly one account and no explicit choice, select it automatically.
+        if (!channel.accountId && accounts.length === 1) {
+            channel.accountId = accounts[0].id;
+            void this.plugin.saveSettings();
+        }
+        const setting = new Setting(container)
+            .setName(t.SETTING_ACCOUNT_NAME)
+            .setDesc(accounts.length ? t.SETTING_ACCOUNT_DESC : t.SETTING_ACCOUNT_EMPTY_HINT);
+
+        if (accounts.length > 0) {
+            setting.addDropdown(dd => {
+                dd.addOption("", t.SETTING_ACCOUNT_PLACEHOLDER);
+                for (const acc of accounts) dd.addOption(acc.id, acc.displayName || acc.id);
+                const current = accounts.some(a => a.id === channel.accountId) ? channel.accountId! : "";
+                dd.setValue(current);
+                dd.onChange(async (value) => {
+                    channel.accountId = value || undefined;
+                    await this.plugin.saveSettings();
+                    // Re-render so the chat picker rebinds to the newly chosen account.
+                    this.render();
+                });
+            });
+        }
+        setting.settingEl.addClass("telegram-account-setting");
+    }
+
+    private renderMethodField(container: HTMLElement, channel: TelegramChannel): void {
+        const setting = new Setting(container)
+            .setName(t.SETTING_METHOD_NAME)
+            .setDesc(t.SETTING_METHOD_DESC)
+            .addDropdown(dd => {
+                for (const [value, label] of methodOptions()) dd.addOption(value, label);
+                dd.setValue(channel.defaultMethod ?? "account");
+                dd.onChange(async (value) => {
+                    channel.defaultMethod = value as PostMethod;
+                    await this.plugin.saveSettings();
+                    // Re-render so the primary/secondary pickers reflect the new method.
+                    this.render();
+                });
+            });
+        setting.settingEl.addClass("telegram-method-setting");
+    }
+
+    private renderSecondaryToggle(container: HTMLElement, channel: TelegramChannel): void {
+        new Setting(container)
+            .setName(t.SETTING_SECONDARY_NAME)
+            .setDesc(t.SETTING_SECONDARY_DESC)
+            .addToggle(toggle => {
+                toggle.setValue(channel.useSecondaryMethods ?? false)
+                    .onChange(async (v) => {
+                        channel.useSecondaryMethods = v;
+                        await this.plugin.saveSettings();
+                        // Re-render to show/hide the secondary method's picker.
+                        this.render();
+                    });
+            })
+            .settingEl.addClass("telegram-secondary-setting");
+    }
+
+    private renderBotTokenField(container: HTMLElement, channel: TelegramChannel): void {
+        const tokens = this.plugin.settings.botTokens;
+        // With exactly one saved bot and no explicit choice, select it automatically;
+        // with multiple bots saved, leave the choice to the user.
+        if (!channel.botTokenId && tokens.length === 1) {
+            channel.botTokenId = tokens[0].id;
+            channel.botToken = this.plugin.getBotTokenValue(tokens[0].id);
+            void this.plugin.saveSettings();
+        }
+        const setting = new Setting(container)
+            .setName(t.SETTING_BOT_TOKEN_SELECT_NAME)
+            .setDesc(tokens.length ? t.SETTING_BOT_TOKEN_SELECT_DESC : t.SETTING_BOT_TOKEN_EMPTY_HINT);
+
+        if (tokens.length > 0) {
+            setting.addDropdown(dd => {
+                dd.addOption("", t.SETTING_BOT_TOKEN_SELECT_PLACEHOLDER);
+                for (const token of tokens) dd.addOption(token.id, token.name);
+                // If the referenced token was deleted, fall back to the placeholder.
+                const current = tokens.some(tk => tk.id === channel.botTokenId) ? channel.botTokenId! : "";
+                dd.setValue(current);
+                dd.onChange(async (value) => {
+                    channel.botTokenId = value || undefined;
+                    channel.botToken = value ? this.plugin.getBotTokenValue(value) : "";
+                    await this.plugin.saveSettings();
+                });
+            });
+        }
+        setting.settingEl.addClass("telegram-bot-token-setting");
+    }
+
+    private renderAddBotTokenForm(container: HTMLElement): void {
+        const card = container.createDiv({ cls: "telegram-add-token-form" });
+        let tokenValue = "";
+
+        const save = async (saveBtn: ButtonComponent) => {
+            const token = tokenValue.trim();
+            if (!token) { new Notice(t.BOT_TOKEN_INCOMPLETE); return; }
+            saveBtn.setDisabled(true).setIcon("loader-2");
+            try {
+                // Resolve the bot's name from Telegram so the token is labelled automatically.
+                const name = (await getBotInfo(token)) || t.BOT_TOKEN_DEFAULT_NAME;
+                const id = Date.now().toString();
+                this.plugin.settings.botTokens.push({ id, name });
+                this.plugin.saveBotToken(id, token);
+                await this.plugin.saveSettings();
+                this.render();
+            } catch (err) {
+                saveBtn.setDisabled(false).setIcon("save");
+                new Notice(`${t.BOT_TOKEN_INVALID}: ${errMessage(err)}`);
+            }
+        };
+
+        // Token input and Save button share one row.
+        const tokenSetting = new Setting(card)
+            .setName(t.SETTING_BOT_TOKEN_NAME)
+            .setDesc(t.SETTING_BOT_TOKEN_DESC)
+            .addText(text => {
+                text.inputEl.type = "password";
+                text.setPlaceholder("123456789:abc…")
+                    .onChange((v) => { tokenValue = v; });
+            })
+            .addButton(btn => {
+                btn.setIcon("save").setTooltip(t.BOT_TOKEN_SAVE_BTN).setCta()
+                    .onClick(() => { void save(btn); });
+            });
+        tokenSetting.settingEl.addClass("telegram-add-token-input");
+    }
+
+    // Inline equivalent of the old credentials modal: lists named bot tokens
+    // (rename / delete) and connected accounts (log out). `refresh()` rebuilds the
+    // card in place; mutations that affect the rest of the tab call this.render(),
+    // which re-opens the card via credentialsCardOpen.
+    private renderCredentialsCard(container: HTMLElement): void {
+        const card = container.createDiv({ cls: "telegram-credentials-card" });
+
+        // ── Bot tokens ──
+        card.createDiv({ text: t.CREDENTIALS_BOT_TOKENS_HEADING, cls: "telegram-credentials-heading" });
+        const tokens = this.plugin.settings.botTokens;
+        if (tokens.length === 0) {
+            card.createEl("p", { text: t.CREDENTIALS_NO_TOKENS, cls: "telegram-credentials-empty" });
+        } else {
+            const list = card.createDiv({ cls: "telegram-credentials-list" });
+            for (const token of tokens) {
+                const row = list.createDiv({ cls: "telegram-credentials-row" });
+                row.createSpan({ text: token.name, cls: "telegram-credentials-row-name" });
+                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
+                new ButtonComponent(rowActions)
+                    .setIcon("pencil").setTooltip(t.CREDENTIALS_RENAME_TOKEN)
+                    .onClick(() => this.renameCredential(token, row))
+                    .buttonEl.addClass("clickable-icon");
+                new ButtonComponent(rowActions)
+                    .setIcon("trash").setTooltip(t.CREDENTIALS_DELETE_TOKEN_BTN)
+                    .onClick(() => {
+                        new ConfirmationModal(
+                            this.app,
+                            t.CREDENTIALS_DELETE_TOKEN_TITLE,
+                            t.CREDENTIALS_DELETE_TOKEN_MSG.replace("{name}", token.name),
+                            t.CREDENTIALS_DELETE_TOKEN_BTN,
+                            async () => {
+                                this.plugin.settings.botTokens = this.plugin.settings.botTokens.filter(tk => tk.id !== token.id);
+                                this.plugin.deleteBotToken(token.id);
+                                // Drop the reference from any preset that used this token.
+                                for (const ch of this.plugin.settings.channels) {
+                                    if (ch.botTokenId === token.id) { ch.botTokenId = undefined; ch.botToken = ""; }
+                                }
+                                await this.plugin.saveSettings();
+                                this.render();
+                            },
+                        ).open();
+                    })
+                    .buttonEl.addClass("clickable-icon");
+            }
+        }
+
+        // ── Accounts ──
+        card.createDiv({ text: t.CREDENTIALS_ACCOUNT_HEADING, cls: "telegram-credentials-heading" });
+        const accounts = this.plugin.settings.accounts;
+        if (accounts.length === 0) {
+            card.createEl("p", { text: t.AUTH_NOT_CONNECTED, cls: "telegram-credentials-empty" });
+        } else {
+            const list = card.createDiv({ cls: "telegram-credentials-list" });
+            for (const account of accounts) {
+                const row = list.createDiv({ cls: "telegram-credentials-row" });
+                row.createSpan({ text: account.displayName || account.id, cls: "telegram-credentials-row-name" });
+                const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
+                new ButtonComponent(rowActions)
+                    .setIcon("log-out").setTooltip(t.AUTH_LOGOUT_BTN)
+                    .onClick(() => {
+                        new ConfirmationModal(
+                            this.app,
+                            t.CONFIRM_LOGOUT_TITLE,
+                            t.CONFIRM_LOGOUT_MSG.replace("{name}", account.displayName || account.id),
+                            t.CONFIRM_LOGOUT_BTN,
+                            async () => {
+                                this.plugin.removeAccount(account.id);
+                                await this.plugin.saveSettings();
+                                this.render();
+                            },
+                        ).open();
+                    })
+                    .buttonEl.addClass("clickable-icon");
+            }
+        }
+    }
+
+    private renameCredential(token: BotToken, row: HTMLElement): void {
+        row.empty();
+        const input = new TextComponent(row);
+        input.setValue(token.name);
+        input.inputEl.addClass("telegram-credentials-rename-input");
+        input.inputEl.focus();
+        input.inputEl.select();
+
+        let saved = false;
+        const save = async () => {
+            if (saved) return;
+            saved = true;
+            const v = input.getValue().trim();
+            if (v) {
+                token.name = v;
+                await this.plugin.saveSettings();
+            }
+            this.render();
+        };
+
+        input.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Enter") { e.preventDefault(); void save(); }
+            else if (e.key === "Escape") { saved = true; this.render(); }
+        });
+        input.inputEl.addEventListener("blur", voidListener(save));
     }
 
     private renderChatPicker(container: HTMLElement, channel: TelegramChannel): void {
@@ -763,23 +1261,33 @@ export class TelegramSettingTab extends PluginSettingTab {
             const hasChips = (channel.chatTargets?.length ?? 0) > 0;
             // Shrink the input to sit inline after chips (replaces a :has() selector)
             fieldEl.classList.toggle("has-chips", hasChips);
+            // Chats are suggested from the preset's chosen account (no fetch until one is
+            // picked). Manual @username/ID entry stays available regardless — needed for
+            // bot-method presets used without an account.
+            const suggestAccountId = this.plugin.settings.accounts.some(a => a.id === channel.accountId)
+                ? channel.accountId : undefined;
+            const needsAccountChoice = !suggestAccountId && this.plugin.settings.accounts.length > 0;
+
             input.placeholder = hasChips ? "" : (
-                !this.plugin.secrets.telegramSession ? t.SETTING_PLACEHOLDER_CHAT :
-                this.dialogsLoading ? t.SETTING_CHAT_PICKER_LOADING :
+                needsAccountChoice ? t.SETTING_CHOOSE_ACCOUNT_FIRST :
+                !suggestAccountId ? t.SETTING_PLACEHOLDER_CHAT :
+                this.dialogsFor(suggestAccountId).loading ? t.SETTING_CHAT_PICKER_LOADING :
                 t.SETTING_PLACEHOLDER_CHAT_SEARCH
             );
 
-            if (this.plugin.secrets.telegramSession) {
+            if (suggestAccountId) {
+                const accountId = suggestAccountId;
                 const suggest = new ChatSuggest(
                     this.app, input,
-                    () => this.dialogsFetch ?? Promise.resolve([]),
+                    () => this.dialogsFor(accountId).fetch,
                     () => channel.chatTargets ?? [],
                 );
                 activeSuggest = suggest;
                 input.addEventListener("focus", () => {
-                    if (this.dialogsLoading) {
+                    const entry = this.dialogsFor(accountId);
+                    if (entry.loading) {
                         // Wait for data before opening — avoids showing an empty dropdown
-                        void this.dialogsFetch?.then(() => {
+                        void entry.fetch.then(() => {
                             if (activeDocument.activeElement === input) suggest.open();
                         });
                     } else {
@@ -800,37 +1308,25 @@ export class TelegramSettingTab extends PluginSettingTab {
                     }
                     renderField();
                 };
-                // Registered after the suggest's own keydown listener so it fires second.
-                // If the suggest selected an item it already called setValue(""), so input.value
-                // is empty by the time this runs — that's the signal to skip.
-                input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
-                    if (e.key !== "Enter") return;
-                    const id = input.value.trim();
-                    if (!id) return;
-                    e.preventDefault();
-                    if ((channel.chatTargets ?? []).some(t => t.id === id)) { renderField(); return; }
-                    if (!channel.chatTargets) channel.chatTargets = [];
-                    channel.chatTargets.push({ id });
-                    channel.chatId = channel.chatTargets[0]?.id ?? "";
-                    channel.chatTitle = channel.chatTargets[0]?.title;
-                    await this.plugin.saveSettings();
-                    renderField();
-                }));
-            } else {
-                // No auth: Enter key adds a manual chat ID chip
-                input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
-                    if (e.key !== "Enter") return;
-                    e.preventDefault();
-                    const id = input.value.trim();
-                    if (!id || (channel.chatTargets ?? []).some(t => t.id === id)) return;
-                    if (!channel.chatTargets) channel.chatTargets = [];
-                    channel.chatTargets.push({ id });
-                    channel.chatId = channel.chatTargets[0]?.id ?? "";
-                    await this.plugin.saveSettings();
-                    renderField();
-                    fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
-                }));
             }
+
+            // Manual entry: Enter adds an @username/ID chip. Registered after the suggest's
+            // own keydown so it fires second — if the suggest selected an item it already
+            // cleared the input, so input.value is empty here and we skip.
+            input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
+                if (e.key !== "Enter") return;
+                const id = input.value.trim();
+                if (!id) return;
+                e.preventDefault();
+                if ((channel.chatTargets ?? []).some(t => t.id === id)) { renderField(); return; }
+                if (!channel.chatTargets) channel.chatTargets = [];
+                channel.chatTargets.push({ id });
+                channel.chatId = channel.chatTargets[0]?.id ?? "";
+                channel.chatTitle = channel.chatTargets[0]?.title;
+                await this.plugin.saveSettings();
+                renderField();
+                fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+            }));
         };
 
         // Clicking the field background focuses the input
@@ -843,17 +1339,20 @@ export class TelegramSettingTab extends PluginSettingTab {
         renderField();
     }
 
-    private fetchDialogs(): Promise<DialogData[]> {
-        this.dialogsLoading = true;
-        return (async () => {
+    // Returns (creating + caching on first use) the dialog-fetch state for an account.
+    // One fetch per account for the tab's lifetime; presets sharing an account share it.
+    private dialogsFor(accountId: string): { fetch: Promise<DialogData[]>; loading: boolean } {
+        const cached = this.dialogsByAccount.get(accountId);
+        if (cached) return cached;
+        const secrets = this.plugin.getAccountSecrets(accountId);
+        const entry: { fetch: Promise<DialogData[]>; loading: boolean } = { fetch: Promise.resolve([]), loading: true };
+        entry.fetch = (async () => {
             const client = await createClient(
-                this.plugin.secrets.telegramSession,
-                this.plugin.secrets.telegramApiId,
-                this.plugin.secrets.telegramApiHash
+                secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash
             ).catch(() => null);
             const dialogs = client ? await getUserDialogs(client) : [];
             await client?.destroy().catch(() => {});
-            this.dialogsLoading = false;
+            entry.loading = false;
             this.containerEl.querySelectorAll<HTMLInputElement>('.telegram-chat-search').forEach(input => {
                 if (input.placeholder === t.SETTING_CHAT_PICKER_LOADING) {
                     input.placeholder = t.SETTING_PLACEHOLDER_CHAT_SEARCH;
@@ -861,6 +1360,8 @@ export class TelegramSettingTab extends PluginSettingTab {
             });
             return dialogs;
         })();
+        this.dialogsByAccount.set(accountId, entry);
+        return entry;
     }
 
     private buildAuthCard(
@@ -1103,23 +1604,24 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     private async saveInlineQrSession(client: TelegramClient): Promise<void> {
         const session = client.session.save() as unknown as string;
-        this.plugin.secrets.telegramSession = session;
-        this.plugin.secrets.telegramApiId = 0;
-        this.plugin.secrets.telegramApiHash = "";
-        await this.plugin.saveSecrets();
-        try {
-            const me = await client.getMe();
-            const parts = [me.firstName, me.lastName].filter(Boolean).join(" ");
-            const username = me.username ? ` (@${me.username})` : "";
-            this.plugin.settings.telegramDisplayName = `${parts}${username}`;
-        } catch {
-            this.plugin.settings.telegramDisplayName = "";
-        }
+        const displayName = await this.resolveDisplayName(client);
+        this.plugin.addAccount({ id: Date.now().toString(), displayName, apiId: 0, apiHash: "" }, session);
         await client.disconnect();
         this.inlineQrClient = null;
         await this.plugin.saveSettings();
         new Notice(t.AUTH_SUCCESS);
         this.render();
+    }
+
+    private async resolveDisplayName(client: TelegramClient): Promise<string> {
+        try {
+            const me = await client.getMe();
+            const parts = [me.firstName, me.lastName].filter(Boolean).join(" ");
+            const username = me.username ? ` (@${me.username})` : "";
+            return `${parts}${username}`.trim();
+        } catch {
+            return "";
+        }
     }
 
     private renderInlineLocalCodeStep(
@@ -1208,20 +1710,15 @@ export class TelegramSettingTab extends PluginSettingTab {
     private async saveInlineLocalSession(apiId: number, apiHash: string): Promise<void> {
         if (!this.inlineLocalClient) return;
         const session = this.inlineLocalClient.session.save() as unknown as string;
-        this.plugin.secrets.telegramSession = session;
         // Don't persist bundled credentials — session alone is enough for reconnection.
         const isBundled = apiId === AUTH_API_ID;
-        this.plugin.secrets.telegramApiId = isBundled ? 0 : apiId;
-        this.plugin.secrets.telegramApiHash = isBundled ? "" : apiHash;
-        await this.plugin.saveSecrets();
-        try {
-            const me = await this.inlineLocalClient.getMe();
-            const parts = [me.firstName, me.lastName].filter(Boolean).join(" ");
-            const username = me.username ? ` (@${me.username})` : "";
-            this.plugin.settings.telegramDisplayName = `${parts}${username}`;
-        } catch {
-            this.plugin.settings.telegramDisplayName = "";
-        }
+        const displayName = await this.resolveDisplayName(this.inlineLocalClient);
+        this.plugin.addAccount({
+            id: Date.now().toString(),
+            displayName,
+            apiId: isBundled ? 0 : apiId,
+            apiHash: isBundled ? "" : apiHash,
+        }, session);
         await this.inlineLocalClient.disconnect();
         this.inlineLocalClient = null;
         await this.plugin.saveSettings();

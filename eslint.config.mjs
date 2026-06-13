@@ -9,7 +9,7 @@ export default [
             "main.js",
             "cloud-functions/**",
             "shims/**",
-            "*.mjs",
+            "**/*.mjs",
             "tests/**",
         ],
     },

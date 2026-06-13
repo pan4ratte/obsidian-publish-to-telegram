@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.0.0
+
+### Major update
+
+Version 4.0.0 brings bots back with a more important purpose: a full support of rich-text messages feature, intorduced by Telegram on [June 11, 2026](https://telegram.org/blog/watch-apps-and-more/#obscenely-rich-text-formatting-for-bots) only for bots. This is the biggest formatting update in the history of Telegram, which is great news for writers and admins. For example, post symbol limit is 32.000 now. Moreover, we introduce multiple accounts and reusable bot tokens support. Now you can:
+
+* **Post as a bot again.** The Bot API posting method is back, alongside accounts. Any preset can post as an account, as a bot with classic text formatting and completely new, heavily extended rich-text formatting. See user guide to learn, how to use bot features properly.
+* **Post rich-text messages.** Bot presets can post using Telegram's Rich Messages: headings, tables, ordered and task lists, block quotes, collapsible blocks, footnotes, formulas, inline media and more. Pick the "Bot + rich text" method when creating a preset or in the advanced publishing settings later. One important limitation, *imposed by Telegram*: Rich Messages can accept only web-embedded media (HTTP/HTTPS links), local file attachments are not supported.
+* **Send rich-text comments.** Pre-written comments are send with the same publication method as the post.
+* **Add multiple accounts.** Authorize into more than one Telegram account and choose which one each preset posts from.
+* **Save and reuse bot tokens.** Bot tokens are now stored securely in your Obsidian Keychain, can be named, and reused across multiple presets.
+* **Send .md attachments as documents.** When the "Treat .md embeds as post comments" option is off, embedded .md files are attached to the post as documents.
+
+Upgrading from 3.x should be seamless: your authorized account and presets carry over automatically — you don't need to log in again or rebuild your presets, and your previous account becomes the first entry in the new multiple-accounts list.
+
+### UI/UX enhancements and bug fixes
+
+* Authorization and preset cards were completely redesigned.
+* READMEs and User guides were updated with full rich-text formatting documentation.
+* Various markdown and API parsing fixes.
+
+
 ## 3.1.1
 
 * **Hotfix.** Fixed an bug when changelog and user guide were not opening.

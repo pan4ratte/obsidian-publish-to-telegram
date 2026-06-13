@@ -9,6 +9,7 @@ import { getInputMedia } from "telegram/Utils";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink } from "./types";
 import { errMessage } from "./util";
 import { mdToTelegramHtml } from "./markdown";
+import { t } from "../lang/helpers";
 
 // ─── Internal result & media types ────────────────────────────────────────────
 
@@ -115,6 +116,16 @@ function collectMediaFiles(app: App, body: string, sourceFile: TFile): { attachm
     return { attachments, mdEmbeds };
 }
 
+// Wraps an embedded .md TFile as a document MediaFile, so it can be uploaded as a
+// file attachment when md embeds are not being sent as comments.
+function mdEmbedToMedia(app: App, file: TFile): MediaFile {
+    return {
+        name: file.name,
+        extension: file.extension,
+        getBlob: async () => new Blob([await app.vault.readBinary(file)]),
+    };
+}
+
 // ─── Post link helpers ────────────────────────────────────────────────────────
 
 function buildPostLinkFromChatId(chatId: string, messageId: number, topicId?: number): string {
@@ -155,12 +166,13 @@ export const AUTH_API_ID = 2040;
 export const AUTH_API_HASH = "b18441a1ff607e10a989891a5462e627";
 
 export async function createClient(session: string, apiId?: number, apiHash?: string): Promise<TelegramClient> {
-    const isLocalAuth = !!apiId;
     const client = new TelegramClient(
         new StringSession(session),
         apiId || DEFAULT_TG_API_ID,
         apiHash || DEFAULT_TG_API_HASH,
-        { connectionRetries: 5, timeout: 60, ...(isLocalAuth && { useWSS: true }) }
+        // Force secure WebSockets — Obsidian's renderer blocks insecure ws:// to
+        // Telegram DCs, which otherwise fails with "WebSocket connection … failed".
+        { connectionRetries: 5, timeout: 60, useWSS: true }
     );
     client.setLogLevel(LogLevel.NONE);
     // This plugin is request-only (no addEventHandler / incoming updates), so
@@ -450,7 +462,7 @@ async function sendMediaRaw(
             workers: 1,
             supportsStreaming: VIDEO_EXTS.has(ext0),
         });
-        if (!media) throw new Error("Failed to prepare media for sending");
+        if (!media) throw new Error(t.ERR_MEDIA_PREPARE_FAILED);
 
         const req = new Api.messages.SendMedia({
             peer,
@@ -535,7 +547,11 @@ async function sendPartViaAccount(
             ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
         );
         const gifFiles = attachments.filter(f => f.extension === "gif");
-        const docFiles  = attachments.filter(f => f.extension === "pdf");
+        // PDFs always upload as documents; embedded .md files join them as document
+        // attachments unless they're being sent as comments instead.
+        const pdfFiles = attachments.filter(f => f.extension === "pdf");
+        const mdDocFiles = treatMdEmbedsAsComments ? [] : mdEmbeds.map(f => mdEmbedToMedia(app, f));
+        const docFiles  = [...pdfFiles, ...mdDocFiles];
 
         let result: SendResult | null = null;
         let captionConsumed = false;
@@ -568,7 +584,7 @@ async function sendPartViaAccount(
             captionConsumed = true;
         }
 
-        // ── PDFs: grouped as documents ────────────────────────────────────────────
+        // ── Documents (PDFs + uncommented .md embeds): grouped as documents ───────
         if (docFiles.length > 0) {
             const customFiles = await Promise.all(docFiles.map(async f => {
                 const blob = await f.getBlob();

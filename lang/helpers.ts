@@ -3,7 +3,8 @@ import en from "./en";
 import ru from "./ru";
 import userGuideEn from "../USER_GUIDE.md";
 import userGuideRu from "../USER_GUIDE_RU.md";
-import changelogMd from "../CHANGELOG.md";
+import changelogEn from "../CHANGELOG.md";
+import changelogRu from "../CHANGELOG_RU.md";
 
 const localeMap: { [key: string]: typeof en } = {
     en,
@@ -21,4 +22,10 @@ export function getUserGuideContent(): string {
     return userGuideContents[lang] ?? userGuideEn;
 }
 
-export const changelogContent = changelogMd;
+const changelogContents: { [key: string]: string } = {
+    ru: changelogRu,
+};
+
+export function getChangelogContent(): string {
+    return changelogContents[lang] ?? changelogEn;
+}
