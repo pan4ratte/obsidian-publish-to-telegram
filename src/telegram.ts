@@ -166,12 +166,13 @@ export const AUTH_API_ID = 2040;
 export const AUTH_API_HASH = "b18441a1ff607e10a989891a5462e627";
 
 export async function createClient(session: string, apiId?: number, apiHash?: string): Promise<TelegramClient> {
-    const isLocalAuth = !!apiId;
     const client = new TelegramClient(
         new StringSession(session),
         apiId || DEFAULT_TG_API_ID,
         apiHash || DEFAULT_TG_API_HASH,
-        { connectionRetries: 5, timeout: 60, ...(isLocalAuth && { useWSS: true }) }
+        // Force secure WebSockets — Obsidian's renderer blocks insecure ws:// to
+        // Telegram DCs, which otherwise fails with "WebSocket connection … failed".
+        { connectionRetries: 5, timeout: 60, useWSS: true }
     );
     client.setLogLevel(LogLevel.NONE);
     // This plugin is request-only (no addEventHandler / incoming updates), so
