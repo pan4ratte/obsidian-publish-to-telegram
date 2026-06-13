@@ -908,7 +908,6 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         new ButtonComponent(addRow)
             .setButtonText(t.SETTING_ADD_PRESET)
-            .setTooltip(t.SETTING_ADD_PRESET_TOOLTIP)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
@@ -1110,7 +1109,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             }
         };
 
-        // Token input, BotFather link and Save button share one row.
+        // Token input and Save button share one row.
         const tokenSetting = new Setting(card)
             .setName(t.SETTING_BOT_TOKEN_NAME)
             .setDesc(t.SETTING_BOT_TOKEN_DESC)
@@ -1118,10 +1117,6 @@ export class TelegramSettingTab extends PluginSettingTab {
                 text.inputEl.type = "password";
                 text.setPlaceholder("123456789:abc…")
                     .onChange((v) => { tokenValue = v; });
-            })
-            .addButton(btn => {
-                btn.setButtonText(t.SETTING_OPEN_BOTFATHER)
-                    .onClick(() => { window.open("https://t.me/BotFather", "_blank"); });
             })
             .addButton(btn => {
                 btn.setIcon("save").setTooltip(t.BOT_TOKEN_SAVE_BTN).setCta()
