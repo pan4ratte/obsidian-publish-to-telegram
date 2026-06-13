@@ -1,9 +1,21 @@
+/* ─── Settings: general & presets ─────────────────────────────────────────────── */
+
 .telegram-plugin-description {
     font-size: var(--font-smallest);
     margin-left: 16px;
     margin-right: 16px;
     margin-bottom: 20px;
 }
+
+.telegram-bordered-setting.setting-item {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--setting-items-radius);
+    background-color: var(--setting-items-background);
+    padding: 20px 24px;
+    margin-bottom: 8px;
+}
+
+/* ── Preset creation panel ── */
 
 .telegram-add-preset-section {
     background-color: var(--setting-items-background);
@@ -16,21 +28,21 @@
 }
 
 .telegram-add-preset-title {
-      font-weight: var(--font-medium);
-      color: var(--text-normal);
-      font-size: var(--font-ui-medium);
-      text-overflow: ellipsis;
-      overflow: hidden;
+    font-weight: var(--font-medium);
+    color: var(--text-normal);
+    font-size: var(--font-ui-medium);
+    text-overflow: ellipsis;
+    overflow: hidden;
 }
 
 .telegram-add-preset-description {
-      color: var(--text-muted);
-      font-size: var(--font-ui-smaller);
-      line-height: var(--line-height-normal);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      padding-top: 12px;
-      white-space: pre-wrap;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    line-height: var(--line-height-normal);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-top: 12px;
+    white-space: pre-wrap;
 }
 
 .telegram-add-preset-button-row {
@@ -52,18 +64,20 @@ body .telegram-add-button:hover {
     background-color: var(--interactive-accent-hover);
 }
 
-body .telegram-link-button:hover {
-    background-color: var(--setting-items-border-color);
-    box-shadow: none;
-    border: 1px solid var(--setting-items-border-color);
-}
-
 body .telegram-link-button {
     background-color: transparent;
     box-shadow: none;
     border: 1px solid var(--setting-items-border-color);
     flex-grow: 1;
 }
+
+body .telegram-link-button:hover {
+    background-color: var(--setting-items-border-color);
+    box-shadow: none;
+    border: 1px solid var(--setting-items-border-color);
+}
+
+/* ── Preset cards ── */
 
 .telegram-channel-item {
     border: 1px solid var(--background-modifier-border);
@@ -123,31 +137,173 @@ body .telegram-delete-button:hover {
     color: var(--text-error);
 }
 
+/* ── Preset fields ── */
+
+.telegram-method-setting.setting-item {
+    padding: 16px 0;
+    margin-bottom: 0;
+}
+
+.telegram-account-setting.setting-item {
+    border-top: none;
+    padding: 16px 0;
+    margin-bottom: 0;
+}
+
+.telegram-secondary-setting.setting-item {
+    padding: 16px 0;
+    margin-bottom: 0;
+}
+
+.setting-item.telegram-bot-token-setting {
+    padding: 16px 0;
+    margin-bottom: 0;
+}
+
+.setting-item.telegram-bot-token-setting input[type="text"],
+.setting-item.telegram-bot-token-setting input[type="password"] {
+    width: 100%;
+    min-width: 0;
+}
+
+.telegram-preset-default.setting-item {
+    padding-top: 16px;
+    padding-bottom: 16px;
+    padding-left: 0px;
+    padding-right: 0px;
+    margin-bottom: 0px;
+}
+
+/* ─── Settings: chat picker ────────────────────────────────────────────────────── */
+
+.telegram-chat-picker {
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+
+.telegram-chat-picker .telegram-chat-picker-field {
+    border: 1px solid var(--setting-items-border-color);
+    background-color: transparent;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 8px;
+    min-height: 28px;
+    cursor: text;
+    overflow: hidden;
+    border-radius: var(--radius-s);
+}
+
+/* No chips yet: input fills full width so the placeholder is visible */
+.telegram-chat-picker .telegram-chat-picker-field .telegram-chat-search {
+    flex: 1;
+    min-width: 60px;
+    border: none;
+    background: transparent;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    outline: none;
+    font-family: inherit;
+    padding: 0 2px;
+    box-shadow: none;
+}
+
+/* Chips present: input shrinks to cursor width and sits inline after the last chip */
+.telegram-chat-picker .telegram-chat-picker-field.has-chips .telegram-chat-search {
+    field-sizing: content;
+    flex: 0 1 auto;
+    min-width: 2ch;
+    padding: 0;
+}
+
+.telegram-chat-picker .telegram-chat-picker-field .telegram-chat-search::placeholder {
+    color: var(--text-faint);
+}
+
+.telegram-chat-picker .telegram-chat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: var(--tag-padding-y) var(--tag-padding-x);
+    background-color: var(--tag-background);
+    color: var(--tag-color);
+    border-radius: var(--tag-radius);
+    font-size: var(--tag-size, var(--font-ui-smaller));
+    font-weight: var(--tag-weight, var(--font-medium));
+    max-width: 100%;
+    text-decoration: none;
+}
+
+.telegram-chat-picker .telegram-chat-chip-text {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+    font-weight: var(--font-normal);
+}
+
+.telegram-chat-picker .telegram-chat-chip-remove {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: var(--tag-color);
+    opacity: 0.55;
+    cursor: pointer;
+    box-shadow: none;
+    border-radius: var(--radius-s);
+}
+
+.telegram-chat-picker .telegram-chat-chip-remove:hover,
+.telegram-chat-picker .telegram-chat-chip.remove-hover .telegram-chat-chip-text {
+    opacity: 1;
+    color: var(--pill-color-remove-hover);
+}
+
+.telegram-chat-picker .telegram-chat-chip-remove svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ─── Authentication ───────────────────────────────────────────────────────────── */
+
+/* ── Status bar ── */
+
 .telegram-auth-status {
-      position: relative;
-      z-index: 1;
-      border: 1px solid var(--background-modifier-border);
-      border-radius: var(--setting-items-radius);
-      background-color: var(--setting-items-background);
-      padding: 16px 24px;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      margin-bottom: 8px;
+    position: relative;
+    z-index: 1;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--setting-items-radius);
+    background-color: var(--setting-items-background);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 8px;
 }
 
 .telegram-auth-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     width: 100%;
 }
 
 .telegram-auth-actions .telegram-link-button {
-    flex: 1 1 0;
+    flex: 1 1 auto;
+    min-width: max-content;
     display: flex;
     align-items: center;
     justify-content: center;
+    white-space: nowrap;
 }
 
 /* Highlight the button whose inline panel is currently open */
@@ -173,17 +329,6 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     height: 16px;
 }
 
-.telegram-bordered-setting.setting-item {
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--setting-items-radius);
-    background-color: var(--setting-items-background);
-    padding: 20px 24px;
-    margin-bottom: 8px;
-}
-
-.telegram-preset-default.setting-item {
-}
-
 .telegram-auth-inline {
     margin-bottom: 8px;
 }
@@ -192,7 +337,19 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     display: none;
 }
 
-/* ── Inline "Add bot token" form ── */
+/* Narrow screens: tighten padding and stack the action buttons full-width. */
+@media (max-width: 520px) {
+    .telegram-auth-status {
+        padding: 12px;
+    }
+
+    .telegram-auth-actions .telegram-link-button {
+        flex: 1 1 100%;
+    }
+}
+
+/* ── Add bot token form ── */
+
 .telegram-add-token-form {
     position: relative;
     z-index: 0;
@@ -210,11 +367,6 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     padding: 0;
 }
 
-.telegram-add-token-links {
-    display: flex;
-    margin-bottom: 16px;
-}
-
 /* Keep the label compact so the token input + Save button fill the row */
 .telegram-add-token-input .setting-item-info {
     flex: 0 1 auto;
@@ -224,34 +376,42 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
 .telegram-add-token-input .setting-item-control {
     flex: 1;
     gap: 8px;
+    flex-wrap: wrap;
 }
 
 .telegram-add-token-input .setting-item-control input[type="password"],
 .telegram-add-token-input .setting-item-control input[type="text"] {
     flex: 1;
     width: 100%;
+    min-width: 160px;
 }
 
-/* ── Account selector (user presets) ── */
-.telegram-account-setting.setting-item {
-    border-top: none;
-    padding: 16px 0;
-    margin-bottom: 0;
+/* Narrow screens: stack the label above a full-width input with the buttons wrapping. */
+@media (max-width: 520px) {
+    .telegram-add-token-form {
+        padding: 16px;
+        padding-top: 36px;
+    }
+
+    .telegram-add-token-input.setting-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .telegram-add-token-input .setting-item-info {
+        margin-right: 0;
+    }
+
+    /* Input takes its own row; the buttons wrap onto the next line. */
+    .telegram-add-token-input .setting-item-control input[type="password"],
+    .telegram-add-token-input .setting-item-control input[type="text"] {
+        flex-basis: 100%;
+    }
 }
 
-/* ── Default posting method picker ── */
-.telegram-method-setting.setting-item {
-    padding: 16px 0;
-    margin-bottom: 0;
-}
+/* ── Credentials card ── */
 
-/* ── "Use secondary publishing methods" toggle ── */
-.telegram-secondary-setting.setting-item {
-    padding: 16px 0;
-    margin-bottom: 0;
-}
-
-/* ── Credentials card (tucked behind the auth-status bar, like the other panels) ── */
 .telegram-credentials-card {
     position: relative;
     z-index: 0;
@@ -313,6 +473,8 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     font-size: var(--font-ui-small);
     margin: 0 0 4px;
 }
+
+/* ── Login & QR card ── */
 
 .telegram-auth-card {
     position: relative;
@@ -465,69 +627,36 @@ body .telegram-auth-submit:disabled {
     width: 100%;
 }
 
-.telegram-modal-buttons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
+/* ─── Advanced publishing modal ────────────────────────────────────────────────── */
+
+.telegram-modal-heading {
+    font-size: var(--font-ui-medium);
+    font-weight: var(--font-medium);
+    margin-top: 24px;
+    margin-bottom: 16px;
+    padding-left: 8px;
+}
+
+.telegram-modal-heading:first-of-type {
     margin-top: 16px;
 }
 
-.telegram-modal-buttons .mod-cta {
-    width: 100%;
-}
-
-@media (max-width: 520px) {
-    .telegram-option-item.telegram-option-item--edit {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .telegram-modal-buttons {
-        margin-bottom: 16px;
-    }
-}
+/* ── Preset list ── */
 
 .telegram-multi-preset-item {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
     padding: 20px 16px;
     border: 1px solid var(--background-modifier-border);
-    margin-bottom: 0px;
+    border-radius: var(--setting-items-radius);
+    margin-bottom: 8px;
     transition: opacity 0.15s ease;
 }
 
-.telegram-multi-preset-item:first-child {
+.telegram-multi-preset-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border: 1px solid var(--background-modifier-border);
-    margin-bottom: 0px;
-    border-radius: var(--setting-items-radius);
-    border-bottom-right-radius: 0px;
-    border-bottom-left-radius: 0px;
-    transition: opacity 0.15s ease;
-}
-
-.telegram-multi-preset-item:last-child {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 16px;
-    border: 1px solid var(--background-modifier-border);
-    border-top: 0px;
-    margin-bottom: 0px;
-    border-radius: var(--setting-items-radius);
-    border-top-right-radius: 0px;
-    border-top-left-radius: 0px;
-    transition: opacity 0.15s ease;
-}
-
-/* The lone preset row: outranks the :first-child / :last-child rules it also matches,
-   restoring its top border and full corners. */
-body .telegram-multi-preset-item.telegram-multi-preset-item--single {
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--setting-items-radius);
 }
 
 .telegram-multi-preset-control {
@@ -536,8 +665,35 @@ body .telegram-multi-preset-item.telegram-multi-preset-item--single {
     gap: 10px;
 }
 
-.telegram-multi-preset-method {
-    max-width: 150px;
+.telegram-multi-preset-name {
+    font-size: var(--font-ui-medium);
+    color: var(--text-normal);
+}
+
+/* Per-preset method picker, revealed under the row when the preset is toggled on. */
+.telegram-multi-preset-methods {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.telegram-multi-preset-methods.is-hidden {
+    display: none;
+}
+
+.telegram-preset-method-option {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-left: 4px;
+}
+
+.telegram-preset-method-label {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
 }
 
 .telegram-multi-preset-item.is-disabled,
@@ -557,118 +713,7 @@ body .telegram-multi-preset-item.telegram-multi-preset-item--single {
     color: var(--text-error);
 }
 
-.telegram-multi-preset-name {
-    font-size: var(--font-ui-medium);
-    color: var(--text-normal);
-}
-
-/* Chat Picker */
-
-.telegram-chat-picker {
-    margin-top: 12px;
-    margin-bottom: 12px;
-}
-
-.telegram-chat-picker .telegram-chat-picker-field {
-    border: 1px solid var(--setting-items-border-color);
-    background-color: transparent;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 8px 8px;
-    min-height: 28px;
-    cursor: text;
-    overflow: hidden;
-    border-radius: var(--radius-s);
-}
-
-/* No chips yet: input fills full width so the placeholder is visible */
-.telegram-chat-picker .telegram-chat-picker-field .telegram-chat-search {
-    flex: 1;
-    min-width: 60px;
-    border: none;
-    background: transparent;
-    color: var(--text-normal);
-    font-size: var(--font-ui-small);
-    outline: none;
-    font-family: inherit;
-    padding: 0 2px;
-    box-shadow: none;
-}
-
-/* Chips present: input shrinks to cursor width and sits inline after the last chip */
-.telegram-chat-picker .telegram-chat-picker-field.has-chips .telegram-chat-search {
-    field-sizing: content;
-    flex: 0 1 auto;
-    min-width: 2ch;
-    padding: 0;
-}
-
-.telegram-chat-picker .telegram-chat-picker-field .telegram-chat-search::placeholder {
-    color: var(--text-faint);
-}
-
-.telegram-chat-picker .telegram-chat-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: var(--tag-padding-y) var(--tag-padding-x);
-      background-color: var(--tag-background);
-      color: var(--tag-color);
-      border-radius: var(--tag-radius);
-      font-size: var(--tag-size, var(--font-ui-smaller));
-      font-weight: var(--tag-weight, var(--font-medium));
-      max-width: 100%;
-      text-decoration: none;
-}
-
-.telegram-chat-picker .telegram-chat-chip-text {
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-    min-width: 0;
-    font-weight: var(--font-normal);
-}
-
-.telegram-chat-picker .telegram-chat-chip-remove {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    color: var(--tag-color);
-    opacity: 0.55;
-    cursor: pointer;
-    box-shadow: none;
-    border-radius: var(--radius-s);
-}
-
-.telegram-chat-picker .telegram-chat-chip-remove:hover,
-.telegram-chat-picker .telegram-chat-chip.remove-hover .telegram-chat-chip-text {
-    opacity: 1;
-    color: var(--pill-color-remove-hover);
-}
-
-.telegram-chat-picker .telegram-chat-chip-remove svg {
-    width: 14px;
-    height: 14px;
-}
-
-.telegram-preset-default.setting-item {
-    padding-top: 16px;
-    padding-bottom: 16px;
-    padding-left: 0px;
-    padding-right: 0px;
-    margin-bottom: 0px;
-}
-
-/* Modal Options Styling */
+/* ── Option rows ── */
 
 .telegram-option-item {
     display: flex;
@@ -696,18 +741,6 @@ body .telegram-multi-preset-item.telegram-multi-preset-item--single {
     margin-top: 4px;
 }
 
-.telegram-modal-heading {
-    font-size: var(--font-ui-medium);
-    font-weight: var(--font-medium);
-    margin-top: 24px;
-    margin-bottom: 16px;
-    padding-left: 8px;
-}
-
-.telegram-modal-heading:first-of-type {
-    margin-top: 16px;
-}
-
 input.telegram-schedule-input {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--input-radius);
@@ -720,7 +753,33 @@ input.telegram-schedule-input {
     box-sizing: border-box;
 }
 
-/* Changelog Banner */
+/* ── Footer buttons ── */
+
+.telegram-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.telegram-modal-buttons .mod-cta {
+    width: 100%;
+}
+
+@media (max-width: 520px) {
+    .telegram-option-item.telegram-option-item--edit {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .telegram-modal-buttons {
+        margin-bottom: 16px;
+    }
+}
+
+/* ─── Changelog ────────────────────────────────────────────────────────────────── */
+
+/* ── Banner ── */
 
 .telegram-changelog-banner {
     display: flex;
@@ -783,7 +842,7 @@ body .telegram-changelog-close:hover {
     color: var(--text-normal);
 }
 
-/* Changelog Modal */
+/* ── Modal ── */
 
 .telegram-changelog-modal {
     max-width: 680px;
@@ -820,7 +879,7 @@ body .telegram-changelog-close:hover {
     border-color: var(--background-modifier-border);
 }
 
-/* Formatting Help Modal */
+/* ─── Formatting help modal ────────────────────────────────────────────────────── */
 
 .telegram-formatting-help-modal {
     max-width: 680px;
@@ -885,17 +944,4 @@ body .telegram-changelog-close:hover {
     padding: 1px 4px;
     border-radius: 3px;
     font-size: var(--font-smaller);
-}
-
-/* ─── Bot token field ────────────────────────────────────────────────────────── */
-
-.setting-item.telegram-bot-token-setting {
-    padding: 16px 0;
-    margin-bottom: 0;
-}
-
-.setting-item.telegram-bot-token-setting input[type="text"],
-.setting-item.telegram-bot-token-setting input[type="password"] {
-    width: 100%;
-    min-width: 0;
 }

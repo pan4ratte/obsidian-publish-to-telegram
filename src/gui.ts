@@ -195,7 +195,11 @@ export class MultiPresetModal extends Modal {
 
     private silentToggle: ToggleComponent;
     private attachToggle: ToggleComponent;
+    private attachOptionEl: HTMLElement | null = null;
     private scheduleInput: HTMLInputElement | null = null;
+    // Guards programmatic preset-toggle changes so radio-style selection (only one
+    // preset at a time) doesn't re-enter the toggle's own onChange handler.
+    private updatingPresets = false;
 
     private updateLinkDropdown: DropdownComponent | null = null;
     private updateHintEl: HTMLElement | null = null;
@@ -205,7 +209,7 @@ export class MultiPresetModal extends Modal {
     private commentLinkDropdown: DropdownComponent | null = null;
 
     private publishBtn: ButtonComponent | null = null;
-    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod, methodDropdown: DropdownComponent }> = [];
+    private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod, methodsEl: HTMLElement }> = [];
     private scheduleOptionEl: HTMLElement | null = null;
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
 
@@ -231,13 +235,40 @@ export class MultiPresetModal extends Modal {
         if (!this.scheduleOptionEl || !this.scheduleInput) return;
         // Scheduling isn't supported by the Bot API. Keep the field visible but disable
         // it — both visually (greyed, non-interactive) and physically (input disabled +
-        // value cleared) — when every selected preset posts via a bot method. Mixed
-        // selections stay active: the schedule applies to account-method presets only.
+        // value cleared) — when the selected preset posts via a bot method.
         const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
         const allBot = selectedRows.length > 0 && selectedRows.every(r => r.method !== "account");
         this.scheduleInput.disabled = allBot;
         if (allBot) this.scheduleInput.value = "";
         this.scheduleOptionEl.toggleClass("is-disabled", allBot);
+    }
+
+    // "Attachments below the text" only positions a caption above uploaded media. Rich
+    // Messages embed media inside the markdown and can't carry local uploads at all, so
+    // the option is meaningless there — disable it when the selected preset is bot-rich.
+    private updateAttachState() {
+        if (!this.attachOptionEl) return;
+        const anyRich = this.channelRows.some(r => this.selectedChannels.has(r.id) && r.method === "bot-rich");
+        this.attachToggle.setDisabled(anyRich);
+        if (anyRich) this.attachToggle.setValue(false);
+        this.attachOptionEl.toggleClass("is-disabled", anyRich);
+    }
+
+    // Selects a single preset (or none), enforcing radio-style behaviour: turning one on
+    // turns every other one off. Updates each row's toggle and method-picker visibility,
+    // then refreshes the option states that depend on the chosen method.
+    private selectOnlyPreset(id: string | null) {
+        this.updatingPresets = true;
+        this.selectedChannels.clear();
+        if (id) this.selectedChannels.add(id);
+        for (const r of this.channelRows) {
+            const on = r.id === id;
+            r.toggle.setValue(on);
+            r.methodsEl.toggleClass("is-hidden", !on);
+        }
+        this.updatingPresets = false;
+        this.updateScheduleState();
+        this.updateAttachState();
     }
 
     // Collects the normalized chat ids of the links currently chosen for editing.
@@ -277,9 +308,18 @@ export class MultiPresetModal extends Modal {
                 row.container.removeClass("is-disabled");
             } else {
                 row.container.addClass("is-disabled");
-                if (this.selectedChannels.has(row.id)) row.toggle.setValue(false);
+                if (this.selectedChannels.has(row.id)) {
+                    // Untoggle just this row (radio selection would otherwise cascade).
+                    this.updatingPresets = true;
+                    row.toggle.setValue(false);
+                    row.methodsEl.toggleClass("is-hidden", true);
+                    this.selectedChannels.delete(row.id);
+                    this.updatingPresets = false;
+                }
             }
         });
+        this.updateScheduleState();
+        this.updateAttachState();
     }
 
     // The first selected preset whose chat targets include the given chat, with the
@@ -375,38 +415,68 @@ export class MultiPresetModal extends Modal {
         this.plugin.settings.channels.forEach(channel => {
             const itemEl = listContainer.createDiv("telegram-multi-preset-item");
             if (singlePreset) itemEl.addClass("telegram-multi-preset-item--single");
-            const nameEl = itemEl.createDiv("telegram-multi-preset-name");
+
+            const headerEl = itemEl.createDiv("telegram-multi-preset-header");
+            const nameEl = headerEl.createDiv("telegram-multi-preset-name");
             nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
 
             const isPreToggled = this.initialChannelId === channel.id;
             if (isPreToggled) this.selectedChannels.add(channel.id);
 
-            const controlEl = itemEl.createDiv("telegram-multi-preset-control");
+            const defaultMethod = channel.defaultMethod ?? "account";
 
-            // Per-publish method override, defaulting to the preset's configured method.
-            // Only the methods the preset exposes appear (secondary methods are hidden
-            // unless "Use secondary publication methods" is enabled for the preset).
+            // Method picker: one toggle per method the preset exposes (secondary methods
+            // appear only when "Use secondary publication methods" is enabled). It behaves
+            // like a radio group — exactly one method stays selected — and is revealed only
+            // while the preset itself is toggled on. The preset's configured method is
+            // labelled "Default (…)", pinned to the top of the list, and selected initially.
+            const methodsEl = itemEl.createDiv("telegram-multi-preset-methods");
+            const row = { id: channel.id, container: itemEl, toggle: null as unknown as ToggleComponent, method: defaultMethod, methodsEl };
+
             const allowedMethods = availableMethods(channel);
-            const methodDropdown = new DropdownComponent(controlEl);
-            for (const [value, label] of methodOptions()) {
-                if (allowedMethods.has(value)) methodDropdown.addOption(value, label);
-            }
-            methodDropdown.setValue(channel.defaultMethod ?? "account");
-            methodDropdown.selectEl.addClass("telegram-multi-preset-method");
+            const methodToggles: Array<{ method: PostMethod; toggle: ToggleComponent }> = [];
+            let updatingMethods = false;
 
-            const row = { id: channel.id, container: itemEl, toggle: null as unknown as ToggleComponent, method: channel.defaultMethod ?? "account", methodDropdown };
-
-            methodDropdown.onChange(value => {
-                row.method = value as PostMethod;
+            const selectMethod = (value: PostMethod) => {
+                updatingMethods = true;
+                row.method = value;
+                for (const mt of methodToggles) mt.toggle.setValue(mt.method === value);
+                updatingMethods = false;
                 this.updateScheduleState();
-            });
+                this.updateAttachState();
+            };
 
-            const toggle = new ToggleComponent(controlEl)
+            const orderedMethods = methodOptions().filter(([value]) => allowedMethods.has(value));
+            // The default method always sits at the top of the list.
+            orderedMethods.sort((a, b) => Number(b[0] === defaultMethod) - Number(a[0] === defaultMethod));
+
+            for (const [value, label] of orderedMethods) {
+                const isDefault = value === defaultMethod;
+                const optEl = methodsEl.createDiv("telegram-preset-method-option");
+                optEl.createSpan({
+                    text: isDefault ? t.MULTI_PRESET_METHOD_DEFAULT.replace("{method}", label) : label,
+                    cls: "telegram-preset-method-label",
+                });
+                const mToggle = new ToggleComponent(optEl.createDiv())
+                    .setValue(isDefault)
+                    .onChange(val => {
+                        if (updatingMethods) return;
+                        // Radio behaviour: selecting one clears the rest; the active one
+                        // can't be switched off (a method must always be chosen).
+                        if (val) selectMethod(value);
+                        else if (row.method === value) { updatingMethods = true; mToggle.setValue(true); updatingMethods = false; }
+                    });
+                methodToggles.push({ method: value, toggle: mToggle });
+            }
+
+            methodsEl.toggleClass("is-hidden", !isPreToggled);
+
+            // Only one preset can be selected at a time: toggling one on clears the rest.
+            const toggle = new ToggleComponent(headerEl.createDiv("telegram-multi-preset-control"))
                 .setValue(isPreToggled)
                 .onChange(value => {
-                    if (value) this.selectedChannels.add(channel.id);
-                    else this.selectedChannels.delete(channel.id);
-                    this.updateScheduleState();
+                    if (this.updatingPresets) return;
+                    this.selectOnlyPreset(value ? channel.id : null);
                 });
             row.toggle = toggle;
 
@@ -425,11 +495,11 @@ export class MultiPresetModal extends Modal {
         this.silentToggle = new ToggleComponent(silentOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
-        const attachOptionEl = contentEl.createDiv("telegram-option-item");
-        const attachTextEl = attachOptionEl.createDiv("telegram-option-text");
+        this.attachOptionEl = contentEl.createDiv("telegram-option-item");
+        const attachTextEl = this.attachOptionEl.createDiv("telegram-option-text");
         attachTextEl.createDiv({ text: t.MULTI_PRESET_ATTACHMENTS_NAME, cls: "telegram-option-name" });
         attachTextEl.createDiv({ text: t.MULTI_PRESET_ATTACHMENTS_DESC, cls: "telegram-option-desc" });
-        this.attachToggle = new ToggleComponent(attachOptionEl.createDiv("telegram-option-control"))
+        this.attachToggle = new ToggleComponent(this.attachOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
         this.scheduleOptionEl = contentEl.createDiv("telegram-option-item");
@@ -442,6 +512,7 @@ export class MultiPresetModal extends Modal {
 
         // Initial state now that all option elements exist.
         this.updateScheduleState();
+        this.updateAttachState();
 
         // ─── Edit Post & Comments Section ─────────────────────────────────────────────
 
@@ -1014,16 +1085,10 @@ export class TelegramSettingTab extends PluginSettingTab {
         const card = container.createDiv({ cls: "telegram-add-token-form" });
         let tokenValue = "";
 
-        const linkRow = card.createDiv({ cls: "telegram-add-token-links" });
-        new ButtonComponent(linkRow)
-            .setButtonText(t.SETTING_OPEN_BOTFATHER)
-            .onClick(() => { window.open("https://t.me/BotFather", "_blank"); })
-            .buttonEl.addClass("telegram-link-button");
-
         const save = async (saveBtn: ButtonComponent) => {
             const token = tokenValue.trim();
             if (!token) { new Notice(t.BOT_TOKEN_INCOMPLETE); return; }
-            saveBtn.setDisabled(true).setButtonText(t.AUTH_LOADING);
+            saveBtn.setDisabled(true).setIcon("loader-2");
             try {
                 // Resolve the bot's name from Telegram so the token is labelled automatically.
                 const name = (await getBotInfo(token)) || t.BOT_TOKEN_DEFAULT_NAME;
@@ -1033,12 +1098,12 @@ export class TelegramSettingTab extends PluginSettingTab {
                 await this.plugin.saveSettings();
                 this.render();
             } catch (err) {
-                saveBtn.setDisabled(false).setButtonText(t.BOT_TOKEN_SAVE_BTN);
+                saveBtn.setDisabled(false).setIcon("save");
                 new Notice(`${t.BOT_TOKEN_INVALID}: ${errMessage(err)}`);
             }
         };
 
-        // Token input, show/hide toggle and Save button all share one row.
+        // Token input, BotFather link and Save button share one row.
         const tokenSetting = new Setting(card)
             .setName(t.SETTING_BOT_TOKEN_NAME)
             .setDesc(t.SETTING_BOT_TOKEN_DESC)
@@ -1048,15 +1113,11 @@ export class TelegramSettingTab extends PluginSettingTab {
                     .onChange((v) => { tokenValue = v; });
             })
             .addButton(btn => {
-                btn.setIcon("eye").setTooltip(t.SETTING_BOT_TOKEN_SHOW_HIDE)
-                    .onClick(() => {
-                        const input = tokenSetting.settingEl.querySelector<HTMLInputElement>("input");
-                        if (!input) return;
-                        input.type = input.type === "password" ? "text" : "password";
-                    });
+                btn.setButtonText(t.SETTING_OPEN_BOTFATHER)
+                    .onClick(() => { window.open("https://t.me/BotFather", "_blank"); });
             })
             .addButton(btn => {
-                btn.setButtonText(t.BOT_TOKEN_SAVE_BTN).setCta()
+                btn.setIcon("save").setTooltip(t.BOT_TOKEN_SAVE_BTN).setCta()
                     .onClick(() => { void save(btn); });
             });
         tokenSetting.settingEl.addClass("telegram-add-token-input");
