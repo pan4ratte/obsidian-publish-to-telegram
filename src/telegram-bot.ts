@@ -502,6 +502,12 @@ async function sendPartViaBotApi(
 
 // ─── Edit helpers ─────────────────────────────────────────────────────────────
 
+// Editing with identical content makes the Bot API throw "message is not modified".
+// That's a no-op success from the user's point of view, so callers treat it as such.
+function isNotModifiedError(err: unknown): boolean {
+    return (err instanceof Error ? err.message : String(err)).toLowerCase().includes("message is not modified");
+}
+
 async function editMessageBot(token: string, chatId: string, messageId: number, text: string): Promise<void> {
     try {
         await callBotJson(token, "editMessageText", {
@@ -511,18 +517,92 @@ async function editMessageBot(token: string, chatId: string, messageId: number, 
             parse_mode: "HTML",
         });
     } catch (err) {
+        if (isNotModifiedError(err)) return;
         const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
         if (msg.includes("there is no text in the message to edit")) {
-            await callBotJson(token, "editMessageCaption", {
-                chat_id: chatId,
-                message_id: messageId,
-                caption: text,
-                parse_mode: "HTML",
-            });
+            try {
+                await callBotJson(token, "editMessageCaption", {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    caption: text,
+                    parse_mode: "HTML",
+                });
+            } catch (capErr) {
+                if (isNotModifiedError(capErr)) return;
+                throw capErr;
+            }
         } else {
             throw err;
         }
     }
+}
+
+// Edits a message that was published as a Rich Message (Bot API 10.1 — editMessageText
+// with a rich_message field instead of text/parse_mode). There is no time limit on a
+// bot editing its own messages, and this works for channel posts the bot can edit.
+async function editRichMessageBot(token: string, chatId: string, messageId: number, markdown: string): Promise<void> {
+    try {
+        await callBotJson(token, "editMessageText", {
+            chat_id: chatId,
+            message_id: messageId,
+            rich_message: { markdown },
+        });
+    } catch (err) {
+        if (isNotModifiedError(err)) return;
+        throw err;
+    }
+}
+
+// Edits comments that were published via the Bot API, in place — the bot counterpart
+// to editNoteCommentsOnly. Each stored comment is matched to an embedded .md file by
+// order (offset by embedOffset). asRich edits as a Rich Message ("bot + rich" method),
+// otherwise as classic HTML, with a rich→HTML fallback. Entries may be null to keep
+// alignment with the embeds when a link couldn't be parsed.
+export async function editNoteCommentsViaBotApi(
+    app: App,
+    file: TFile,
+    token: string,
+    comments: Array<{ chatId: string; messageId: number } | null>,
+    asRich: boolean,
+    embedOffset = 0,
+): Promise<{ errors: Error[] }> {
+    const content = await app.vault.read(file);
+    const { body } = extractFrontmatter(content);
+    const { mdEmbeds } = collectBotMedia(app, body, file);
+
+    if (comments.length === 0 || mdEmbeds.length === 0) return { errors: [] };
+
+    const errors: Error[] = [];
+    const limit = Math.min(mdEmbeds.length - embedOffset, comments.length);
+    for (let i = 0; i < limit; i++) {
+        const target = comments[i];
+        if (!target) continue;
+        const mdContent = await app.vault.read(mdEmbeds[i + embedOffset]);
+        const { body: mdBody } = extractFrontmatter(mdContent);
+        const chatId = resolveChatId(String(target.chatId));
+        try {
+            if (asRich) {
+                const markdown = obsidianToRichMarkdown(mdBody);
+                if (!markdown.length) continue;
+                try {
+                    await editRichMessageBot(token, chatId, target.messageId, markdown);
+                } catch (err) {
+                    console.warn(
+                        "[publish-to-telegram] rich comment edit failed, falling back to HTML:",
+                        err instanceof Error ? err.message : err
+                    );
+                    await editMessageBot(token, chatId, target.messageId, mdToBotApiHtml(mdBody));
+                }
+            } else {
+                const html = mdToBotApiHtml(mdBody);
+                if (!html.length) continue;
+                await editMessageBot(token, chatId, target.messageId, html);
+            }
+        } catch (err) {
+            errors.push(err instanceof Error ? err : new Error(String(err)));
+        }
+    }
+    return { errors };
 }
 
 // ─── Public entry point ───────────────────────────────────────────────────────
@@ -557,9 +637,26 @@ export async function sendNoteViaBotApi(
         const msgIdMatch = updateLink.match(/\/(\d+)\/?$/);
         const messageId = msgIdMatch ? parseInt(msgIdMatch[1], 10) : null;
         if (messageId) {
+            // The edit follows the preset's *current* method: a "bot + rich" preset
+            // re-publishes the edit as a Rich Message, a plain "bot" preset as HTML. The
+            // user picks the style at edit time by choosing which method they edit with.
+            const richMarkdown = postAsRich ? obsidianToRichMarkdown(body) : "";
             const htmlContent = mdToBotApiHtml(body);
             for (const target of targets) {
                 const chatId = resolveChatId(target.id);
+                if (richMarkdown.length > 0) {
+                    try {
+                        await editRichMessageBot(token, chatId, messageId, richMarkdown);
+                        continue;
+                    } catch (err) {
+                        // Mirror the send path: if a rich edit isn't possible, degrade to HTML
+                        // rather than leaving the post unchanged.
+                        console.warn(
+                            "[publish-to-telegram] rich edit failed, falling back to HTML editMessageText:",
+                            err instanceof Error ? err.message : err
+                        );
+                    }
+                }
                 await editMessageBot(token, chatId, messageId, htmlContent);
             }
             return { links: [updateLink], commentLinks: [], errors: [] };

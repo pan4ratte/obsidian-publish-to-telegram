@@ -183,18 +183,14 @@ export class MultiPresetModal extends Modal {
 
     private silentToggle: ToggleComponent;
     private attachToggle: ToggleComponent;
-    private commentsAsRichToggle: ToggleComponent | null = null;
-    private commentsAsRichOptionEl: HTMLElement | null = null;
     private scheduleInput: HTMLInputElement | null = null;
 
     private updateLinkDropdown: DropdownComponent | null = null;
     private updateHintEl: HTMLElement | null = null;
     private updateDescEl: HTMLElement | null = null;
-    private updateOptionEl: HTMLElement | null = null;
     private builtUpdateChannel: TelegramChannel | null = null;
 
     private commentLinkDropdown: DropdownComponent | null = null;
-    private commentOptionEl: HTMLElement | null = null;
 
     private publishBtn: ButtonComponent | null = null;
     private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod, methodDropdown: DropdownComponent }> = [];
@@ -232,50 +228,6 @@ export class MultiPresetModal extends Modal {
         this.scheduleOptionEl.toggleClass("is-disabled", allBot);
     }
 
-    // Rich-text comments only apply to bot-method posts. Lock the toggle off — visually
-    // (greyed, non-interactive) and physically (value forced to false) — when no selected
-    // preset posts via a bot method. Mixed selections stay enabled: rich comments apply
-    // to the bot-method presets and are ignored for account-method ones.
-    private updateCommentsRichToggleState() {
-        if (!this.commentsAsRichToggle) return;
-        const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
-        const noBotMethod = selectedRows.length > 0 && selectedRows.every(r => r.method === "account");
-        if (noBotMethod) {
-            this.commentsAsRichToggle.setValue(false);
-            this.commentsAsRichToggle.setDisabled(true);
-        } else {
-            this.commentsAsRichToggle.setDisabled(false);
-        }
-        this.commentsAsRichOptionEl?.toggleClass("is-disabled", noBotMethod);
-    }
-
-    // Editing a Rich Message via the Bot API strips its rich formatting (Telegram
-    // restriction), so the post/comment editing options are locked off whenever a
-    // selected preset publishes with the "bot + rich text" method. "bot" and "account"
-    // methods keep them enabled.
-    private updateEditingState() {
-        const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
-        const disabled = selectedRows.some(r => r.method === "bot-rich");
-
-        this.updateOptionEl?.toggleClass("is-disabled", disabled);
-        this.commentOptionEl?.toggleClass("is-disabled", disabled);
-
-        if (disabled) {
-            // Clear any pending edit selection so a rich post can't be edited.
-            if (this.updateLinkDropdown && this.updateLinkDropdown.getValue() !== "none") {
-                this.updateLinkDropdown.setValue("none");
-                this.handleLinkSelection("none");
-            }
-            if (this.commentLinkDropdown && this.commentLinkDropdown.getValue() !== "none") {
-                this.commentLinkDropdown.setValue("none");
-                this.updatePublishBtn();
-                this.applyEditLinkFilter();
-            }
-        }
-        this.updateLinkDropdown?.setDisabled(disabled);
-        this.commentLinkDropdown?.setDisabled(disabled);
-    }
-
     // Collects the normalized chat ids of the links currently chosen for editing.
     // Returns null when an "all" bulk option is chosen (no single chat to match against).
     private editingChatIds(): Set<string> | null {
@@ -294,11 +246,10 @@ export class MultiPresetModal extends Modal {
 
     // Reflects the current edit-link selection on the preset rows: enables only the
     // presets whose chat targets match the chosen link's chat (all disabled for the
-    // "all" bulk option), and removes the "bot + rich text" method while editing — it
-    // would strip the rich formatting. With no link selected every preset is re-enabled.
+    // "all" bulk option). The matching preset the user toggles on supplies the method
+    // and token used to perform the edit. With no link selected every preset is re-enabled.
     private applyEditLinkFilter() {
         const editing = this.anyLinkSelected();
-        this.updateRichMethodOption(editing);
 
         if (!editing) {
             this.channelRows.forEach(row => row.container.removeClass("is-disabled"));
@@ -319,18 +270,36 @@ export class MultiPresetModal extends Modal {
         });
     }
 
-    // Removes the "bot + rich text" option from every preset's method dropdown while a
-    // link is being edited; restores it otherwise. A row currently set to bot-rich
-    // falls back to plain "bot".
-    private updateRichMethodOption(removeRich: boolean) {
+    // The first selected preset whose chat targets include the given chat, with the
+    // method chosen for it. Drives how an edit is routed: its method picks account vs.
+    // classic-bot vs. rich-bot editing, and (for bot methods) its token is used.
+    private editRouteFor(chatId: string): { channel: TelegramChannel; method: PostMethod } | null {
         for (const row of this.channelRows) {
-            const opt = row.methodDropdown.selectEl.querySelector<HTMLOptionElement>('option[value="bot-rich"]');
-            if (removeRich) {
-                if (row.method === "bot-rich") { row.method = "bot"; row.methodDropdown.setValue("bot"); }
-                opt?.remove();
-            } else if (!opt) {
-                row.methodDropdown.addOption("bot-rich", t.METHOD_BOT_RICH);
+            if (!this.selectedChannels.has(row.id)) continue;
+            const channel = this.plugin.settings.channels.find(c => c.id === row.id);
+            if (channel && (channel.chatTargets ?? []).some(target => normChatId(target.id) === normChatId(chatId))) {
+                return { channel, method: row.method };
             }
+        }
+        return null;
+    }
+
+    // Edits a single stored post link, routing by the selected preset's method: a bot /
+    // bot-rich preset edits via its bot (preserving rich formatting for bot-rich), while
+    // no matching bot preset falls back to the account path (channelFromLink).
+    private async editPost(link: string, title: string | null, silent: boolean, attachUnderText: boolean): Promise<void> {
+        const parsed = parseLinkComponents(link);
+        const route = parsed ? this.editRouteFor(parsed.chatId) : null;
+        if (parsed && route && (route.method === "bot" || route.method === "bot-rich")) {
+            const editChannel: TelegramChannel = {
+                ...route.channel,
+                chatId: parsed.chatId,
+                chatTargets: [{ id: parsed.chatId, title: title ?? parsed.chatId }],
+            };
+            await this.plugin.sendNoteToTelegram(this.file, editChannel, silent, attachUnderText, link, undefined, route.method);
+        } else if (title) {
+            const channel = channelFromLink(link, title);
+            if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, link, undefined);
         }
     }
 
@@ -410,8 +379,6 @@ export class MultiPresetModal extends Modal {
             methodDropdown.onChange(value => {
                 row.method = value as PostMethod;
                 this.updateScheduleState();
-                this.updateCommentsRichToggleState();
-                this.updateEditingState();
             });
 
             const toggle = new ToggleComponent(controlEl)
@@ -420,8 +387,6 @@ export class MultiPresetModal extends Modal {
                     if (value) this.selectedChannels.add(channel.id);
                     else this.selectedChannels.delete(channel.id);
                     this.updateScheduleState();
-                    this.updateCommentsRichToggleState();
-                    this.updateEditingState();
                 });
             row.toggle = toggle;
 
@@ -447,18 +412,6 @@ export class MultiPresetModal extends Modal {
         this.attachToggle = new ToggleComponent(attachOptionEl.createDiv("telegram-option-control"))
             .setValue(false);
 
-        // Rich-text comments only apply to the .md-embeds-as-comments feature (bot methods),
-        // so only surface the toggle when that feature is enabled globally. It is separate
-        // from the "Bot + rich text" method, which controls the post itself.
-        if (this.plugin.settings.treatMdEmbedsAsComments) {
-            this.commentsAsRichOptionEl = contentEl.createDiv("telegram-option-item");
-            const commentsRichTextEl = this.commentsAsRichOptionEl.createDiv("telegram-option-text");
-            commentsRichTextEl.createDiv({ text: t.MULTI_PRESET_COMMENTS_RICH_NAME, cls: "telegram-option-name" });
-            commentsRichTextEl.createDiv({ text: t.MULTI_PRESET_COMMENTS_RICH_DESC, cls: "telegram-option-desc" });
-            this.commentsAsRichToggle = new ToggleComponent(this.commentsAsRichOptionEl.createDiv("telegram-option-control"))
-                .setValue(false);
-        }
-
         this.scheduleOptionEl = contentEl.createDiv("telegram-option-item");
         const scheduleOptionEl = this.scheduleOptionEl;
         const scheduleTextEl = scheduleOptionEl.createDiv("telegram-option-text");
@@ -469,7 +422,6 @@ export class MultiPresetModal extends Modal {
 
         // Initial state now that all option elements exist.
         this.updateScheduleState();
-        this.updateCommentsRichToggleState();
 
         // ─── Edit Post & Comments Section ─────────────────────────────────────────────
 
@@ -482,11 +434,9 @@ export class MultiPresetModal extends Modal {
         const allStoredCommentLinks = readLinks("tg_comments");
 
         contentEl.createDiv({ text: t.MULTI_PRESET_UPDATE_HEADING, cls: "telegram-modal-heading" });
-        contentEl.createDiv({ text: t.MULTI_PRESET_EDIT_RICH_WARNING, cls: "telegram-modal-warning" });
 
         // "Update existing post" row
         const updateOptionEl = contentEl.createDiv("telegram-option-item telegram-option-item--edit");
-        this.updateOptionEl = updateOptionEl;
         const updateTextEl = updateOptionEl.createDiv("telegram-option-text");
         updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NAME, cls: "telegram-option-name" });
         this.updateDescEl = updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NAME_DESC, cls: "telegram-option-desc" });
@@ -496,7 +446,6 @@ export class MultiPresetModal extends Modal {
 
         // "Edit existing comments" row
         const commentOptionEl = contentEl.createDiv("telegram-option-item telegram-option-item--edit");
-        this.commentOptionEl = commentOptionEl;
         const commentTextEl = commentOptionEl.createDiv("telegram-option-text");
         commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NAME, cls: "telegram-option-name" });
         commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_DESC, cls: "telegram-option-desc" });
@@ -567,14 +516,8 @@ export class MultiPresetModal extends Modal {
                 } else {
                     commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
                 }
-
-                // Apply the bot-rich lock to the freshly created dropdowns.
-                this.updateEditingState();
             })();
         }
-
-        // Reflect the initial selection's method (a pre-toggled preset may be bot-rich).
-        this.updateEditingState();
 
         // ─── Publish Button ───────────────────────────────────────────────────────────
 
@@ -599,7 +542,6 @@ export class MultiPresetModal extends Modal {
 
                 const silent = this.silentToggle?.getValue() ?? false;
                 const attachUnderText = this.attachToggle?.getValue() ?? false;
-                const commentsAsRich = this.commentsAsRichToggle?.getValue() ?? false;
 
                 let scheduleDate: Date | undefined;
                 if (!isUpdatingPost && !isEditingComments && this.scheduleInput?.value) {
@@ -613,11 +555,10 @@ export class MultiPresetModal extends Modal {
                         for (const link of allStoredPostLinks) {
                             const info = this.resolvedLinks.get(link);
                             if (!info?.title) continue;
-                            const channel = channelFromLink(link, info.title);
-                            if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, link, undefined);
+                            await this.editPost(link, info.title, silent, attachUnderText);
                         }
                     } else {
-                        await this.plugin.sendNoteToTelegram(this.file, this.builtUpdateChannel!, silent, attachUnderText, updateLinkRaw, undefined);
+                        await this.editPost(updateLinkRaw, this.resolvedLinks.get(updateLinkRaw)?.title ?? null, silent, attachUnderText);
                     }
                 }
                 if (isEditingComments) {
@@ -633,20 +574,27 @@ export class MultiPresetModal extends Modal {
                         links.sort((a, b) => (parseLinkComponents(a)?.messageId ?? 0) - (parseLinkComponents(b)?.messageId ?? 0));
                     });
 
+                    // Each comment chat routes by the preset selected for that chat: a bot /
+                    // bot-rich preset edits via its bot, otherwise editing uses the account.
+                    const editGroup = async (chatId: string, links: string[]) => {
+                        const route = this.editRouteFor(chatId);
+                        await this.plugin.editNoteComments(this.file, links, silent, route?.method ?? "account", route?.channel.botToken);
+                    };
+
                     if (commentDropdownValue === "all") {
-                        for (const links of commentGroupsByChatId.values()) {
-                            await this.plugin.editNoteComments(this.file, links, silent);
+                        for (const [chatId, links] of commentGroupsByChatId.entries()) {
+                            await editGroup(chatId, links);
                         }
                     } else {
                         const links = commentGroupsByChatId.get(commentDropdownValue) ?? [];
-                        await this.plugin.editNoteComments(this.file, links, silent);
+                        await editGroup(commentDropdownValue, links);
                     }
                 }
                 if (!isUpdatingPost && !isEditingComments) {
                     for (const channelId of this.selectedChannels) {
                         const channel = this.plugin.settings.channels.find(c => c.id === channelId);
                         const method = this.channelRows.find(r => r.id === channelId)?.method;
-                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, method, commentsAsRich);
+                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, method);
                     }
                 }
             });

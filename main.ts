@@ -1,8 +1,8 @@
 import { Plugin, Notice, TFile, TFolder, Menu } from "obsidian";
 import { t, getUserGuideContent, changelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
-import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks } from "./src/telegram";
-import { sendNoteViaBotApi } from "./src/telegram-bot";
+import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents } from "./src/telegram";
+import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 import { errMessage } from "./src/util";
 
@@ -150,7 +150,7 @@ export default class SendToTelegramPlugin extends Plugin {
         }
     }
 
-    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date, method?: PostMethod, commentsAsRich = false): Promise<void> {
+    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date, method?: PostMethod): Promise<void> {
         // Resolve the effective posting method: explicit override, else the preset default.
         const effectiveMethod = method ?? channel.defaultMethod ?? "account";
         const isBotMethod = effectiveMethod === "bot" || effectiveMethod === "bot-rich";
@@ -180,7 +180,7 @@ export default class SendToTelegramPlugin extends Plugin {
                     this.app, file, channel, this.settings,
                     silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink,
                     effectiveMethod === "bot-rich",   // post as Rich Message
-                    commentsAsRich,                    // comments as Rich Message (separate option)
+                    effectiveMethod === "bot-rich",   // comments follow the post method (rich for "bot + rich")
                 );
                 allLinks.push(...links);
                 allCommentLinks.push(...commentLinks);
@@ -335,12 +335,28 @@ export default class SendToTelegramPlugin extends Plugin {
         }
     }
 
-    async editNoteComments(file: TFile, commentLinks: string[], silent: boolean, embedOffset = 0): Promise<void> {
-        // Comment editing isn't tied to a preset, so it uses the primary account.
-        if (this.settings.accounts.length === 0) { new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED); return; }
+    async editNoteComments(file: TFile, commentLinks: string[], silent: boolean, method: PostMethod = "account", botToken?: string, embedOffset = 0): Promise<void> {
+        // Comment editing follows the method of the preset chosen for the edit: account
+        // comments are edited via the account, bot / bot-rich comments via the bot that
+        // owns them (preserving rich formatting for "bot + rich").
+        const isBot = method === "bot" || method === "bot-rich";
+        if (isBot) {
+            if (!botToken) { new Notice(t.NOTICE_ERR_CONFIG); return; }
+        } else if (this.settings.accounts.length === 0) {
+            new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED); return;
+        }
         const progressNotice = new Notice(t.NOTICE_EDITING_COMMENTS, 0);
         try {
-            const { errors } = await editNoteCommentsOnly(this.app, file, this.secrets, commentLinks, silent, embedOffset);
+            let errors: Error[];
+            if (isBot) {
+                const comments = commentLinks.map(link => {
+                    const parsed = parseLinkComponents(link);
+                    return parsed ? { chatId: parsed.chatId, messageId: parsed.messageId } : null;
+                });
+                ({ errors } = await editNoteCommentsViaBotApi(this.app, file, botToken!, comments, method === "bot-rich", embedOffset));
+            } else {
+                ({ errors } = await editNoteCommentsOnly(this.app, file, this.secrets, commentLinks, silent, embedOffset));
+            }
             progressNotice.hide();
             for (const err of errors) {
                 const msg = (err.message ?? "").toUpperCase();
