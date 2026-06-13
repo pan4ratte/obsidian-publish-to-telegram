@@ -506,8 +506,6 @@ body .telegram-auth-submit:disabled {
     padding: 20px 16px;
     border: 1px solid var(--background-modifier-border);
     margin-bottom: 0px;
-    border-top: 0px;
-/*    border-radius: var(--setting-items-radius); */
     transition: opacity 0.15s ease;
 }
 
@@ -535,6 +533,15 @@ body .telegram-auth-submit:disabled {
     border-top-right-radius: 0px;
     border-top-left-radius: 0px;
     transition: opacity 0.15s ease;
+}
+
+/* The sole preset row when the advanced publishing list has only one preset.
+   Doubled class + body prefix (0,2,1) outranks the :first-child / :last-child rules
+   (0,2,0) that the lone row also matches, restoring its top border and full corners.
+   Layout props are inherited from the base .telegram-multi-preset-item rule. */
+body .telegram-multi-preset-item.telegram-multi-preset-item--single {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--setting-items-radius);
 }
 
 .telegram-multi-preset-control {

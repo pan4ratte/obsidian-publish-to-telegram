@@ -9,6 +9,7 @@ import { getInputMedia } from "telegram/Utils";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink } from "./types";
 import { errMessage } from "./util";
 import { mdToTelegramHtml } from "./markdown";
+import { t } from "../lang/helpers";
 
 // ─── Internal result & media types ────────────────────────────────────────────
 
@@ -460,7 +461,7 @@ async function sendMediaRaw(
             workers: 1,
             supportsStreaming: VIDEO_EXTS.has(ext0),
         });
-        if (!media) throw new Error("Failed to prepare media for sending");
+        if (!media) throw new Error(t.ERR_MEDIA_PREPARE_FAILED);
 
         const req = new Api.messages.SendMedia({
             peer,

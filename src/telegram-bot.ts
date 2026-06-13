@@ -5,6 +5,7 @@
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings } from "./types";
 import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl } from "./markdown";
+import { t } from "../lang/helpers";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -314,7 +315,7 @@ async function sendRichOrClassicReply(token: string, chatId: string, replyToMess
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.warn("[publish-to-telegram] rich comment failed, falling back to HTML reply:", msg);
-            new Notice(`Rich comment unavailable — sending as standard text. (${msg})`);
+            new Notice(t.NOTICE_RICH_COMMENT_UNAVAILABLE.replace("{error}", msg));
         }
     }
     return await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId);
@@ -485,14 +486,14 @@ async function sendPartViaBotApi(
                         const commentMsgId = await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
                         if (commentMsgId !== null) commentLinks.push(buildBotPostLink(String(linkedChatId), commentMsgId));
                     } else {
-                        new Notice("Couldn't find the discussion message to comment under.");
+                        new Notice(t.NOTICE_COMMENT_DISCUSSION_NOT_FOUND);
                     }
                 } else {
                     const commentMsgId = await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
                     if (commentMsgId !== null) commentLinks.push(buildBotPostLink(chatId, commentMsgId));
                 }
             } catch (err) {
-                new Notice(`Comment failed: ${err instanceof Error ? err.message : String(err)}`);
+                new Notice(t.NOTICE_COMMENT_FAILED.replace("{error}", err instanceof Error ? err.message : String(err)));
             }
         }
     }
@@ -620,13 +621,13 @@ export async function sendNoteViaBotApi(
     commentsAsRich = false,
 ): Promise<{ links: string[]; commentLinks: string[]; errors: Error[] }> {
     const token = channel.botToken ?? "";
-    if (!token) throw new Error("Bot token is not configured for this preset.");
+    if (!token) throw new Error(t.ERR_BOT_TOKEN_NOT_CONFIGURED);
 
     const targets = channel.chatTargets?.length > 0
         ? channel.chatTargets
         : (channel.chatId ? [{ id: channel.chatId, title: channel.chatTitle }] : []);
 
-    if (targets.length === 0) throw new Error("No chat targets configured for this preset.");
+    if (targets.length === 0) throw new Error(t.ERR_NO_CHAT_TARGETS);
 
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);

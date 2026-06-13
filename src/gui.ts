@@ -47,6 +47,18 @@ function methodOptions(): Array<[PostMethod, string]> {
     ];
 }
 
+// The posting methods a preset offers in the advanced modal: its primary method's
+// family ("account", or "bot" + "bot-rich") is always available; the opposite family
+// is added only when the preset has "Use secondary publication methods" enabled.
+function availableMethods(channel: TelegramChannel): Set<PostMethod> {
+    const primaryIsAccount = (channel.defaultMethod ?? "account") === "account";
+    const accountFamily: PostMethod[] = ["account"];
+    const botFamily: PostMethod[] = ["bot", "bot-rich"];
+    const primary = primaryIsAccount ? accountFamily : botFamily;
+    if (!channel.useSecondaryMethods) return new Set(primary);
+    return new Set([...primary, ...(primaryIsAccount ? botFamily : accountFamily)]);
+}
+
 // Normalizes a chat id (preset target or a link's parsed chat) for comparison so
 // "@Channel", "channel" and a -100… id compare consistently.
 function normChatId(id: string): string {
@@ -358,8 +370,11 @@ export class MultiPresetModal extends Modal {
 
         const listContainer = contentEl.createDiv("telegram-multi-preset-list");
 
+        const singlePreset = this.plugin.settings.channels.length === 1;
+
         this.plugin.settings.channels.forEach(channel => {
             const itemEl = listContainer.createDiv("telegram-multi-preset-item");
+            if (singlePreset) itemEl.addClass("telegram-multi-preset-item--single");
             const nameEl = itemEl.createDiv("telegram-multi-preset-name");
             nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
 
@@ -369,8 +384,13 @@ export class MultiPresetModal extends Modal {
             const controlEl = itemEl.createDiv("telegram-multi-preset-control");
 
             // Per-publish method override, defaulting to the preset's configured method.
+            // Only the methods the preset exposes appear (secondary methods are hidden
+            // unless "Use secondary publication methods" is enabled for the preset).
+            const allowedMethods = availableMethods(channel);
             const methodDropdown = new DropdownComponent(controlEl);
-            for (const [value, label] of methodOptions()) methodDropdown.addOption(value, label);
+            for (const [value, label] of methodOptions()) {
+                if (allowedMethods.has(value)) methodDropdown.addOption(value, label);
+            }
             methodDropdown.setValue(channel.defaultMethod ?? "account");
             methodDropdown.selectEl.addClass("telegram-multi-preset-method");
 
@@ -1028,7 +1048,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                     .onChange((v) => { tokenValue = v; });
             })
             .addButton(btn => {
-                btn.setIcon("eye").setTooltip("Show / hide token")
+                btn.setIcon("eye").setTooltip(t.SETTING_BOT_TOKEN_SHOW_HIDE)
                     .onClick(() => {
                         const input = tokenSetting.settingEl.querySelector<HTMLInputElement>("input");
                         if (!input) return;
