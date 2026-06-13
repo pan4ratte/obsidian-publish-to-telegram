@@ -41,7 +41,6 @@
     margin-top: 12px;
 }
 
-/* Specificity increased with body prefix to safely override Obsidian defaults */
 body .telegram-add-button {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
@@ -122,11 +121,6 @@ body .telegram-delete-button {
 
 body .telegram-delete-button:hover {
     color: var(--text-error);
-}
-
-body .telegram-logout-button:hover {
-    color: var(--text-error);
-    background: none;
 }
 
 .telegram-auth-status {
@@ -236,12 +230,6 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
 .telegram-add-token-input .setting-item-control input[type="text"] {
     flex: 1;
     width: 100%;
-}
-
-.telegram-add-token-actions {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 8px;
 }
 
 /* ── Account selector (user presets) ── */
@@ -535,10 +523,8 @@ body .telegram-auth-submit:disabled {
     transition: opacity 0.15s ease;
 }
 
-/* The sole preset row when the advanced publishing list has only one preset.
-   Doubled class + body prefix (0,2,1) outranks the :first-child / :last-child rules
-   (0,2,0) that the lone row also matches, restoring its top border and full corners.
-   Layout props are inherited from the base .telegram-multi-preset-item rule. */
+/* The lone preset row: outranks the :first-child / :last-child rules it also matches,
+   restoring its top border and full corners. */
 body .telegram-multi-preset-item.telegram-multi-preset-item--single {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
@@ -722,14 +708,6 @@ body .telegram-multi-preset-item.telegram-multi-preset-item--single {
     margin-top: 16px;
 }
 
-.telegram-modal-warning {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-    margin: -8px 0 12px;
-    padding-left: 8px;
-    line-height: var(--line-height-normal);
-}
-
 input.telegram-schedule-input {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--input-radius);
@@ -907,38 +885,6 @@ body .telegram-changelog-close:hover {
     padding: 1px 4px;
     border-radius: 3px;
     font-size: var(--font-smaller);
-}
-
-/* ─── Preset type badge ──────────────────────────────────────────────────────── */
-
-.tg-preset-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 1px 6px;
-    border-radius: 4px;
-    margin-left: 6px;
-    vertical-align: middle;
-    line-height: 1.6;
-    user-select: none;
-    cursor: default;
-    color: var(--tag-color);
-    background-color: var(--tag-background);
-}
-
-.tg-preset-badge:hover {
-    background-color: var(--tag-background-hover);
-    color: var(--tag-color-hover);
-}
-
-.tg-preset-badge .tg-preset-badge-icon {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 0px;
-}
-
-.tg-preset-badge .tg-preset-badge-icon svg {
-    width: 15px;
-    height: 15px;
 }
 
 /* ─── Bot token field ────────────────────────────────────────────────────────── */
