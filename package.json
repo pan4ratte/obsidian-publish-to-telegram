@@ -14,10 +14,10 @@
   "license": "AGPL-3.0",
   "type": "commonjs",
   "devDependencies": {
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.3.0",
-    "obsidian": "latest",
+    "obsidian": "^1.13.1",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.60.1"
   },
@@ -26,7 +26,7 @@
     "assert": "^2.1.0",
     "buffer": "^6.0.3",
     "constants-browserify": "^1.0.0",
-    "crypto-browserify": "^3.12.1",
+    "crypto-browserify": "^3.3.0",
     "events": "^3.3.0",
     "os-browserify": "^0.3.0",
     "path-browserify": "^1.0.1",
