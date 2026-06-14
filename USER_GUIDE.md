@@ -149,7 +149,7 @@ Media, album (groups of media) and document attachments are supported. To attach
 
 You can also embed files with external web-link embeds:
 
-`![](https://obsidian.md/image.png)`
+`![](https://telegram.org/example/photo.jpg)`
 
 Currently supported formats:
 

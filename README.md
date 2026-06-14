@@ -73,7 +73,7 @@ To post notes to Telegram, you need to set up a preset. When creating a preset, 
 
 ## 1. Publishing as an account
 
-**Important aspects of this posting method:**
+**Important aspects of this publishing method:**
 
 * Posting as an account allows you to use Telegram Premium features, but does not allow rich-text formatting due to Telegram’s restrictions.
 
@@ -99,7 +99,7 @@ Now you can post notes to Telegram using your preset’s name via the command pa
 
 ## 2. Publishing as a bot
 
-**Important aspects of this posting method:**
+**Important aspects of this publishing method:**
 
 * Posting as a bot allows you to use rich-text formatting, but does not allow you to use Telegram Premium features due to Telegram's restrictions.
 
@@ -220,7 +220,7 @@ Media, album (groups of media) and document attachments are supported. To attach
 
 You can also embed files with external web-link embeds:
 
-`![](https://obsidian.md/image.png)`
+`![](https://telegram.org/example/photo.jpg)`
 
 Currently supported formats:
 
@@ -416,7 +416,7 @@ A couple of notes:
 
 You can open an advanced publishing settings window with command palette (`Ctrl + P`) by typing "Publish to Telegram: Publish with advanced settings". In that settings window you can choose to:
 
-* Post without sound.
+* Post with notification without sound.
 
 * Post with attached media under the text.
 
@@ -426,9 +426,9 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 ## 7. Limits
 
-Standard Telegram posting limits apply to limits apply to posts, send via "Account" and "Bot" methods. A rich-text message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns.of characters per post, limits of attached media size per post, etc. More about limits: [https://limits.tginfo.me/](https://limits.tginfo.me/)
+Standard Telegram posting limits apply to posts, sent via "Account" and "Bot" methods. A rich-text message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns. More about limits: [https://limits.tginfo.me/](https://limits.tginfo.me/)
 
-I also highly recommend my other plugin, [Advanced Word Count](https://community.obsidian.md/plugins/advanced-word-count), which lets you create detailed presets for word counts in notes and offers significantly greater functionality compared to the standard Obsidian word counter. This plugin can be configured to count characters exactly the same way Telegram does.
+I also highly recommend my other plugin, [Advanced Word Count](https://community.obsidian.md/plugins/advanced-word-count), that allows you to create detailed presets for word counting in notes and offers significantly greater functionality, compared to the standard Obsidian word counter. This plugin can be easily configured to count characters exactly the same way Telegram does.
 
 # About the Author
 
