@@ -2,23 +2,24 @@
 
 ## 5.0.0
 
-### Rich-text messages from accounts
+### Major update: rich-text formatting support for accounts
 
-On [July 15, 2026](https://telegram.org/blog/communities-editor-invisible-messages) Telegram brought its Rich Text Editor to regular user accounts (Telegram Premium only). This release lets presets post those Rich Messages **as your account**, not just as a bot:
+On [July 15, 2026](https://telegram.org/blog/communities-editor-invisible-messages) Telegram opened its Rich Text Editor to users with Telegram Premium. With this update the plugin gains a new posting method, "Account + rich text" — now you can publish rich-text posts as your own account:
 
-* **Post rich-text as an account.** Pick the new **"Account + rich text"** method when creating a preset or in the advanced publishing settings. It posts Telegram Rich Messages — headings, tables, ordered and task lists, block quotes, collapsible blocks, footnotes, formulas, inline media and more — from your user account. Pre-written comments follow the method and are sent as Rich Messages too.
-* **Local media inside rich messages.** Unlike the bot method — where Rich Messages can only reference web media by URL (HTTP/HTTPS) — an **"Account + rich text"** post can embed **local** photos, videos, GIFs and **audio** files inline: they're uploaded and shown in place, right where you embed them. This works in pre-written comments too. Only local documents (e.g. PDFs) still can't be embedded in a rich message and are rejected with a clear message — attach them with a classic method instead.
-* **Telegram Premium required.** Sending rich-text from a user account is a Premium feature on Telegram's side. Without Premium on the selected account the post is refused with a clear message.
-* **Classic posts stay a single message.** The "Account" and "Bot" methods now refuse an attachment set that Telegram can't deliver as one message — instead of silently splitting it into several. This happens when you combine things Telegram can't group (an album together with a GIF or a document, several GIFs), exceed 10 items in one album, or — on the account method only — mix photos and videos in the same album. Use a rich-text method (which puts everything in one message), or split the attachments across separate posts.
+* **Post rich-text as an account.** Pick the new **"Account + rich text"** method when creating a preset or in the advanced publishing settings.
+* **Local media in rich messages.** Unlike bots, which can only attach media by web embedding (an HTTP/HTTPS link), "Account + rich text" lets you attach local media to posts. One important limitation: local documents (e.g. PDFs) can't be attached to rich-text messages.
+* **Telegram Premium required.** Sending rich-text as an account is a Premium feature on Telegram's side. If you don't have Premium, you can use the "Bot + rich text" publication method.
 
-### Under the hood
+Please note: this update affects user sessions, so a one-time re-login to your accounts is required. Your saved presets and bot tokens are unaffected.
 
-* The account (User API) engine was migrated from GramJS to [mtcute](https://github.com/mtcute/mtcute), which supports Telegram's current protocol layer and the new rich-message API.
-* **One-time re-login required.** Because the account engine changed, existing account sessions no longer carry over — you'll need to log in again once (QR or phone, as before). Your presets and saved bot tokens are unaffected.
+### UI/UX enhancements and bug fixes
+
+* Improved detection of unsupported attachment combinations. When you try to send attachment sets that classic methods don't support, the post is not sent and an error is shown. The same happens when attachment count limits are exceeded.
+* Completed the full migration of the User API from the deprecated GramJS to the current [mtcute](https://github.com/mtcute/mtcute); the plugin code was slimmed down.
 
 ## 4.0.0
 
-### Major update
+### Major update: bots with rich-text formatting support
 
 Version 4.0.0 brings bots back with a more important purpose: a full support of rich-text messages feature, intorduced by Telegram on [June 11, 2026](https://telegram.org/blog/watch-apps-and-more/#obscenely-rich-text-formatting-for-bots) only for bots. This is the biggest formatting update in the history of Telegram, which is great news for writers and admins. For example, post symbol limit is 32.000 now. Moreover, we introduce multiple accounts and reusable bot tokens support. Now you can:
 

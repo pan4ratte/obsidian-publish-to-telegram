@@ -35,9 +35,10 @@ export default {
     SETTING_ADD_CHANNEL_NAME: "Preset creation and usage",
     SETTING_ADD_CHANNEL_DESC: `We strongly recommend that you carefully read the user guide, it describes all plugin features and supported formatting options. Key differences between publication methods:
 
-1. Accounts can use Telegram Premium features, but can't post rich-text mesages due to Telegram’s restrictions.
-2. Bots can post rich-text messages, but can't use Telegram Premium features due to Telegram's restrictions.
-3. Optionally, bots can post texts with standard formatting, without rich-text formatting.`,
+1. "Account" posts with standard formatting and lets you use Telegram Premium features.
+2. "Account + rich-text" posts with rich-text formatting, but requires Telegram Premium.
+3. "Bot" posts with standard formatting, but can't use Telegram Premium features.
+4. "Bot + rich-text" doesn't require Telegram Premium, but can't attach local files.`,
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
     SETTING_OPEN_BOTFATHER: "Open @BotFather",
     SETTING_FORMATTING_HELP: "User guide",
@@ -120,19 +121,19 @@ export default {
     NOTICE_SCHEDULED_LINK_FAILED: 'Couldn\'t fetch the link for the scheduled post "{title}"',
     NOTICE_ERR_CONFIG: "Error: Set up at least one preset.",
     NOTICE_ERR_SEND: "Publishing error: ",
-    NOTICE_ERR_TOO_LONG_TEXT: "Error: This publication method supports texts less than 4097 symbols.",
-    NOTICE_ERR_TOO_LONG_CAPTION: "Error: This publishing method supports texts with media attachments less than 1025 symbols.",
-    NOTICE_ERR_RICH_LOCAL_MEDIA: "Error: Rich-text Messages support only web media, local attachments can't be sent with a rich-text method.",
-    NOTICE_ERR_RICH_LOCAL_DOC: "Error: Documents (like PDFs) can't be embedded in a rich-text message. Attach them with a classic method, or remove them.",
-    NOTICE_ERR_MIXED_MEDIA: "Error: These attachments can't be posted as a single message with a classic method. Use a rich-text method, or post them separately.",
+    NOTICE_ERR_TOO_LONG_TEXT: "Error: This publication method supports texts of no more than 4096 symbols.",
+    NOTICE_ERR_TOO_LONG_CAPTION: "Error: This publishing method supports texts with media attachments of no more than 1024 symbols.",
+    NOTICE_ERR_RICH_LOCAL_MEDIA: "Error: This publication method supports only web attachments. Local attachments are not supported.",
+    NOTICE_ERR_RICH_LOCAL_DOC: "Error: Local documents can't be attached to rich-text messages. Send them with a classic method, or remove them.",
+    NOTICE_ERR_MIXED_MEDIA: "Error: The attached combination of attachments can't be sent with the selected method. Use a rich-text method, or send them separately.",
     NOTICE_ERR_ACCOUNT_RICH_PREMIUM: "Error: Sending rich-text messages from a user account requires Telegram Premium on that account.",
     NOTICE_ERR_NOT_AUTHENTICATED: "Error: Authorize into your Telegram account in the plugin settings before publishing.",
     NOTICE_ERR_NOT_MODIFIED: "Nothing to update: contents weren't changed.",
     NOTICE_COMMENT_DISCUSSION_NOT_FOUND: "Could not find the discussion message to comment under.",
     NOTICE_COMMENT_FAILED: "Comment failed: {error}",
     ERR_MEDIA_PREPARE_FAILED: "Failed to prepare media for sending",
-    ERR_BOT_TOKEN_NOT_CONFIGURED: "Bot is not configured for this preset, choose a bot that will post",
-    ERR_NO_CHAT_TARGETS: "No chat targets configured for this preset, search chats in the search field or enter @usernames or IDs manually.",
+    ERR_BOT_TOKEN_NOT_CONFIGURED: "Bot is not configured for this preset. Choose a bot that will post",
+    ERR_NO_CHAT_TARGETS: "No chat targets configured for this preset. Search chats in the search field or enter @usernames or IDs manually.",
     AUTH_SUCCESS: "Successfully authorized",
     AUTH_ERROR: "Authorization error",
     MULTI_PRESET_NO_SELECTION: "Choose a preset",

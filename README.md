@@ -2,7 +2,7 @@
 
 English | [Русский](https://github.com/pan4ratte/obsidian-publish-to-telegram/blob/main/README_RU.md)
 
-This plugin allows you to post notes directly to Telegram channels, groups and personal messages with different presets. Standard Telegram formatting, rich-text formatting for bots, as well as media and document attachments are supported. Advanced publishing settings allow you to schedule posts, edit posts and comments and more.
+This plugin allows you to post notes directly to Telegram channels, groups and personal messages with different presets. Standard Telegram formatting, rich-text formatting, as well as media and document attachments are supported. Advanced publishing settings allow you to schedule posts, edit posts and comments and more.
 
 <div align="center">
   <img src="media/1-cover.png"width="100%" />
@@ -17,8 +17,8 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
 1. Create presets to post to different channels, groups, forum topics and personal messages:
 
     * A preset can hold multiple target chats at once.
-    * Four optional publication methods: by account, by account with rich-text formatting, by bot, or by bot with rich-text formatting.
-    * Search field, that loads chat list if authorization is complete and account is picked.
+    * Four optional publication methods: by account, by account with rich-text formatting, by bot, or by bot with rich-text formatting. Each method has its own features and limitations.
+    * Search field that loads the chat list if authorization is complete and an account is picked.
     * Option to enter target chat `@username` or `ID` manually.
 
 2. Post in different ways: with hotkeys, command palette and context menus, as well as through advanced publishing settings menu.
@@ -31,11 +31,11 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
     * Schedule the publication.
     * Edit already existing posts or pre-written comments.
 
-4. Photo, video, album and document attachments.
+4. Photo, video, audio, album and document attachments.
 
 5. Publish pre-written commentaries to the post discussion (or as replies to the message if it was posted in a group or sent to a user).
 
-6. Set up a default preset to post quickly with it or use command palette or hotkeys.
+6. Set up a default preset to post quickly with it.
 
 7. Option to enable automatic posts and comments links saving to the note's properties.   
 
@@ -85,7 +85,7 @@ To post notes to Telegram, you need to set up a preset. When creating a preset, 
 
 1. In the plugin settings, click the “Log In” button and sign in to your account. You can authorize using a phone number or a QR code. Your sessions are stored locally in encrypted form in your Obsidian Keychain.
 
-2. Create a new preset, and under “Select primary publishing method,” choose “Account” (standard formatting) or “Account + rich text” (rich-text formatting; requires Telegram Premium on the account).
+2. Create a new preset, and under “Select primary publishing method,” choose “Account” or “Account + rich text.”
 
 3. In the option that appears, select one of your authorized accounts.
 
@@ -397,7 +397,7 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’
 **Note:**
 
 * In a **“Bot + rich text”** post, inline media must be an **HTTP(S) web link** — the Bot API can’t upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic “Bot” method, or use a web URL).
-* An **“Account + rich text”** post can embed **local** media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. This works in pre-written comments as well. Only local **documents** (e.g. `.pdf`, or `.md` embeds attached as files) can’t be embedded in a rich message and are rejected — send those with a classic method.
+* An **“Account + rich text”** post can embed **local** media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. This works in pre-written comments as well. Only local **documents** (e.g. `.pdf`, or `.md` embeds attached as files) can’t be embedded in a rich message.
 
 ## 5. Pre-written comments
 
@@ -433,7 +433,7 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 Standard Telegram posting limits apply to posts, sent via "Account" and "Bot" methods. A rich-text message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns. More about limits: [https://limits.tginfo.me/](https://limits.tginfo.me/)
 
-I also highly recommend my other plugin, [Advanced Word Count](https://community.obsidian.md/plugins/advanced-word-count), that allows you to create detailed presets for word counting in notes and offers significantly greater functionality, compared to the standard Obsidian word counter. This plugin can be easily configured to count characters exactly the same way Telegram does.
+I also highly recommend my other plugin, [Advanced Word Count](https://community.obsidian.md/plugins/advanced-word-count), that allows you to create detailed presets for word counting in notes and offers significantly greater functionality, compared to the standard Obsidian word counter. This plugin can be easily configured to count characters exactly the same way Telegram does: its plugin extension store includes ready-made presets for Telegram.
 
 # About the Author
 

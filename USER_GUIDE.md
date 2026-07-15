@@ -14,7 +14,7 @@ You can open these instructions from the command palette by typing "Publish to T
 
 1. In the plugin settings, click the “Log In” button and sign in to your account. You can authorize using a phone number or a QR code. Your sessions are stored locally in encrypted form in your Obsidian Keychain.
 
-2. Create a new preset, and under “Select primary publishing method,” choose “Account” (standard formatting) or “Account + rich text” (rich-text formatting; requires Telegram Premium on the account).
+2. Create a new preset, and under “Select primary publishing method,” choose “Account” or “Account + rich text.”
 
 3. In the option that appears, select one of your authorized accounts.
 
@@ -326,7 +326,7 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram's 
 **Note:**
 
 * In a **"Bot + rich text"** post, inline media must be an **HTTP(S) web link** — the Bot API can't upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic "Bot" method, or use a web URL).
-* An **"Account + rich text"** post can embed **local** media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. This works in pre-written comments as well. Only local **documents** (e.g. `.pdf`, or `.md` embeds attached as files) can't be embedded in a rich message and are rejected — send those with a classic method.
+* An **"Account + rich text"** post can embed **local** media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. This works in pre-written comments as well. Only local **documents** (e.g. `.pdf`, or `.md` embeds attached as files) can't be embedded in a rich message.
 
 ## 5. Pre-written comments
 
@@ -362,7 +362,7 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 Standard Telegram posting limits apply to limits apply to posts, send via "Account" and "Bot" methods. A rich-text message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns.of characters per post, limits of attached media size per post, etc. More about limits: [https://limits.tginfo.me/](https://limits.tginfo.me/)
 
-I also highly recommend my other plugin, [Advanced Word Count](https://community.obsidian.md/plugins/advanced-word-count), which lets you create detailed presets for word counts in notes and offers significantly greater functionality compared to the standard Obsidian word counter. This plugin can be configured to count characters exactly the same way Telegram does.
+I also highly recommend my other plugin, [Advanced Word Count](https://community.obsidian.md/plugins/advanced-word-count), which lets you create detailed presets for word counts in notes and offers significantly greater functionality compared to the standard Obsidian word counter. This plugin can be configured to count characters exactly the same way Telegram does: its plugin extension store includes ready-made presets for Telegram.
 
 ---
 
