@@ -183,14 +183,16 @@ function htmlText(html: string): InputText {
 // documents), then builds the right InputMedia for the extension. `asDocument` forces the
 // document type (PDFs, embedded .md). `caption` rides on the first item of an album only.
 async function toInputMedia(file: MediaFile, asDocument: boolean, caption?: InputText): Promise<InputMediaLike> {
-    const blob = await file.getBlob();
-    const upload = new File([blob], file.name);
+    // Both local and remote media are uploaded as bytes. (mtcute can send a URL string as
+    // inputMedia*External so Telegram fetches it, but that path is unreliable for user
+    // accounts — it's the Bot API that handles remote media by URL, in telegram-bot.ts.)
+    const source = new File([await file.getBlob()], file.name);
     const ext = file.extension.toLowerCase();
-    if (asDocument) return InputMedia.document(upload, { fileName: file.name, caption });
-    if (VIDEO_EXTS.has(ext)) return InputMedia.video(upload, { fileName: file.name, caption });
-    if (ext === "gif") return InputMedia.animation(upload, { fileName: file.name, caption });
-    if (["jpg", "jpeg", "png", "webp"].includes(ext)) return InputMedia.photo(upload, { caption });
-    return InputMedia.document(upload, { fileName: file.name, caption });
+    if (asDocument) return InputMedia.document(source, { fileName: file.name, caption });
+    if (VIDEO_EXTS.has(ext)) return InputMedia.video(source, { fileName: file.name, caption });
+    if (ext === "gif") return InputMedia.animation(source, { fileName: file.name, caption });
+    if (["jpg", "jpeg", "png", "webp"].includes(ext)) return InputMedia.photo(source, { caption });
+    return InputMedia.document(source, { fileName: file.name, caption });
 }
 
 // ─── Account (mtcute) client ──────────────────────────────────────────────────
@@ -436,6 +438,18 @@ async function sendPartViaAccount(
             firstMsg = msg;
         }
     } else {
+        // A classic-method post must resolve to a single album; media that can't share one
+        // is refused up front (nothing is sent) rather than silently fragmenting the post.
+        //   • photo + video — Telegram pre-uploads each album item via messages.uploadMedia
+        //     and rejects a mixed photo+video group (MEDIA_INVALID) on the User API.
+        //   • animation (GIF) + any photo/video — a GIF can't join a photo/video album, so
+        //     it would split off into its own message.
+        // The user is told to use a rich method or post the items separately.
+        const hasPhoto = photoAndVideoFiles.some(f => ["jpg", "jpeg", "png", "webp"].includes(f.extension));
+        const hasVideo = photoAndVideoFiles.some(f => VIDEO_EXTS.has(f.extension));
+        const hasAnimation = gifFiles.length > 0;
+        if ((hasPhoto && hasVideo) || (hasAnimation && photoAndVideoFiles.length > 0)) throw new Error("MIXED_MEDIA_CLASSIC");
+
         // ── Photos and videos: grouped into one album ─────────────────────────
         if (photoAndVideoFiles.length > 0) {
             const msg = await sendBatch(photoAndVideoFiles, false, text);

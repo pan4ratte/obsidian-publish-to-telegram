@@ -19,6 +19,7 @@ interface MediaFile {
     name: string;
     extension: string;
     isLocal: boolean;   // true for vault files, false for remote HTTP(S) media
+    url?: string;       // set for remote media: the HTTP(S) source, passed to the Bot API as-is
     getBlob: () => Promise<Blob>;
 }
 
@@ -71,7 +72,7 @@ function resolveChatId(value: string): string {
 
 // ─── Media collection ─────────────────────────────────────────────────────────
 
-function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachments: MediaFile[]; mdEmbeds: TFile[] } {
+function collectBotMedia(app: App, body: string, sourceFile: TFile, postAsRich = false): { attachments: MediaFile[]; mdEmbeds: TFile[] } {
     const wikilinkRegex = /!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g;
     const mdLinkRegex = /!\[[^\]]*\]\(([^)]+)\)/g;
     const reverseMdLinkRegex = /!\(([^)]+)\)\[[^\]]*\]/g;
@@ -84,10 +85,11 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachmen
         let cleanPath = rawPath.split(/\s+"/)[0].split(/[?#]/)[0].trim();
 
         if (/^https?:\/\//i.test(cleanPath)) {
-            // Rich-embeddable HTTP(S) media (images/video/audio/gif) is carried inside
-            // the Rich Markdown as a media block, so it must NOT also be uploaded here —
-            // that would double-send it. Non-rich remote files (e.g. PDFs) still upload.
-            if (isRichEmbeddableUrl(cleanPath)) return;
+            // In the Rich Markdown path, rich-embeddable HTTP(S) media (images/video/audio/
+            // gif) is carried inside the markdown as a media block, so it must NOT also be
+            // sent here — that would double-send it. In the classic path there's no such
+            // block, so it's sent as a normal attachment (by URL — see the send helpers).
+            if (postAsRich && isRichEmbeddableUrl(cleanPath)) return;
             if (!seen.has(cleanPath)) {
                 seen.add(cleanPath);
                 const ext = cleanPath.split('.').pop()?.toLowerCase() || "";
@@ -96,6 +98,7 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachmen
                         name: cleanPath.split('/').pop() || `media.${ext}`,
                         extension: ext,
                         isLocal: false,
+                        url: cleanPath,
                         getBlob: async () => {
                             const response = await requestUrl({ url: cleanPath });
                             return new Blob([response.arrayBuffer]);
@@ -227,10 +230,18 @@ async function sendRichOrClassicText(token: string, chatId: string, markdown: st
     return await sendTextBot(token, chatId, html, silent, topicId);
 }
 
+// Appends a single-media field to a Bot API form. Remote media is passed as its URL so
+// Telegram fetches it server-side (no download + re-upload); local media is uploaded as
+// multipart file bytes.
+async function appendMediaField(form: FormData, field: string, file: MediaFile): Promise<void> {
+    if (file.url) form.append(field, file.url);
+    else form.append(field, await file.getBlob(), file.name);
+}
+
 async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
-    form.append("photo", await file.getBlob(), file.name);
+    await appendMediaField(form, "photo", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
     const result = await callBotFetch(token, "sendPhoto", form) as { chat: { id: number; username?: string }; message_id: number };
@@ -240,7 +251,7 @@ async function sendPhotoBot(token: string, chatId: string, file: MediaFile, capt
 async function sendVideoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
-    form.append("video", await file.getBlob(), file.name);
+    await appendMediaField(form, "video", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
     const result = await callBotFetch(token, "sendVideo", form) as { chat: { id: number; username?: string }; message_id: number };
@@ -250,7 +261,7 @@ async function sendVideoBot(token: string, chatId: string, file: MediaFile, capt
 async function sendAnimationBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
-    form.append("animation", await file.getBlob(), file.name);
+    await appendMediaField(form, "animation", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
     const result = await callBotFetch(token, "sendAnimation", form) as { chat: { id: number; username?: string }; message_id: number };
@@ -260,7 +271,7 @@ async function sendAnimationBot(token: string, chatId: string, file: MediaFile, 
 async function sendDocumentBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
-    form.append("document", await file.getBlob(), file.name);
+    await appendMediaField(form, "document", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
     const result = await callBotFetch(token, "sendDocument", form) as { chat: { id: number; username?: string }; message_id: number };
@@ -272,14 +283,22 @@ async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile
     Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
 
     const mediaArray = await Promise.all(files.map(async (file, idx) => {
-        const attachName = `file${idx}`;
-        form.append(attachName, await file.getBlob(), file.name);
+        // Remote media is referenced by URL (Telegram fetches it); local media is uploaded
+        // as a multipart part and referenced via attach://.
+        let media: string;
+        if (file.url) {
+            media = file.url;
+        } else {
+            const attachName = `file${idx}`;
+            form.append(attachName, await file.getBlob(), file.name);
+            media = `attach://${attachName}`;
+        }
         const type = botMediaType(file.extension);
         // show_caption_above_media is only valid for photo/video items, not documents.
         const captionFields = idx === 0 && caption
             ? { caption, parse_mode: "HTML", ...(type === "document" ? {} : { show_caption_above_media: attachUnderText }) }
             : {};
-        return { type, media: `attach://${attachName}`, ...captionFields };
+        return { type, media, ...captionFields };
     }));
 
     form.append("media", JSON.stringify(mediaArray));
@@ -363,7 +382,7 @@ async function sendPartViaBotApi(
     // The "bot" method posts a regular (classic HTML) message; "bot + rich" posts a
     // Rich Message. Forcing empty markdown routes sendRichOrClassicText to the classic path.
     const postMarkdown = postAsRich ? richMarkdown : "";
-    const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile);
+    const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile, postAsRich);
 
     const photoAndVideoFiles = attachments.filter(f =>
         ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
@@ -456,6 +475,12 @@ async function sendPartViaBotApi(
         }
     } else {
         // ── Classic HTML path ("bot") ────────────────────────────────────────────
+        // A GIF/animation can't join a photo/video album — it goes as its own message. So
+        // rather than silently fragmenting the post into an album + a separate animation,
+        // refuse a classic post that mixes an animation with photos/videos (mirroring the
+        // account path's mixed-media rule). Photo+video alone is fine here: the Bot API
+        // posts a mixed photo+video album without trouble (unlike the User API).
+        if (gifFiles.length > 0 && photoAndVideoFiles.length > 0) throw new Error("MIXED_MEDIA_CLASSIC");
         // All attachments carry the post text as the caption of the first message; a
         // caption over the Bot API limit is refused rather than truncated or split off.
         if (!hasUploadMedia) {
@@ -568,7 +593,7 @@ export async function editNoteCommentsViaBotApi(
 ): Promise<{ errors: Error[] }> {
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
-    const { mdEmbeds } = collectBotMedia(app, body, file);
+    const { mdEmbeds } = collectBotMedia(app, body, file, asRich);
 
     if (comments.length === 0 || mdEmbeds.length === 0) return { errors: [] };
 
