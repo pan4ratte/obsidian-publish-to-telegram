@@ -15,6 +15,7 @@ Please note: this update affects user sessions, so a one-time re-login to your a
 ### UI/UX enhancements and bug fixes
 
 * Improved detection of unsupported attachment combinations. When you try to send attachment sets that classic methods don't support, the post is not sent and an error is shown. The same happens when attachment count limits are exceeded.
+* Fixed a bug where basic groups upgraded to supergroups still appeared in the chat search field — such groups are now filtered out and only working chats are shown.
 * Completed the full migration of the User API from the deprecated GramJS to the current [mtcute](https://github.com/mtcute/mtcute); the plugin code was slimmed down.
 
 ## 4.0.0
