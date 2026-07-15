@@ -26,6 +26,9 @@ interface MediaFile {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const VIDEO_EXTS = new Set(["mp4", "mov", "avi", "mkv", "webm"]);
+// Telegram media groups (albums) hold at most 10 items; more than that splits across
+// messages, which the classic-post single-message guard treats as unpostable.
+const ALBUM_LIMIT = 10;
 const SUPPORTED_MEDIA_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "pdf", ...VIDEO_EXTS]);
 
 // ─── Frontmatter extraction ───────────────────────────────────────────────────
@@ -475,12 +478,14 @@ async function sendPartViaBotApi(
         }
     } else {
         // ── Classic HTML path ("bot") ────────────────────────────────────────────
-        // A GIF/animation can't join a photo/video album — it goes as its own message. So
-        // rather than silently fragmenting the post into an album + a separate animation,
-        // refuse a classic post that mixes an animation with photos/videos (mirroring the
-        // account path's mixed-media rule). Photo+video alone is fine here: the Bot API
-        // posts a mixed photo+video album without trouble (unlike the User API).
-        if (gifFiles.length > 0 && photoAndVideoFiles.length > 0) throw new Error("MIXED_MEDIA_CLASSIC");
+        // A classic post must be a single message; if the attachments would produce more
+        // than one, refuse rather than fragmenting the post. Separate messages come from:
+        // the photo+video album, each GIF (its own message — animations can't be grouped),
+        // and the document album (PDFs + .md); an album holds at most ALBUM_LIMIT items, so
+        // >10 of one kind splits too. (Photo+video alone is one album on the Bot API, unlike
+        // the User API, so it's allowed here.)
+        const messageCount = Math.ceil(photoAndVideoFiles.length / ALBUM_LIMIT) + gifFiles.length + Math.ceil(docFiles.length / ALBUM_LIMIT);
+        if (messageCount > 1) throw new Error("MIXED_MEDIA_CLASSIC");
         // All attachments carry the post text as the caption of the first message; a
         // caption over the Bot API limit is refused rather than truncated or split off.
         if (!hasUploadMedia) {

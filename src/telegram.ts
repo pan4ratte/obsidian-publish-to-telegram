@@ -49,6 +49,9 @@ interface MediaFile {
 // ─── Media type helpers ───────────────────────────────────────────────────────
 
 const VIDEO_EXTS = new Set(["mp4", "mov", "avi", "mkv", "webm"]);
+// Telegram media groups (albums) hold at most 10 items; more than that splits across
+// messages, which the classic-post single-message guard treats as unpostable.
+const ALBUM_LIMIT = 10;
 
 // ─── Frontmatter extraction ───────────────────────────────────────────────────
 
@@ -438,17 +441,17 @@ async function sendPartViaAccount(
             firstMsg = msg;
         }
     } else {
-        // A classic-method post must resolve to a single album; media that can't share one
-        // is refused up front (nothing is sent) rather than silently fragmenting the post.
-        //   • photo + video — Telegram pre-uploads each album item via messages.uploadMedia
-        //     and rejects a mixed photo+video group (MEDIA_INVALID) on the User API.
-        //   • animation (GIF) + any photo/video — a GIF can't join a photo/video album, so
-        //     it would split off into its own message.
-        // The user is told to use a rich method or post the items separately.
+        // A classic-method post must be a single message; if the attachments would produce
+        // more than one, it's refused up front (nothing is sent) rather than fragmenting the
+        // post. Separate messages come from: the photo+video album, each GIF (its own message
+        // — animations can't be grouped), and the document album (PDFs + .md). An album holds
+        // at most ALBUM_LIMIT items, so >10 of one kind also splits across messages.
+        // Additionally, the User API rejects a mixed photo+video album (MEDIA_INVALID), so
+        // that can't be one post either. The user is told to use a rich method or split up.
         const hasPhoto = photoAndVideoFiles.some(f => ["jpg", "jpeg", "png", "webp"].includes(f.extension));
         const hasVideo = photoAndVideoFiles.some(f => VIDEO_EXTS.has(f.extension));
-        const hasAnimation = gifFiles.length > 0;
-        if ((hasPhoto && hasVideo) || (hasAnimation && photoAndVideoFiles.length > 0)) throw new Error("MIXED_MEDIA_CLASSIC");
+        const messageCount = Math.ceil(photoAndVideoFiles.length / ALBUM_LIMIT) + gifFiles.length + Math.ceil(docFiles.length / ALBUM_LIMIT);
+        if (messageCount > 1 || (hasPhoto && hasVideo)) throw new Error("MIXED_MEDIA_CLASSIC");
 
         // ── Photos and videos: grouped into one album ─────────────────────────
         if (photoAndVideoFiles.length > 0) {
