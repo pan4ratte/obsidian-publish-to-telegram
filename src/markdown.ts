@@ -15,6 +15,14 @@ export function isRichEmbeddableUrl(rawTarget: string): boolean {
     return /^https?:\/\//i.test(url) && RICH_MEDIA_EXT.test(url);
 }
 
+// True for a `tg://photo|video|audio?id=…` reference to an uploaded rich-message
+// attachment (see telegram.ts collectRichMedia). Such embeds are kept in the Rich Markdown
+// so Telegram renders the uploaded local file inline, just like a web media URL.
+export function isRichAttachmentRef(rawTarget: string): boolean {
+    const url = rawTarget.split(/\s+["']/)[0].trim();
+    return /^tg:\/\/(?:photo|video|audio)\?id=/i.test(url);
+}
+
 // keepRichMediaEmbeds: when true (Rich Markdown path), HTTP(S) media embeds are
 // preserved so Telegram renders them as media blocks. The GramJS HTML path leaves
 // it false because that parser can't express URL media blocks.
@@ -23,7 +31,7 @@ export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: 
         .replace(/%%[\s\S]*?%%/g, "")             // Strip Obsidian comments %% ... %%
         .replace(/!\[\[[^\]]*\]\]/g, "")           // Strip wikilink embeds (always local)
         .replace(/!\[[^\]]*\]\(([^)]*)\)/g, (match, target: string) =>
-            opts.keepRichMediaEmbeds && isRichEmbeddableUrl(target) ? match : "")
+            opts.keepRichMediaEmbeds && (isRichEmbeddableUrl(target) || isRichAttachmentRef(target)) ? match : "")
         .replace(/!\([^)]*\)\[[^\]]*\]/g, "")      // Strip reversed MD embeds !()[]
         .replace(/<!--[\s\S]*?-->/g, "")           // Strip HTML comments
         .replace(/<!--/g, "")                      // Strip any orphaned comment openers left after the pass above
@@ -46,9 +54,10 @@ export function escHtml(s: string): string {
 // Everything else — headings, tables, task lists, fenced code, blockquotes,
 // ==highlight==, ||spoiler||, $math$, footnotes — is valid Rich Markdown as-is.
 //
-// HTTP(S) image/video/audio embeds are kept (keepRichMediaEmbeds) so Telegram
-// renders them inline as media blocks; only local embeds (which can't be a URL
-// media block and must be uploaded separately) are stripped.
+// HTTP(S) image/video/audio embeds are kept (keepRichMediaEmbeds) so Telegram renders
+// them inline as media blocks, as are `tg://…?id=` references to uploaded attachments
+// (telegram.ts rewrites local media embeds into these before calling this). Any remaining
+// local embed (e.g. an embedded note) can't be a media block and is stripped.
 export function obsidianToRichMarkdown(body: string): string {
     let text = stripObsidianSyntax(body, { keepRichMediaEmbeds: true });
 
