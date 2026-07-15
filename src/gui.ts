@@ -1,4 +1,5 @@
 import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, AbstractInputSuggest } from "obsidian";
+import type { SettingDefinitionItem } from "obsidian";
 import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
@@ -753,12 +754,53 @@ export class TelegramSettingTab extends PluginSettingTab {
     private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
     // Persisted across re-renders so the credentials card stays open after edits.
     private credentialsCardOpen = false;
+    // Container the tab last rendered into; re-renders target it so the declarative
+    // wrapper (1.13.0+) or containerEl (older) stays stable. See render()/rerender().
+    private renderRoot: HTMLElement | null = null;
 
     constructor(app: App, plugin: SendToTelegramPlugin) { super(app, plugin); this.plugin = plugin; }
 
+    // Declarative settings API (Obsidian 1.13.0+). Returning a non-empty array makes
+    // Obsidian render the tab from these definitions (and index them for the settings
+    // search) instead of calling display(). This tab is fully custom and dynamic
+    // (auth cards, preset cards, inline forms), so it can't be expressed as declarative
+    // control definitions — a single render escape-hatch reuses the imperative renderer,
+    // while name/aliases make the plugin's settings discoverable in the settings search.
+    getSettingDefinitions(): SettingDefinitionItem[] {
+        return [{
+            name: t.SETTING_HEADER,
+            desc: t.SETTING_DESCRIPTION,
+            aliases: [
+                t.SECTION_GENERAL, t.SECTION_PRESETS, t.SETTING_ADD_CHANNEL_NAME,
+                t.SETTING_SAVE_POST_LINKS_NAME, t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME,
+                t.SETTING_ADD_PRESET, t.SETTING_FORMATTING_HELP,
+                t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
+                t.AUTH_MANAGE_CREDENTIALS_BTN,
+            ],
+            render: (setting, group) => {
+                // Keep the definition's own row as a collapsed search anchor (the settings
+                // search still scrolls to it) and build the full imperative UI beneath it,
+                // into a dedicated child container so render()'s empty() never wipes it.
+                setting.settingEl.addClass("telegram-settings-anchor");
+                this.render(group.listEl.createDiv("telegram-settings-root"));
+            },
+        }];
+    }
+
+    // display() is the fallback for Obsidian < 1.13.0 (minAppVersion 1.11.4), which
+    // does not call getSettingDefinitions().
     display(): void { this.render(); }
 
-    private render(): void {
+    // Re-renders after a state change into whichever container we last rendered into:
+    // the declarative group's child on 1.13.0+, or this.containerEl on the display()
+    // fallback. This keeps the declarative wrapper and search anchor intact without
+    // touching the 1.13.0-only update() API.
+    private rerender(): void {
+        this.render(this.renderRoot ?? this.containerEl);
+    }
+
+    private render(root: HTMLElement = this.containerEl): void {
+        this.renderRoot = root;
         if (this.inlineQrClient) {
             this.inlineQrClient.disconnect().catch(() => {});
             this.inlineQrClient = null;
@@ -767,7 +809,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             this.inlineLocalClient.disconnect().catch(() => {});
             this.inlineLocalClient = null;
         }
-        const { containerEl } = this;
+        const containerEl = root;
         containerEl.empty();
 
         new Setting(containerEl).setHeading().setName(t.SETTING_HEADER);
@@ -921,7 +963,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 while (existingNames.has(`${t.CHANNEL_DEFAULT_NAME} ${idx}`)) idx++;
                 this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, defaultMethod: "account", chatTargets: [], chatId: "", isDefault: false });
                 await this.plugin.saveSettings();
-                this.render();
+                this.rerender();
             }).buttonEl.addClass("telegram-add-button");
 
         this.plugin.settings.channels.forEach((channel, index) => {
@@ -944,7 +986,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                         saved = true;
                         channel.name = input.getValue();
                         await this.plugin.saveSettings();
-                        this.render();
+                        this.rerender();
                     };
 
                     input.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -965,7 +1007,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                             // must not delete the token (managed via the credentials modal).
                             this.plugin.settings.channels.splice(index, 1);
                             await this.plugin.saveSettings();
-                            this.render();
+                            this.rerender();
                         }
                     ).open();
                 }).buttonEl.addClass("telegram-delete-button");
@@ -996,7 +1038,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                             // Re-render so all toggles reflect the new state. Calling
                             // setValue() here instead would re-enter onChange (Obsidian
                             // fires the change callback from setValue) and recurse.
-                            this.render();
+                            this.rerender();
                         });
                 })
                 .settingEl.addClass("telegram-preset-default");
@@ -1024,7 +1066,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                     channel.accountId = value || undefined;
                     await this.plugin.saveSettings();
                     // Re-render so the chat picker rebinds to the newly chosen account.
-                    this.render();
+                    this.rerender();
                 });
             });
         }
@@ -1042,7 +1084,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                     channel.defaultMethod = value as PostMethod;
                     await this.plugin.saveSettings();
                     // Re-render so the primary/secondary pickers reflect the new method.
-                    this.render();
+                    this.rerender();
                 });
             });
         setting.settingEl.addClass("telegram-method-setting");
@@ -1058,7 +1100,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                         channel.useSecondaryMethods = v;
                         await this.plugin.saveSettings();
                         // Re-render to show/hide the secondary method's picker.
-                        this.render();
+                        this.rerender();
                     });
             })
             .settingEl.addClass("telegram-secondary-setting");
@@ -1109,7 +1151,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 this.plugin.settings.botTokens.push({ id, name });
                 this.plugin.saveBotToken(id, token);
                 await this.plugin.saveSettings();
-                this.render();
+                this.rerender();
             } catch (err) {
                 saveBtn.setDisabled(false).setIcon("save");
                 new Notice(`${t.BOT_TOKEN_INVALID}: ${errMessage(err)}`);
@@ -1134,7 +1176,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     // Inline equivalent of the old credentials modal: lists named bot tokens
     // (rename / delete) and connected accounts (log out). `refresh()` rebuilds the
-    // card in place; mutations that affect the rest of the tab call this.render(),
+    // card in place; mutations that affect the rest of the tab call this.rerender(),
     // which re-opens the card via credentialsCardOpen.
     private renderCredentialsCard(container: HTMLElement): void {
         const card = container.createDiv({ cls: "telegram-credentials-card" });
@@ -1170,7 +1212,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                                     if (ch.botTokenId === token.id) { ch.botTokenId = undefined; ch.botToken = ""; }
                                 }
                                 await this.plugin.saveSettings();
-                                this.render();
+                                this.rerender();
                             },
                         ).open();
                     })
@@ -1200,7 +1242,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                             async () => {
                                 this.plugin.removeAccount(account.id);
                                 await this.plugin.saveSettings();
-                                this.render();
+                                this.rerender();
                             },
                         ).open();
                     })
@@ -1226,12 +1268,12 @@ export class TelegramSettingTab extends PluginSettingTab {
                 token.name = v;
                 await this.plugin.saveSettings();
             }
-            this.render();
+            this.rerender();
         };
 
         input.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
             if (e.key === "Enter") { e.preventDefault(); void save(); }
-            else if (e.key === "Escape") { saved = true; this.render(); }
+            else if (e.key === "Escape") { saved = true; this.rerender(); }
         });
         input.inputEl.addEventListener("blur", voidListener(save));
     }
@@ -1533,7 +1575,7 @@ export class TelegramSettingTab extends PluginSettingTab {
         this.inlineLocalClient = null;
         await this.plugin.saveSettings();
         new Notice(t.AUTH_SUCCESS);
-        this.render();
+        this.rerender();
     }
 
     private async resolveDisplayName(client: TelegramClient): Promise<string> {
