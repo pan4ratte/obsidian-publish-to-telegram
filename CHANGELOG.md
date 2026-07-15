@@ -6,7 +6,7 @@
 
 On [July 15, 2026](https://telegram.org/blog/communities-editor-invisible-messages) Telegram opened its Rich Text Editor to users with Telegram Premium. With this update the plugin gains a new posting method, "Account + rich text" — now you can publish rich-text posts as your own account:
 
-* **Post rich-text as an account.** Pick the new **"Account + rich text"** method when creating a preset or in the advanced publishing settings.
+* **Post rich-text as an account.** Pick the new "Account + rich text" method when creating a preset or in the advanced publishing settings.
 * **Local media in rich messages.** Unlike bots, which can only attach media by web embedding (an HTTP/HTTPS link), "Account + rich text" lets you attach local media to posts. One important limitation: local documents (e.g. PDFs) can't be attached to rich-text messages.
 * **Telegram Premium required.** Sending rich-text as an account is a Premium feature on Telegram's side. If you don't have Premium, you can use the "Bot + rich text" publication method.
 
