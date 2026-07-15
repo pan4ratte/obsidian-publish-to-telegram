@@ -372,6 +372,14 @@ export async function getUserDialogs(client: TelegramClient): Promise<DialogData
                     // Supergroup: skip if non-admins are banned from sending messages
                     if (!channel.creator && !channel.adminRights && channel.defaultBannedRights?.sendMessages) continue;
                 }
+            } else if (chat) {
+                // Basic group upgraded to a supergroup stays in the dialog list as a dead
+                // stub: `migratedTo` points at the new supergroup (which appears as its own
+                // channel dialog) and `deactivated` is set. Posting to the stub fails, so
+                // skip it. Also skip groups the user has left, and those where non-admins
+                // are banned from sending messages.
+                if (chat.migratedTo || chat.deactivated || chat.left) continue;
+                if (!chat.creator && !chat.adminRights && chat.defaultBannedRights?.sendMessages) continue;
             }
 
             let id: string;
