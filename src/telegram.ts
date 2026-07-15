@@ -42,6 +42,7 @@ export interface ScheduledSendInfo {
 interface MediaFile {
     name: string;
     extension: string;
+    isLocal: boolean;   // true for vault files, false for remote HTTP(S) media
     getBlob: () => Promise<Blob>;
 }
 
@@ -89,6 +90,7 @@ function collectMediaFiles(app: App, body: string, sourceFile: TFile): { attachm
                     attachments.push({
                         name: cleanPath.split('/').pop() || `media.${ext}`,
                         extension: ext,
+                        isLocal: false,
                         getBlob: async () => {
                             const response = await requestUrl({ url: cleanPath });
                             return new Blob([response.arrayBuffer]);
@@ -108,6 +110,7 @@ function collectMediaFiles(app: App, body: string, sourceFile: TFile): { attachm
                 attachments.push({
                     name: resolved.name,
                     extension: resolved.extension,
+                    isLocal: true,
                     getBlob: async () => new Blob([await app.vault.readBinary(resolved)])
                 });
             } else if (resolved.extension === "md") {
@@ -130,6 +133,7 @@ function mdEmbedToMedia(app: App, file: TFile): MediaFile {
     return {
         name: file.name,
         extension: file.extension,
+        isLocal: true,
         getBlob: async () => new Blob([await app.vault.readBinary(file)]),
     };
 }
@@ -417,7 +421,9 @@ async function sendPartViaAccount(
     // Rich Messages can only reference web media (embedded in the markdown); local uploads
     // aren't supported. Refuse rather than silently posting them, mirroring the bot path.
     if (postAsRich) {
-        const hasLocalUpload = photoAndVideoFiles.length + gifFiles.length + docFiles.length > 0;
+        // Only locally-stored files are refused: web media (HTTP/HTTPS) is embedded in the
+        // rich markdown by URL, so it isn't a "local upload" and mustn't trip this guard.
+        const hasLocalUpload = [...photoAndVideoFiles, ...gifFiles, ...docFiles].some(f => f.isLocal);
         if (hasLocalUpload) throw new Error("RICH_LOCAL_MEDIA");
         if (richMarkdown.length > 0) {
             const msg = await client.sendRichMessage(peer, {
