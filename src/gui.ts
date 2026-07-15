@@ -931,8 +931,8 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         const addSection = containerEl.createDiv("telegram-add-preset-section");
         const infoDiv = addSection.createDiv("telegram-add-preset-info");
-        infoDiv.createEl("div", { text: t.SETTING_ADD_CHANNEL_NAME, cls: "telegram-add-preset-title" });
-        infoDiv.createEl("div", { text: t.SETTING_ADD_CHANNEL_DESC, cls: "telegram-add-preset-description" });
+        infoDiv.createDiv({ text: t.SETTING_ADD_CHANNEL_NAME, cls: "telegram-add-preset-title" });
+        infoDiv.createDiv({ text: t.SETTING_ADD_CHANNEL_DESC, cls: "telegram-add-preset-description" });
 
         const linkRow = addSection.createDiv("telegram-add-preset-button-row");
 
@@ -970,7 +970,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             const channelDiv = containerEl.createDiv("telegram-channel-item");
             const header = channelDiv.createDiv("telegram-channel-header");
             const titleContainer = header.createDiv("telegram-header-title-container");
-            titleContainer.createEl("span", { text: channel.name || t.CHANNEL_DEFAULT_NAME, cls: "telegram-header-name" });
+            titleContainer.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME, cls: "telegram-header-name" });
 
             new ButtonComponent(titleContainer.createDiv("telegram-edit-container"))
                 .setIcon("pencil").onClick(() => {
@@ -1290,7 +1290,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
             // Chips for each target
             for (const target of (channel.chatTargets ?? [])) {
-                const chip = fieldEl.createEl("span", { cls: "telegram-chat-chip" });
+                const chip = fieldEl.createSpan({ cls: "telegram-chat-chip" });
                 chip.createSpan({ text: target.title || target.id, cls: "telegram-chat-chip-text" });
                 const removeBtn = chip.createEl("button", { cls: "telegram-chat-chip-remove" });
                 setIcon(removeBtn, "x");

@@ -16,7 +16,7 @@
   "devDependencies": {
     "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
-    "eslint-plugin-obsidianmd": "^0.3.0",
+    "eslint-plugin-obsidianmd": "^0.4.1",
     "obsidian": "^1.13.1",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.60.1"
