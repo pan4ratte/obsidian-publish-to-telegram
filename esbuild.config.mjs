@@ -2,26 +2,6 @@ import esbuild from "esbuild";
 
 const prod = process.argv[2] === "production";
 
-// GramJS caches its TL API schema to localStorage when running in a browser/Electron
-// environment. Obsidian plugins must not use localStorage (only Obsidian data APIs).
-// There is no GramJS option to disable this, so we patch the constant at build time.
-const disableGramjsApiCachePlugin = {
-    name: "disable-gramjs-api-cache",
-    setup(build) {
-        build.onLoad({ filter: /telegram[/\\]tl[/\\]api\.js$/ }, async (args) => {
-            const { readFile } = await import("fs/promises");
-            const source = await readFile(args.path, "utf8");
-            return {
-                contents: source.replace(
-                    "const CACHING_SUPPORTED = typeof self !== \"undefined\" && self.localStorage !== undefined;",
-                    "const CACHING_SUPPORTED = false;"
-                ),
-                loader: "js",
-            };
-        });
-    },
-};
-
 const nodeStubPlugin = {
     name: "node-stubs",
     setup(build) {
@@ -48,6 +28,11 @@ const context = await esbuild.context({
     external: ["obsidian"],
     format: "cjs",
     platform: "browser",
+    // mtcute's crypto wasm is embedded via the ".wasm" binary loader (below). Without an
+    // explicit target esbuild emits `Uint8Array.fromBase64` to decode it, which Obsidian's
+    // Chromium (older than 133) lacks; pinning a Chromium target makes esbuild emit its own
+    // base64 decoder instead. It also downlevels mtcute's modern syntax for the renderer.
+    target: ["chrome110"],
     outfile: "main.js",
     minify: prod,
     define: {
@@ -65,8 +50,10 @@ const context = await esbuild.context({
         vm: "vm-browserify",
     },
     inject: ["./shims/buffer.js", "./shims/process.js"],
-    loader: { ".md": "text" },
-    plugins: [disableGramjsApiCachePlugin, nodeStubPlugin],
+    // ".wasm" as "binary" inlines mtcute's AES-IGE/sha wasm into the bundle as bytes, so it
+    // never has to be fetched at runtime (Obsidian's file:// origin blocks that).
+    loader: { ".md": "text", ".wasm": "binary" },
+    plugins: [nodeStubPlugin],
 });
 
 if (prod) {

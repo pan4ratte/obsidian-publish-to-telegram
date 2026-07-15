@@ -154,6 +154,7 @@ export default class SendToTelegramPlugin extends Plugin {
         // Resolve the effective posting method: explicit override, else the preset default.
         const effectiveMethod = method ?? channel.defaultMethod ?? "account";
         const isBotMethod = effectiveMethod === "bot" || effectiveMethod === "bot-rich";
+        const accountPostAsRich = effectiveMethod === "account-rich";
         // Account (GramJS) publishing needs a session; bot methods use the Bot API instead.
         const accountSecrets = isBotMethod ? null : this.getAccountSecrets(channel.accountId);
         if (!isBotMethod && !accountSecrets!.telegramSession) {
@@ -192,7 +193,8 @@ export default class SendToTelegramPlugin extends Plugin {
                     const { links, commentLinks, errors, scheduled } = await sendNoteToTelegram(
                         this.app, file, singleChannel, this.settings, accountSecrets!, silent, attachUnderText,
                         this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
-                        () => { progressNotice.setMessage(t.NOTICE_PUBLISHING_COMMENTS); }
+                        () => { progressNotice.setMessage(t.NOTICE_PUBLISHING_COMMENTS); },
+                        accountPostAsRich,
                     );
                     allLinks.push(...links);
                     allCommentLinks.push(...commentLinks);
@@ -241,6 +243,8 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_TOO_LONG_CAPTION);
                 } else if (msg.includes("RICH_LOCAL_MEDIA")) {
                     new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
+                } else if (msg.includes("PREMIUM")) {
+                    new Notice(t.NOTICE_ERR_ACCOUNT_RICH_PREMIUM);
                 } else {
                     new Notice(`${t.NOTICE_ERR_SEND}${err.message ?? ""}`);
                 }
@@ -355,7 +359,7 @@ export default class SendToTelegramPlugin extends Plugin {
                 });
                 ({ errors } = await editNoteCommentsViaBotApi(this.app, file, botToken!, comments, method === "bot-rich", embedOffset));
             } else {
-                ({ errors } = await editNoteCommentsOnly(this.app, file, this.secrets, commentLinks, silent, embedOffset));
+                ({ errors } = await editNoteCommentsOnly(this.app, file, this.secrets, commentLinks, silent, embedOffset, method === "account-rich"));
             }
             progressNotice.hide();
             for (const err of errors) {

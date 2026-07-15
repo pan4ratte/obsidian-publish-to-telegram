@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "strict": true,
+    "skipLibCheck": true,
     "lib": ["DOM", "ESNext"],
     "importHelpers": true,
     "isolatedModules": true,

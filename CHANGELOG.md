@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.0.0
+
+### Rich-text messages from accounts
+
+On [July 15, 2026](https://telegram.org/blog/communities-editor-invisible-messages) Telegram brought its Rich Text Editor to regular user accounts (Telegram Premium only). This release lets presets post those Rich Messages **as your account**, not just as a bot:
+
+* **Post rich-text as an account.** Pick the new **"Account + rich text"** method when creating a preset or in the advanced publishing settings. It posts Telegram Rich Messages — headings, tables, ordered and task lists, block quotes, collapsible blocks, footnotes, formulas, inline media and more — from your user account. Pre-written comments follow the method and are sent as Rich Messages too.
+* **Telegram Premium required.** Sending rich-text from a user account is a Premium feature on Telegram's side. Without Premium on the selected account the post is refused with a clear message. As with the bot method, Rich Messages accept only web-embedded media (HTTP/HTTPS links); local file attachments aren't supported by this method.
+
+### Under the hood
+
+* The account (User API) engine was migrated from GramJS to [mtcute](https://github.com/mtcute/mtcute), which supports Telegram's current protocol layer and the new rich-message API.
+* **One-time re-login required.** Because the account engine changed, existing account sessions no longer carry over — you'll need to log in again once (QR or phone, as before). Your presets and saved bot tokens are unaffected.
+
 ## 4.0.0
 
 ### Major update

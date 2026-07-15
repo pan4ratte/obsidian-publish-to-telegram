@@ -17,7 +17,7 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
 1. Create presets to post to different channels, groups, forum topics and personal messages:
 
     * A preset can hold multiple target chats at once.
-    * Three optional publication methods: by account, bot or bot with rich-text formatting.
+    * Four optional publication methods: by account, by account with rich-text formatting, by bot, or by bot with rich-text formatting.
     * Search field, that loads chat list if authorization is complete and account is picked.
     * Option to enter target chat `@username` or `ID` manually.
 
@@ -75,7 +75,7 @@ To post notes to Telegram, you need to set up a preset. When creating a preset, 
 
 **Important aspects of this publishing method:**
 
-* Posting as an account allows you to use Telegram Premium features, but does not allow rich-text formatting due to Telegram’s restrictions.
+* Posting as an account lets you use Telegram Premium features. Since July 2026 it can also post rich-text messages — choose the “Account + rich text” method — but that specifically **requires Telegram Premium** on the account (Telegram’s restriction). The plain “Account” method needs no Premium.
 
 * The plugin supports logging into multiple accounts.
 
@@ -85,7 +85,7 @@ To post notes to Telegram, you need to set up a preset. When creating a preset, 
 
 1. In the plugin settings, click the “Log In” button and sign in to your account. You can authorize using a phone number or a QR code. Your sessions are stored locally in encrypted form in your Obsidian Keychain.
 
-2. Create a new preset, and under “Select primary publishing method,” choose “Account.”
+2. Create a new preset, and under “Select primary publishing method,” choose “Account” (standard formatting) or “Account + rich text” (rich-text formatting; requires Telegram Premium on the account).
 
 3. In the option that appears, select one of your authorized accounts.
 
@@ -233,7 +233,7 @@ Currently supported formats:
 
 ## 4. Rich-text formatting
 
-Rich-text formatting is available for posts made via the “Bot + rich text” method. Telegram’s Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note’s Markdown through almost verbatim: everything listed under [Standard formatting](#3-standard-formatting) is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
+Rich-text formatting is available for posts made via the “Bot + rich text” and “Account + rich text” methods (the account method requires Telegram Premium). Telegram’s Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note’s Markdown through almost verbatim: everything listed under [Standard formatting](#3-standard-formatting) is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
 
 <table>
   <thead>
@@ -392,7 +392,7 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’
 
 **Note:**
 
-* Inline media must be an **HTTP(S) web link** — local attachments can’t be embedded inside a rich-text message (use the “Bot” or “Account” method, or a web URL). Local files attached to a “Bot + rich text” post are rejected with an error.
+* Inline media must be an **HTTP(S) web link** — local attachments can’t be embedded inside a rich-text message (use the “Bot” or “Account” method, or a web URL). Local files attached to a “Bot + rich text” or “Account + rich text” post are rejected with an error.
 
 ## 5. Pre-written comments
 

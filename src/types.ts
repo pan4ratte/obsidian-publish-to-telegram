@@ -17,11 +17,12 @@ export interface TelegramAccount {
     // session string lives in SecretStorage under `account-session-${id}`, never in data.json
 }
 
-// How a preset posts: via a user account (GramJS), via a bot (Bot API), or via a bot
-// with rich-text comments. A single preset can carry both an account and a bot and
-// switch between methods; "bot-rich" only differs from "bot" by sending comments as
-// Rich Messages (commentsAsRich).
-export type PostMethod = "account" | "bot" | "bot-rich";
+// How a preset posts: via a user account (mtcute / User API) or via a bot (Bot API),
+// each with a plain and a Rich Message variant. A single preset can carry both an account
+// and a bot and switch between methods. The "-rich" variants send Rich Messages (Telegram
+// rich text): "account-rich" from the user account (requires Telegram Premium),
+// "bot-rich" from the bot (and its comments as Rich Messages too).
+export type PostMethod = "account" | "account-rich" | "bot" | "bot-rich";
 
 export interface TelegramChannel {
     id: string;

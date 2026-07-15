@@ -1,15 +1,23 @@
 // telegram.ts
+// Account (User API) send path — runs on mtcute (github.com/mtcute/mtcute). This is the
+// path a preset uses for the "account" and "account-rich" methods; bot methods go through
+// telegram-bot.ts (Bot API) instead.
 import { App, TFile, requestUrl } from "obsidian";
-import { TelegramClient, Api, helpers } from "telegram";
-import { LogLevel } from "telegram/extensions/Logger";
-import { StringSession } from "telegram/sessions";
-import { CustomFile, _fileToMedia } from "telegram/client/uploads";
-import { _parseMessageText } from "telegram/client/messageParse";
-import { getInputMedia } from "telegram/Utils";
+import {
+    TelegramClient,
+    WebCryptoProvider,
+    WebSocketTransport,
+    MemoryStorage,
+    InputMedia,
+    type InputText,
+    type InputMediaLike,
+    type Message,
+} from "@mtcute/web";
+import { thtml } from "@mtcute/html-parser";
+import wasmBytes from "@mtcute/wasm/mtcute.wasm";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink } from "./types";
 import { errMessage } from "./util";
-import { mdToTelegramHtml } from "./markdown";
-import { t } from "../lang/helpers";
+import { mdToTelegramHtml, obsidianToRichMarkdown } from "./markdown";
 
 // ─── Internal result & media types ────────────────────────────────────────────
 
@@ -153,59 +161,82 @@ function resolveChatId(value: string): string {
     return `@${trimmed}`;
 }
 
-// ─── Account (GramJS) sending ─────────────────────────────────────────────────
+// mtcute InputPeerLike: a marked numeric id (channels -100…, chats -…, users +…) is
+// passed as a number; a "@username" (or bare username) is passed as a string.
+function peerFor(chatId: string): string | number {
+    return /^-?\d+$/.test(chatId) ? Number(chatId) : chatId;
+}
 
-// Telegram Desktop api credentials (public, used as fallback for initConnection with existing session)
+// Bridges the plugin's Telegram-HTML (from mdToTelegramHtml) to mtcute's InputText.
+// `thtml` (whitespace-preserving variant) keeps our real newlines instead of collapsing
+// them like the default `html` parser; the tags we emit (b/i/u/s/code/pre/blockquote/
+// a/spoiler) are all recognised by @mtcute/html-parser.
+function htmlText(html: string): InputText {
+    return thtml(html);
+}
+
+// Wraps a MediaFile's bytes in a File so uploads keep the original filename (matters for
+// documents), then builds the right InputMedia for the extension. `asDocument` forces the
+// document type (PDFs, embedded .md). `caption` rides on the first item of an album only.
+async function toInputMedia(file: MediaFile, asDocument: boolean, caption?: InputText): Promise<InputMediaLike> {
+    const blob = await file.getBlob();
+    const upload = new File([blob], file.name);
+    const ext = file.extension.toLowerCase();
+    if (asDocument) return InputMedia.document(upload, { fileName: file.name, caption });
+    if (VIDEO_EXTS.has(ext)) return InputMedia.video(upload, { fileName: file.name, caption });
+    if (ext === "gif") return InputMedia.animation(upload, { fileName: file.name, caption });
+    if (["jpg", "jpeg", "png", "webp"].includes(ext)) return InputMedia.photo(upload, { caption });
+    return InputMedia.document(upload, { fileName: file.name, caption });
+}
+
+// ─── Account (mtcute) client ──────────────────────────────────────────────────
+
+// Telegram Desktop api credentials (public, used as fallback with an existing session).
 export const DEFAULT_TG_API_ID = 2040;
 export const DEFAULT_TG_API_HASH = "b18441a1ff607e10a989891a5462e627";
 
-// Plugin-specific credentials for new session creation (QR and phone auth).
+// Credentials used for new session creation (QR and phone auth).
 // Register your own app at https://my.telegram.org → API Development Tools.
-// Using Telegram Desktop's credentials (above) for new auth is blocked server-side.
 export const AUTH_API_ID = 2040;
 export const AUTH_API_HASH = "b18441a1ff607e10a989891a5462e627";
 
+// mtcute's crypto uses a wasm module for AES-IGE (WebCrypto has no IGE). The bytes are
+// embedded at build time; compile once, asynchronously — Chromium (Obsidian's renderer)
+// forbids the synchronous `new WebAssembly.Module()` for modules >4KB on the main thread.
+let wasmModulePromise: Promise<WebAssembly.Module> | null = null;
+function getWasmModule(): Promise<WebAssembly.Module> {
+    if (!wasmModulePromise) wasmModulePromise = WebAssembly.compile(wasmBytes);
+    return wasmModulePromise;
+}
+
+// Builds a client (does not connect). `session` is an mtcute string session; omit it for
+// the login flow. Request-only: updates are disabled (no update loop / keepalive pings).
+export async function buildClient(session?: string, apiId?: number, apiHash?: string): Promise<TelegramClient> {
+    const client = new TelegramClient({
+        apiId: apiId || DEFAULT_TG_API_ID,
+        apiHash: apiHash || DEFAULT_TG_API_HASH,
+        storage: new MemoryStorage(),
+        crypto: new WebCryptoProvider({ wasmInput: await getWasmModule() }),
+        transport: new WebSocketTransport(),
+        disableUpdates: true,
+    });
+    if (session) await client.importSession(session);
+    return client;
+}
+
 export async function createClient(session: string, apiId?: number, apiHash?: string): Promise<TelegramClient> {
-    const client = new TelegramClient(
-        new StringSession(session),
-        apiId || DEFAULT_TG_API_ID,
-        apiHash || DEFAULT_TG_API_HASH,
-        // Force secure WebSockets — Obsidian's renderer blocks insecure ws:// to
-        // Telegram DCs, which otherwise fails with "WebSocket connection … failed".
-        { connectionRetries: 5, timeout: 60, useWSS: true }
-    );
-    client.setLogLevel(LogLevel.NONE);
-    // This plugin is request-only (no addEventHandler / incoming updates), so
-    // GramJS's update loop serves no purpose — its sole job here is keepalive
-    // pings, and a failed ping throws an uncaught "TIMEOUT" that surfaces to the
-    // user. Pre-setting _loopStarted stops connect() from ever launching it.
-    (client as unknown as { _loopStarted: boolean })._loopStarted = true;
+    const client = await buildClient(session, apiId, apiHash);
     await client.connect();
     return client;
 }
 
-
 export async function checkIsForum(client: TelegramClient, entity: string | number): Promise<boolean> {
     try {
-        const full = await client.invoke(new Api.channels.GetFullChannel({ channel: entity }));
-        return !!(full.chats[0] as Api.Channel)?.forum;
+        const chat = await client.getChat(entity);
+        return chat.isForum;
     } catch {
         return false;
     }
-}
-
-// `_getResponseMessage` is a private GramJS method that resolves the sent
-// message(s) from a raw MTProto result. Typed wrapper around the private access.
-function getResponseMessage(
-    client: TelegramClient,
-    req: unknown,
-    result: unknown,
-    peer: unknown,
-): Api.TypeMessage | Map<number, Api.Message> | (Api.Message | undefined)[] | undefined {
-    return (client as unknown as {
-        _getResponseMessage(req: unknown, result: unknown, inputChat: unknown):
-            Api.TypeMessage | Map<number, Api.Message> | (Api.Message | undefined)[] | undefined;
-    })._getResponseMessage(req, result, peer);
 }
 
 // ─── Dialog listing ───────────────────────────────────────────────────────────
@@ -220,16 +251,13 @@ export async function getUserDialogs(client: TelegramClient): Promise<DialogData
     try {
         const results: DialogData[] = [];
         for await (const dialog of client.iterDialogs({ limit: 300, folder: 0 })) {
-            if (!dialog.title) continue;
-            const entity = dialog.entity;
-            if (!entity) continue;
+            const peer = dialog.peer;
+            if (!peer) continue;
 
-            // Narrow the entity union once; only channels/chats expose the fields we use.
-            const channel = entity instanceof Api.Channel ? entity : null;
-            const chat = entity instanceof Api.Chat ? entity : null;
-            const username = entity instanceof Api.User || entity instanceof Api.Channel
-                ? entity.username
-                : undefined;
+            const raw = peer.raw;
+            const channel = raw._ === "channel" ? raw : null;
+            const chat = raw._ === "chat" ? raw : null;
+            const username = peer.username ?? undefined;
 
             // Skip entities where the user cannot post messages
             if (channel) {
@@ -250,30 +278,19 @@ export async function getUserDialogs(client: TelegramClient): Promise<DialogData
             } else if (chat) {
                 id = `-${chat.id.toString()}`;
             } else {
-                id = "id" in entity ? entity.id.toString() : "";
+                id = peer.id.toString();
             }
             if (!id) continue;
-            const title = username ? `${dialog.title} (@${username})` : dialog.title;
+            const title = username ? `${peer.displayName} (@${username})` : peer.displayName;
 
-            const isForum = !!(channel && channel.forum && channel.accessHash);
+            const isForum = peer.type === "chat" ? peer.isForum : false;
             results.push({ id, title, topicId: isForum ? 1 : undefined });
 
             // Fetch topics for forum supergroups and append them as individual entries
-            if (isForum && channel) {
+            if (isForum) {
                 try {
-                    const inputChannel = new Api.InputChannel({
-                        channelId: channel.id,
-                        accessHash: channel.accessHash!,
-                    });
-                    const topicsResult = await client.invoke(new Api.channels.GetForumTopics({
-                        channel: inputChannel,
-                        offsetDate: 0,
-                        offsetId: 0,
-                        offsetTopic: 0,
-                        limit: 100,
-                    }));
-                    for (const topic of topicsResult.topics) {
-                        if (!(topic instanceof Api.ForumTopic)) continue;
+                    const topics = await client.getForumTopics(peer.id);
+                    for (const topic of topics) {
                         if (topic.id === 1) continue; // skip General — covered by the group entry
                         results.push({ id, title: `${title}: ${topic.title}`, topicId: topic.id });
                     }
@@ -288,375 +305,194 @@ export async function getUserDialogs(client: TelegramClient): Promise<DialogData
     }
 }
 
+// ─── Comment (discussion) sending ─────────────────────────────────────────────
+
 async function sendCommentViaAccount(
     client: TelegramClient,
-    channelEntity: string | number,
     channelChatId: string,
     channelMessageId: number,
     text: string,
+    richMarkdown: string,
     silent: boolean,
 ): Promise<string | null> {
-    // Determine whether the channel has a linked discussion group, and resolve the
-    // correct sendAs peer so the comment is attributed to the right identity.
-    //
-    // Rule: private channels (no public username) cannot post as themselves in a
-    // discussion group, so we use InputPeerSelf to post as the user's account
-    // instead of leaving sendAs undefined (which would let Telegram silently pick
-    // whatever channel the user last used in that group).
-    //
-    // For public channels we go through GetSendAs and match by channel ID to get
-    // the server-authoritative InputPeer (required — Telegram rejects a self-built
-    // one with SEND_AS_PEER_INVALID).
-    let hasDiscussion = false;
-    let sendAsPeer: Api.TypeInputPeer | undefined;
+    const channelPeer = peerFor(channelChatId);
+
+    // Sends the comment as a Rich Message when rich markdown is provided ("account-rich"),
+    // else as a classic HTML message. Both accept the same commentTo/replyTo/sendAs params.
+    const sendComment = (params: { commentTo?: number; replyTo?: number; sendAs?: string | number; silent: boolean }): Promise<Message> =>
+        richMarkdown.length > 0
+            ? client.sendRichMessage(channelPeer, { content: { type: "markdown", content: richMarkdown }, ...params })
+            : client.sendText(channelPeer, htmlText(text), params);
+
+    // Resolve the discussion group (if any) and the sendAs identity. Rule: private channels
+    // (no public username) post the comment as the user's own account; public channels post
+    // as the channel itself. mtcute resolves the sendAs InputPeer (and its access hash) from
+    // "me" / the channel id, so no manual GetSendAs is needed.
     let linkedGroupChatId: string | undefined;
+    let sendAs: string | number | undefined;
     try {
-        const full = await client.invoke(new Api.channels.GetFullChannel({ channel: channelEntity }));
-        const fullChat = full.fullChat as Api.ChannelFull;
-        const linkedChatId = fullChat.linkedChatId;
-        hasDiscussion = !!linkedChatId;
+        const full = await client.getFullChat(channelPeer);
+        if (full.linkedChat) linkedGroupChatId = full.linkedChat.id.toString();
+        const isPrivate = !full.username;
+        sendAs = isPrivate ? "me" : channelPeer;
+    } catch { /* not a channel or no access — fall through to a direct reply */ }
 
-        if (hasDiscussion && linkedChatId) {
-            linkedGroupChatId = `-100${linkedChatId.toString()}`;
-            const groupChat = full.chats.find(c => c.id.eq(linkedChatId)) as Api.Channel | undefined;
-            const sourceChannel = full.chats.find(c => !c.id.eq(linkedChatId)) as Api.Channel | undefined;
-            const isPrivate = !sourceChannel?.username;
-
-            if (groupChat?.accessHash) {
-                try {
-                    const groupInputPeer = new Api.InputPeerChannel({
-                        channelId: groupChat.id,
-                        accessHash: groupChat.accessHash,
-                    });
-                    const sendAsResult = await client.invoke(
-                        new Api.channels.GetSendAs({ peer: groupInputPeer })
-                    );
-
-                    if (isPrivate) {
-                        // Private channel: post as the user's personal account.
-                        // Prefer the InputPeer from the GetSendAs list (server-authoritative
-                        // access hash). If the personal account is not in that list (it only
-                        // appears when the account is a direct group member/admin), fall back
-                        // to resolving it from the GramJS entity cache via getMe().
-                        const userPeer = sendAsResult.peers.find(p => p.peer instanceof Api.PeerUser);
-                        if (userPeer && userPeer.peer instanceof Api.PeerUser) {
-                            const userId = userPeer.peer.userId;
-                            const matchingUser = sendAsResult.users.find(u => u.id.eq(userId)) as Api.User | undefined;
-                            if (matchingUser) {
-                                sendAsPeer = new Api.InputPeerUser({
-                                    userId: matchingUser.id,
-                                    accessHash: matchingUser.accessHash!,
-                                });
-                            }
-                        }
-                        if (!sendAsPeer) {
-                            const me = await client.getMe() as Api.User | null;
-                            if (me) {
-                                const meInputPeer = await client.getInputEntity(me);
-                                if (meInputPeer instanceof Api.InputPeerUser) sendAsPeer = meInputPeer;
-                            }
-                        }
-                    } else {
-                        // Public channel: post as the channel itself.
-                        const channelInputPeer = await client.getInputEntity(channelEntity);
-                        const channelId = channelInputPeer instanceof Api.InputPeerChannel
-                            ? channelInputPeer.channelId : null;
-                        if (channelId) {
-                            const matchingPeer = sendAsResult.peers.find(p =>
-                                p.peer instanceof Api.PeerChannel && p.peer.channelId.eq(channelId)
-                            );
-                            if (matchingPeer && matchingPeer.peer instanceof Api.PeerChannel) {
-                                const peerId = matchingPeer.peer.channelId;
-                                const matchingChat = sendAsResult.chats.find(c => c.id.eq(peerId)) as Api.Channel | undefined;
-                                if (matchingChat?.accessHash) {
-                                    sendAsPeer = new Api.InputPeerChannel({
-                                        channelId: matchingChat.id,
-                                        accessHash: matchingChat.accessHash,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                } catch { /* GetSendAs unavailable — comment will post as user default */ }
-            }
-        }
-    } catch { /* not a channel or no access */ }
-
-    if (hasDiscussion) {
-        // Find the discussion-group thread head for this channel post (may need retries if not yet forwarded)
+    if (linkedGroupChatId) {
+        // Post into the linked discussion group as a comment on the channel post. The
+        // forwarded thread head may not exist immediately, so retry the discovery a few times.
         const MAX_ATTEMPTS = 5;
         const DELAY_MS = 1500;
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             if (attempt > 0) await new Promise(r => window.setTimeout(r, DELAY_MS));
-
-            // Only the discovery call is retried — a missing/not-yet-forwarded message is expected.
-            // Errors from the actual send must not be swallowed here so they surface to the caller.
-            let threadHead: Api.TypeMessage | undefined;
             try {
-                const discussion = await client.invoke(
-                    new Api.messages.GetDiscussionMessage({ peer: channelEntity, msgId: channelMessageId })
-                );
-                if (!discussion.messages.length) continue;
-                // Messages are returned newest-first; the last element is the thread-opening forwarded post
-                threadHead = discussion.messages[discussion.messages.length - 1];
-            } catch { continue; /* not ready yet — retry */ }
-
-            // Use raw MTProto so sendAs (InputPeer) reaches the wire unambiguously;
-            // the high-level sendMessage wrapper does not reliably propagate it.
-            const [message, entities] = await _parseMessageText(client, text, "html");
-            const peer = await client.getInputEntity(threadHead.peerId);
-            const req = new Api.messages.SendMessage({
-                peer,
-                message,
-                entities,
-                replyTo: new Api.InputReplyToMessage({ replyToMsgId: threadHead.id }),
-                silent,
-                sendAs: sendAsPeer,
-            });
-            const apiResult = await client.invoke(req);
-            const m = getResponseMessage(client, req, apiResult, peer);
-            const sent = Array.isArray(m) ? m[0] : m;
-            const sentMsgId = (sent as Api.Message | undefined)?.id;
-            if (sentMsgId && linkedGroupChatId) return buildPostLinkFromChatId(linkedGroupChatId, sentMsgId);
-            return null;
+                const sent = await sendComment({ commentTo: channelMessageId, sendAs, silent });
+                return buildPostLinkFromChatId(linkedGroupChatId, sent.id);
+            } catch (err) {
+                // A not-yet-forwarded post is expected early on — retry. Anything else, stop.
+                const msg = errMessage(err).toUpperCase();
+                if (attempt < MAX_ATTEMPTS - 1 && (msg.includes("MSG_ID_INVALID") || msg.includes("NOT_FOUND"))) continue;
+                throw err;
+            }
         }
         return null;
-    } else {
-        // No discussion group: reply directly in the channel
-        const sent = await client.sendMessage(channelEntity, {
-            message: text,
-            parseMode: "html",
-            replyTo: channelMessageId,
-            silent,
-        });
-        return buildPostLinkFromChatId(channelChatId, sent.id);
     }
+
+    // No discussion group: reply directly in the channel
+    const sent = await sendComment({ replyTo: channelMessageId, silent });
+    return buildPostLinkFromChatId(channelChatId, sent.id);
 }
 
-
-// Sends one or more files with proper invertMedia support via raw MTProto API.
-// GramJS's high-level sendMessage/sendFile/sendAlbum do not forward invertMedia,
-// so we must build and invoke SendMedia / SendMultiMedia directly.
-async function sendMediaRaw(
-    client: TelegramClient,
-    entity: string | number,
-    files: CustomFile[],
-    text: string,
-    forceDocument: boolean,
-    silent: boolean,
-    invertMedia: boolean,
-    scheduleDate?: number,
-    topicId?: number,
-): Promise<Api.Message> {
-    const peer = await client.getInputEntity(entity);
-    const [caption, msgEntities] = await _parseMessageText(client, text, "html");
-    const replyTo = topicId
-        ? new Api.InputReplyToMessage({ replyToMsgId: topicId, topMsgId: topicId })
-        : undefined;
-
-    if (files.length === 1) {
-        const ext0 = files[0].name.split('.').pop()?.toLowerCase() ?? "";
-        const { media } = await _fileToMedia(client, {
-            file: files[0],
-            forceDocument,
-            workers: 1,
-            supportsStreaming: VIDEO_EXTS.has(ext0),
-        });
-        if (!media) throw new Error(t.ERR_MEDIA_PREPARE_FAILED);
-
-        const req = new Api.messages.SendMedia({
-            peer,
-            media,
-            message: caption,
-            entities: msgEntities,
-            silent,
-            invertMedia,
-            scheduleDate,
-            replyTo,
-        });
-        const apiResult = await client.invoke(req);
-        const msg = getResponseMessage(client, req, apiResult, peer);
-        const m = Array.isArray(msg) ? msg[0] : msg;
-        return m as Api.Message;
-    }
-
-    // Album: photos/documents must be pre-uploaded before SendMultiMedia
-    const albumItems: Api.InputSingleMedia[] = [];
-    for (let i = 0; i < files.length; i++) {
-        const ext = files[i].name.split('.').pop()?.toLowerCase() ?? "";
-        let { media } = await _fileToMedia(client, {
-            file: files[i],
-            forceDocument,
-            workers: 1,
-            supportsStreaming: VIDEO_EXTS.has(ext),
-        });
-        if (!media) continue;
-
-        if (media instanceof Api.InputMediaUploadedPhoto) {
-            const r = await client.invoke(new Api.messages.UploadMedia({ peer, media }));
-            if (r instanceof Api.MessageMediaPhoto && r.photo) media = getInputMedia(r.photo);
-        } else if (media instanceof Api.InputMediaUploadedDocument) {
-            const r = await client.invoke(new Api.messages.UploadMedia({ peer, media }));
-            if (r instanceof Api.MessageMediaDocument && r.document) media = getInputMedia(r.document);
-        }
-
-        albumItems.push(new Api.InputSingleMedia({
-            media: media,
-            message: i === 0 ? caption : "",
-            entities: i === 0 ? msgEntities : [],
-        }));
-    }
-
-    const req = new Api.messages.SendMultiMedia({
-        peer,
-        multiMedia: albumItems,
-        silent,
-        invertMedia,
-        scheduleDate,
-        replyTo,
-    });
-    const apiResult = await client.invoke(req);
-    const randomIds = albumItems.map(m => m.randomId);
-    const msgs = getResponseMessage(client, randomIds, apiResult, peer);
-    const first = Array.isArray(msgs) ? msgs[0] : msgs;
-    return first as Api.Message;
-}
+// ─── Part sending ─────────────────────────────────────────────────────────────
 
 async function sendPartViaAccount(
     app: App,
     body: string,
     channel: TelegramChannel,
-    secrets: TelegramSecrets,
+    client: TelegramClient,
     silent: boolean,
     attachUnderText: boolean,
     sourceFile: TFile,
     treatMdEmbedsAsComments: boolean,
+    postAsRich: boolean,
     scheduleDate?: Date,
     onProgress?: () => void,
 ): Promise<SendResult | null> {
     const text = mdToTelegramHtml(body);
+    const richMarkdown = postAsRich ? obsidianToRichMarkdown(body) : "";
     const { attachments, mdEmbeds } = collectMediaFiles(app, body, sourceFile);
-    const scheduleDateUnix = scheduleDate ? Math.floor(scheduleDate.getTime() / 1000) : undefined;
 
-    const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
-    try {
-        const entity = /^-?\d+$/.test(channel.chatId) ? parseInt(channel.chatId) : channel.chatId;
-        const topicId = channel.topicId;
+    const peer = peerFor(channel.chatId);
+    const topicId = channel.topicId;
+    const threadId = topicId ? topicId : undefined;
 
-        const photoAndVideoFiles = attachments.filter(f =>
-            ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
-        );
-        const gifFiles = attachments.filter(f => f.extension === "gif");
-        // PDFs always upload as documents; embedded .md files join them as document
-        // attachments unless they're being sent as comments instead.
-        const pdfFiles = attachments.filter(f => f.extension === "pdf");
-        const mdDocFiles = treatMdEmbedsAsComments ? [] : mdEmbeds.map(f => mdEmbedToMedia(app, f));
-        const docFiles  = [...pdfFiles, ...mdDocFiles];
+    const photoAndVideoFiles = attachments.filter(f =>
+        ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
+    );
+    const gifFiles = attachments.filter(f => f.extension === "gif");
+    // PDFs always upload as documents; embedded .md files join them as document
+    // attachments unless they're being sent as comments instead.
+    const pdfFiles = attachments.filter(f => f.extension === "pdf");
+    const mdDocFiles = treatMdEmbedsAsComments ? [] : mdEmbeds.map(f => mdEmbedToMedia(app, f));
+    const docFiles = [...pdfFiles, ...mdDocFiles];
 
-        let result: SendResult | null = null;
-        let captionConsumed = false;
-        // First message produced for this part — used to build the scheduled task.
-        let firstMsg: Api.Message | undefined;
+    let result: SendResult | null = null;
+    let captionConsumed = false;
+    let firstMsg: Message | undefined;
 
-        // ── Photos and videos: grouped into one album ─────────────────────────────
+    // Sends one media batch (single → sendMedia, multiple → sendMediaGroup). The caption
+    // (as HTML) rides on the first item; attachUnderText renders it above the media.
+    const sendBatch = async (files: MediaFile[], asDocument: boolean, caption: string): Promise<Message> => {
+        const invert = caption.length > 0 && attachUnderText;
+        if (files.length === 1) {
+            const media = await toInputMedia(files[0], asDocument, caption.length ? htmlText(caption) : undefined);
+            return client.sendMedia(peer, media, { invert, silent, schedule: scheduleDate, threadId });
+        }
+        const medias = await Promise.all(files.map((f, i) =>
+            toInputMedia(f, asDocument, i === 0 && caption.length ? htmlText(caption) : undefined)));
+        const msgs = await client.sendMediaGroup(peer, medias, { invertMedia: invert, silent, schedule: scheduleDate, threadId });
+        return msgs[0];
+    };
+
+    // ── Rich post with no local media: send as a Rich Message ─────────────────
+    // Rich Messages can only reference web media (embedded in the markdown); local uploads
+    // aren't supported. Refuse rather than silently posting them, mirroring the bot path.
+    if (postAsRich) {
+        const hasLocalUpload = photoAndVideoFiles.length + gifFiles.length + docFiles.length > 0;
+        if (hasLocalUpload) throw new Error("RICH_LOCAL_MEDIA");
+        if (richMarkdown.length > 0) {
+            const msg = await client.sendRichMessage(peer, {
+                content: { type: "markdown", content: richMarkdown },
+                silent,
+                schedule: scheduleDate,
+                threadId,
+            });
+            result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
+            firstMsg = msg;
+        }
+    } else {
+        // ── Photos and videos: grouped into one album ─────────────────────────
         if (photoAndVideoFiles.length > 0) {
-            const customFiles = await Promise.all(photoAndVideoFiles.map(async f => {
-                const blob = await f.getBlob();
-                const data = Buffer.from(await blob.arrayBuffer());
-                return new CustomFile(f.name, data.length, "", data);
-            }));
-            const msg = await sendMediaRaw(client, entity, customFiles, text, false, silent, attachUnderText, scheduleDateUnix, topicId);
+            const msg = await sendBatch(photoAndVideoFiles, false, text);
             result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
             if (!firstMsg) firstMsg = msg;
             captionConsumed = true;
         }
 
-        // ── GIFs: each sent individually (must NOT be mixed with videos) ──────────
+        // ── GIFs: each sent individually (must NOT be mixed with videos) ──────
         for (const gif of gifFiles) {
-            const blob = await gif.getBlob();
-            const data = Buffer.from(await blob.arrayBuffer());
-            const customFile = new CustomFile(gif.name, data.length, "", data);
             const caption = captionConsumed ? "" : text;
-            const msg = await sendMediaRaw(client, entity, [customFile], caption, false, silent,
-                !captionConsumed && attachUnderText, scheduleDateUnix, topicId);
+            const msg = await sendBatch([gif], false, caption);
             if (!result) result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
             if (!firstMsg) firstMsg = msg;
             captionConsumed = true;
         }
 
-        // ── Documents (PDFs + uncommented .md embeds): grouped as documents ───────
+        // ── Documents (PDFs + uncommented .md embeds): grouped as documents ───
         if (docFiles.length > 0) {
-            const customFiles = await Promise.all(docFiles.map(async f => {
-                const blob = await f.getBlob();
-                const data = Buffer.from(await blob.arrayBuffer());
-                return new CustomFile(f.name, data.length, "", data);
-            }));
             const caption = captionConsumed ? "" : text;
-            const msg = await sendMediaRaw(client, entity, customFiles, caption, true, silent,
-                !captionConsumed && attachUnderText, scheduleDateUnix, topicId);
+            const msg = await sendBatch(docFiles, true, caption);
             if (!result) result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
             if (!firstMsg) firstMsg = msg;
             captionConsumed = true;
         }
 
+        // ── Text-only (no media consumed the caption) ─────────────────────────
         if (!captionConsumed && text.length > 0) {
-            let msg: Api.Message;
-            if (topicId) {
-                const peer = await client.getInputEntity(entity);
-                const [message, entities] = await _parseMessageText(client, text, "html");
-                const req = new Api.messages.SendMessage({
-                    peer,
-                    message,
-                    entities,
-                    silent,
-                    scheduleDate: scheduleDateUnix,
-                    replyTo: new Api.InputReplyToMessage({ replyToMsgId: topicId, topMsgId: topicId }),
-                });
-                const apiResult = await client.invoke(req);
-                const m = getResponseMessage(client, req, apiResult, peer);
-                msg = (Array.isArray(m) ? m[0] : m) as Api.Message;
-            } else {
-                msg = await client.sendMessage(entity, {
-                    message: text,
-                    parseMode: "html",
-                    silent,
-                    schedule: scheduleDateUnix,
-                });
-            }
+            const msg = await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId });
             result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
             if (!firstMsg) firstMsg = msg;
         }
-
-        // For scheduled posts the link built above points at the scheduled-queue id,
-        // not the eventual published id. Record what we need to resolve it later.
-        if (scheduleDate && result && firstMsg) {
-            result.scheduled = {
-                chatId: channel.chatId,
-                topicId,
-                scheduledMsgId: firstMsg.id,
-                scheduledDate: firstMsg.date,
-                text: firstMsg.message ?? "",
-            };
-        }
-
-        if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0 && !scheduleDate) {
-            onProgress?.();
-            const commentLinks: string[] = [];
-            for (const mdFile of mdEmbeds) {
-                const mdContent = await app.vault.read(mdFile);
-                const { body: mdBody } = extractFrontmatter(mdContent);
-                const formattedMdContent = mdToTelegramHtml(mdBody);
-                if (!formattedMdContent.length) continue;
-                const commentLink = await sendCommentViaAccount(client, entity, channel.chatId, result.messageId, formattedMdContent, silent);
-                if (commentLink) commentLinks.push(commentLink);
-            }
-            if (commentLinks.length > 0) result = { ...result, commentLinks };
-        }
-
-        return result;
-    } finally {
-        await client.destroy();
     }
+
+    // For scheduled posts the link built above points at the scheduled-queue id, not the
+    // eventual published id. Record what we need to resolve it later.
+    if (scheduleDate && result && firstMsg) {
+        result.scheduled = {
+            chatId: channel.chatId,
+            topicId,
+            scheduledMsgId: firstMsg.id,
+            scheduledDate: Math.floor(firstMsg.date.getTime() / 1000),
+            text: firstMsg.text ?? "",
+        };
+    }
+
+    if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0 && !scheduleDate) {
+        onProgress?.();
+        const commentLinks: string[] = [];
+        for (const mdFile of mdEmbeds) {
+            const mdContent = await app.vault.read(mdFile);
+            const { body: mdBody } = extractFrontmatter(mdContent);
+            const formattedMdContent = mdToTelegramHtml(mdBody);
+            // Comments follow the post method: rich for "account-rich", classic HTML otherwise.
+            const richMdComment = postAsRich ? obsidianToRichMarkdown(mdBody) : "";
+            if (!formattedMdContent.length && !richMdComment.length) continue;
+            const commentLink = await sendCommentViaAccount(client, channel.chatId, result.messageId, formattedMdContent, richMdComment, silent);
+            if (commentLink) commentLinks.push(commentLink);
+        }
+        if (commentLinks.length > 0) result = { ...result, commentLinks };
+    }
+
+    return result;
 }
 
 // ─── Public entry point ───────────────────────────────────────────────────────
@@ -673,29 +509,36 @@ export async function sendNoteToTelegram(
     updateLink?: string,
     scheduleDate?: Date,
     onProgress?: () => void,
+    postAsRich = false,
 ): Promise<{ links: string[]; commentLinks: string[]; errors: Error[]; scheduled: ScheduledSendInfo[] }> {
     const channel = { ...tg_channel, chatId: resolveChatId(tg_channel.chatId) };
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
 
-    // ── Update Existing Post ──────────────────────────────────────────────────────
+    // ── Update Existing Post ──────────────────────────────────────────────────
 
     if (updateLink && updateLink !== "none") {
-        const formattedContent = mdToTelegramHtml(body);
         const msgIdMatch = updateLink.match(/\/(\d+)\/?$/);
         const messageId = msgIdMatch ? parseInt(msgIdMatch[1], 10) : null;
 
         if (messageId) {
             const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
             try {
-                const entity = /^-?\d+$/.test(channel.chatId) ? parseInt(channel.chatId) : channel.chatId;
-
+                const peer = peerFor(channel.chatId);
                 try {
-                    await client.editMessage(entity, {
-                        message: messageId,
-                        text: formattedContent,
-                        parseMode: "html",
-                    });
+                    if (postAsRich) {
+                        // High-level editMessage has no rich support; the raw messages.editMessage
+                        // carries a richMessage field (inputRichMessageMarkdown) — use it directly.
+                        const richMarkdown = obsidianToRichMarkdown(body);
+                        await client.call({
+                            _: "messages.editMessage",
+                            peer: await client.resolvePeer(peer),
+                            id: messageId,
+                            richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown },
+                        });
+                    } else {
+                        await client.editMessage({ chatId: peer, message: messageId, text: htmlText(mdToTelegramHtml(body)) });
+                    }
                 } catch (err) {
                     if (errMessage(err).includes("MESSAGE_NOT_MODIFIED")) {
                         return { links: [updateLink], commentLinks: [], errors: [new Error("MESSAGE_NOT_MODIFIED")], scheduled: [] };
@@ -719,17 +562,22 @@ export async function sendNoteToTelegram(
     const errors: Error[] = [];
     const scheduled: ScheduledSendInfo[] = [];
 
-    for (const part of effectiveParts) {
-        try {
-            const result = await sendPartViaAccount(app, part, channel, secrets, silent, attachUnderText, file, treatMdEmbedsAsComments, scheduleDate, onProgress);
-            if (result) {
-                links.push(result.link);
-                if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);
-                if (result.scheduled) scheduled.push(result.scheduled);
+    const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
+    try {
+        for (const part of effectiveParts) {
+            try {
+                const result = await sendPartViaAccount(app, part, channel, client, silent, attachUnderText, file, treatMdEmbedsAsComments, postAsRich, scheduleDate, onProgress);
+                if (result) {
+                    links.push(result.link);
+                    if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);
+                    if (result.scheduled) scheduled.push(result.scheduled);
+                }
+            } catch (err) {
+                errors.push(err instanceof Error ? err : new Error(String(err)));
             }
-        } catch (err) {
-            errors.push(err instanceof Error ? err : new Error(String(err)));
         }
+    } finally {
+        await client.destroy();
     }
 
     return { links, commentLinks, errors, scheduled };
@@ -744,6 +592,7 @@ export async function editNoteCommentsOnly(
     commentLinks: string[],
     silent: boolean,
     embedOffset = 0,
+    postAsRich = false,
 ): Promise<{ errors: Error[] }> {
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
@@ -760,18 +609,24 @@ export async function editNoteCommentsOnly(
             const mdContent = await app.vault.read(mdEmbeds[i + embedOffset]);
             const { body: mdBody } = extractFrontmatter(mdContent);
             const formattedContent = mdToTelegramHtml(mdBody);
-            if (!formattedContent.length) continue;
+            const richMarkdown = postAsRich ? obsidianToRichMarkdown(mdBody) : "";
+            if (!formattedContent.length && !richMarkdown.length) continue;
 
             const parsed = parseLinkComponents(storedLinks[i]);
             if (!parsed) continue;
 
-            const peer: string | number = /^-?\d+$/.test(parsed.chatId) ? parseInt(parsed.chatId) : parsed.chatId;
             try {
-                await client.editMessage(peer, {
-                    message: parsed.messageId,
-                    text: formattedContent,
-                    parseMode: "html",
-                });
+                if (richMarkdown.length > 0) {
+                    // Rich comment edit: raw messages.editMessage carries the richMessage field.
+                    await client.call({
+                        _: "messages.editMessage",
+                        peer: await client.resolvePeer(peerFor(parsed.chatId)),
+                        id: parsed.messageId,
+                        richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown },
+                    });
+                } else {
+                    await client.editMessage({ chatId: peerFor(parsed.chatId), message: parsed.messageId, text: htmlText(formattedContent) });
+                }
                 anyChanged = true;
             } catch (err) {
                 if (!errMessage(err).includes("MESSAGE_NOT_MODIFIED")) throw err;
@@ -817,38 +672,22 @@ export async function resolveScheduledLinks(
     const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
     try {
         for (const [chatId, group] of byChat) {
-            const entity = /^-?\d+$/.test(chatId) ? parseInt(chatId) : chatId;
+            const peer = peerFor(chatId);
             try {
-                // Messages still sitting in the scheduled queue: id → current send date.
-                // GramJS's high-level getMessages({ scheduled: true }) silently ignores the
-                // flag and returns regular history. Use raw GetScheduledHistory instead.
+                // Messages still sitting in the scheduled queue, keyed by id → current send date.
+                const ids = group.map(t2 => t2.scheduledMsgId);
                 const scheduledQueue = new Map<number, number>();
                 try {
-                    const peer = await client.getInputEntity(entity);
-                    const sched = await client.invoke(new Api.messages.GetScheduledHistory({
-                        peer,
-                        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- helpers re-export loses precise BigInteger return type
-                    hash: helpers.returnBigInt(0),
-                    }));
-                    const schedMsgs = "messages" in sched ? sched.messages : [];
-                    console.debug("[TG-sched] scheduled queue for", chatId, "→", schedMsgs.map((m: Api.TypeMessage) => ({ id: m.id, date: (m as Api.Message).date })));
-                    for (const m of schedMsgs) {
-                        if (m instanceof Api.Message) scheduledQueue.set(m.id, m.date);
+                    const queued = await client.getScheduledMessages(peer, ids);
+                    for (const m of queued) {
+                        if (m) scheduledQueue.set(m.id, Math.floor(m.date.getTime() / 1000));
                     }
-                } catch (e) {
-                    console.debug("[TG-sched] scheduled queue fetch failed for", chatId, e);
-                }
+                } catch { /* scheduled fetch failed — treat all as left-the-queue below */ }
 
                 for (const task of group) {
-                    console.debug("[TG-sched] resolving task", { scheduledMsgId: task.scheduledMsgId, scheduledDate: task.scheduledDate, text: task.text.slice(0, 60) });
                     if (scheduledQueue.has(task.scheduledMsgId)) {
                         const queuedDate = scheduledQueue.get(task.scheduledMsgId)!;
                         const updatedScheduledDate = queuedDate !== task.scheduledDate ? queuedDate : undefined;
-                        if (updatedScheduledDate) {
-                            console.debug("[TG-sched] → still in queue (send time updated to", updatedScheduledDate, ")");
-                        } else {
-                            console.debug("[TG-sched] → still in queue");
-                        }
                         resolutions.push({ task, status: "pending", updatedScheduledDate });
                         continue;
                     }
@@ -856,17 +695,15 @@ export async function resolveScheduledLinks(
                     // Telegram publishes scheduled messages up to a few seconds after the
                     // exact scheduled time, so the published .date may differ by 1-2 s.
                     const DATE_SLACK = 10;
-                    const published = await client.getMessages(entity, { limit: 50, offsetDate: task.scheduledDate + DATE_SLACK + 1 });
-                    console.debug("[TG-sched] history window for offsetDate", task.scheduledDate + DATE_SLACK + 1, "→", published.map(m => ({ id: m.id, date: m.date, text: m.message?.slice(0, 40) })));
-                    const match = published.find(m =>
-                        Math.abs(m.date - task.scheduledDate) <= DATE_SLACK &&
-                        (task.text ? m.message === task.text : !!m.media)
-                    );
+                    const published = await client.getHistory(peer, { limit: 50, offset: { id: 0, date: task.scheduledDate + DATE_SLACK + 1 } });
+                    const match = published.find(m => {
+                        const dateSec = Math.floor(m.date.getTime() / 1000);
+                        return Math.abs(dateSec - task.scheduledDate) <= DATE_SLACK &&
+                            (task.text ? m.text === task.text : !!m.media);
+                    });
                     if (match) {
-                        console.debug("[TG-sched] → resolved, id", match.id);
                         resolutions.push({ task, status: "resolved", link: buildPostLinkFromChatId(task.chatId, match.id, task.topicId) });
                     } else {
-                        console.debug("[TG-sched] → unresolved, no date/text match in window");
                         resolutions.push({ task, status: "unresolved" });
                     }
                 }

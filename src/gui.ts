@@ -1,15 +1,12 @@
 import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, AbstractInputSuggest } from "obsidian";
-import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
-import { Api } from "telegram";
-import { LogLevel } from "telegram/extensions/Logger";
+import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
 import { TelegramChannel, TelegramSecrets, BotToken, PostMethod } from "./types";
-import { createClient, getUserDialogs, DialogData, parseLinkComponents, DEFAULT_TG_API_ID, DEFAULT_TG_API_HASH, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
+import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
 import { getBotInfo } from "./telegram-bot";
-import { errMessage, errCode } from "./util";
+import { errMessage } from "./util";
 
 // Wraps an async handler so it can be used where a void-returning callback is
 // expected (e.g. addEventListener); the returned promise is explicitly discarded.
@@ -27,9 +24,9 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
     const entity: string | number = /^-?\d+$/.test(parsed.chatId) ? parseInt(parsed.chatId) : parsed.chatId;
     const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
     try {
-        const resolved = await client.getEntity(entity) as { title?: string; username?: string; firstName?: string; broadcast?: boolean };
-        const title = resolved.title ?? (resolved.username ? `@${resolved.username}` : null) ?? resolved.firstName ?? null;
-        const isChannel = resolved.broadcast === true;
+        const chat = await client.getChat(entity);
+        const title = chat.displayName || (chat.username ? `@${chat.username}` : null);
+        const isChannel = chat.chatType === "channel";
         return { title, isChannel };
     } catch {
         return null;
@@ -42,17 +39,29 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
 function methodOptions(): Array<[PostMethod, string]> {
     return [
         ["account", t.METHOD_ACCOUNT],
+        ["account-rich", t.METHOD_ACCOUNT_RICH],
         ["bot", t.METHOD_BOT],
         ["bot-rich", t.METHOD_BOT_RICH],
     ];
 }
 
+// True for the account (User API) method family, which posts as a user account.
+function isAccountMethod(method: PostMethod): boolean {
+    return method === "account" || method === "account-rich";
+}
+
+// True for the Rich Message variants (posts rich text): "account-rich" from a user
+// account (needs Telegram Premium), "bot-rich" from a bot.
+function isRichMethod(method: PostMethod): boolean {
+    return method === "account-rich" || method === "bot-rich";
+}
+
 // The posting methods a preset offers in the advanced modal: its primary method's
-// family ("account", or "bot" + "bot-rich") is always available; the opposite family
-// is added only when the preset has "Use secondary publication methods" enabled.
+// family ("account" + "account-rich", or "bot" + "bot-rich") is always available; the
+// opposite family is added only when the preset has "Use secondary publication methods".
 function availableMethods(channel: TelegramChannel): Set<PostMethod> {
-    const primaryIsAccount = (channel.defaultMethod ?? "account") === "account";
-    const accountFamily: PostMethod[] = ["account"];
+    const primaryIsAccount = isAccountMethod(channel.defaultMethod ?? "account");
+    const accountFamily: PostMethod[] = ["account", "account-rich"];
     const botFamily: PostMethod[] = ["bot", "bot-rich"];
     const primary = primaryIsAccount ? accountFamily : botFamily;
     if (!channel.useSecondaryMethods) return new Set(primary);
@@ -234,7 +243,7 @@ export class MultiPresetModal extends Modal {
         // it — both visually (greyed, non-interactive) and physically (input disabled +
         // value cleared) — when the selected preset posts via a bot method.
         const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
-        const allBot = selectedRows.length > 0 && selectedRows.every(r => r.method !== "account");
+        const allBot = selectedRows.length > 0 && selectedRows.every(r => !isAccountMethod(r.method));
         this.scheduleInput.disabled = allBot;
         if (allBot) this.scheduleInput.value = "";
         this.scheduleOptionEl.toggleClass("is-disabled", allBot);
@@ -242,10 +251,10 @@ export class MultiPresetModal extends Modal {
 
     // "Attachments below the text" only positions a caption above uploaded media. Rich
     // Messages embed media inside the markdown and can't carry local uploads at all, so
-    // the option is meaningless there — disable it when the selected preset is bot-rich.
+    // the option is meaningless there — disable it when a selected preset is a rich method.
     private updateAttachState() {
         if (!this.attachOptionEl) return;
-        const anyRich = this.channelRows.some(r => this.selectedChannels.has(r.id) && r.method === "bot-rich");
+        const anyRich = this.channelRows.some(r => this.selectedChannels.has(r.id) && isRichMethod(r.method));
         this.attachToggle.setDisabled(anyRich);
         if (anyRich) this.attachToggle.setValue(false);
         this.attachOptionEl.toggleClass("is-disabled", anyRich);
@@ -333,13 +342,14 @@ export class MultiPresetModal extends Modal {
         return null;
     }
 
-    // Edits a single stored post link, routing by the selected preset's method: a bot /
-    // bot-rich preset edits via its bot (preserving rich formatting for bot-rich), while
-    // no matching bot preset falls back to the account path (channelFromLink).
+    // Edits a single stored post link, routing by the matched preset's method so the edit
+    // preserves it: bot / bot-rich edit via the bot, account / account-rich via the user
+    // account (keeping rich formatting for the "-rich" variants). With no matching preset
+    // it falls back to the account path (channelFromLink).
     private async editPost(link: string, title: string | null, silent: boolean, attachUnderText: boolean): Promise<void> {
         const parsed = parseLinkComponents(link);
         const route = parsed ? this.editRouteFor(parsed.chatId) : null;
-        if (parsed && route && (route.method === "bot" || route.method === "bot-rich")) {
+        if (parsed && route) {
             const editChannel: TelegramChannel = {
                 ...route.channel,
                 chatId: parsed.chatId,
@@ -963,7 +973,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             // Primary publishing method, then the picker for that method's resource; an
             // optional "use secondary methods" toggle reveals the other method's picker.
             this.renderMethodField(channelDiv, channel);
-            const primaryIsAccount = (channel.defaultMethod ?? "account") === "account";
+            const primaryIsAccount = isAccountMethod(channel.defaultMethod ?? "account");
             if (primaryIsAccount) this.renderAccountField(channelDiv, channel);
             else this.renderBotTokenField(channelDiv, channel);
 
@@ -1408,14 +1418,13 @@ export class TelegramSettingTab extends PluginSettingTab {
             submitEl.textContent = t.AUTH_LOADING;
             try {
                 if (this.inlineLocalClient) {
-                    await this.inlineLocalClient.disconnect();
+                    await this.inlineLocalClient.destroy();
                     this.inlineLocalClient = null;
                 }
-                this.inlineLocalClient = new TelegramClient(new StringSession(""), AUTH_API_ID, AUTH_API_HASH, { connectionRetries: 3, useWSS: true });
-                this.inlineLocalClient.setLogLevel(LogLevel.NONE);
-                (this.inlineLocalClient as unknown as { _loopStarted: boolean })._loopStarted = true;
+                this.inlineLocalClient = await buildClient(undefined, AUTH_API_ID, AUTH_API_HASH);
                 await this.inlineLocalClient.connect();
-                const result = await this.inlineLocalClient.sendCode({ apiId: AUTH_API_ID, apiHash: AUTH_API_HASH }, phoneValue.trim());
+                const result = await this.inlineLocalClient.sendCode({ phone: phoneValue.trim() });
+                if (!("phoneCodeHash" in result)) throw new Error("Already signed in");
                 this.renderInlineLocalCodeStep(container, { phone: phoneValue.trim(), apiId: AUTH_API_ID, apiHash: AUTH_API_HASH, phoneCodeHash: result.phoneCodeHash });
             } catch (err) {
                 submitEl.disabled = false;
@@ -1432,7 +1441,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     private renderInlineQrStep(container: HTMLElement): void {
         if (this.inlineQrClient) {
-            this.inlineQrClient.disconnect().catch(() => {});
+            this.inlineQrClient.destroy().catch(() => {});
             this.inlineQrClient = null;
         }
 
@@ -1448,22 +1457,14 @@ export class TelegramSettingTab extends PluginSettingTab {
         const linkBtn = extraEl.createEl("button", { cls: "telegram-auth-link-btn", text: t.AUTH_QR_USE_PHONE });
         linkBtn.addEventListener("click", () => {
             if (this.inlineQrClient) {
-                this.inlineQrClient.disconnect().catch(() => {});
+                this.inlineQrClient.destroy().catch(() => {});
                 this.inlineQrClient = null;
             }
             this.renderInlinePhoneStep(container);
         });
 
-        const client = new TelegramClient(new StringSession(""), AUTH_API_ID, AUTH_API_HASH, { connectionRetries: 5, useWSS: true });
-        client.setLogLevel(LogLevel.NONE);
-        (client as unknown as { _loopStarted: boolean })._loopStarted = true;
-        this.inlineQrClient = client;
-
-        // Renders a QR code SVG into qrWrap and updates the deep link.
-        const showQr = async (token: Buffer): Promise<void> => {
-            const tokenB64 = token.toString("base64")
-                .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-            const url = `tg://login?token=${tokenB64}`;
+        // Renders a QR code SVG from the login URL mtcute hands us.
+        const showQr = async (url: string): Promise<void> => {
             const svgStr = await QRCode.toString(url, { type: "svg", margin: 1 });
             qrWrap.empty();
             const parser = new DOMParser();
@@ -1471,108 +1472,31 @@ export class TelegramSettingTab extends PluginSettingTab {
             qrWrap.appendChild(svgDoc.documentElement);
         };
 
-        // Manual polling loop — replaces signInUserWithQrCode.
-        //
-        // Rationale: after the user scans, the Telegram server sends UpdateLoginToken
-        // and simultaneously closes the unauthenticated connection. GramJS's built-in
-        // helper races these two events and then tries to invoke ExportLoginToken on
-        // the now-closed socket, producing "Cannot send requests while disconnected".
-        // Polling detects the scan on the next tick and reconnects before the invoke.
-        const doAuth = async (): Promise<void> => {
-            const POLL_MS = 3000;
-            const TOKEN_TTL_MS = 27000; // tokens last 30 s; refresh 3 s early
-
-            while (this.inlineQrClient) {
-                // Ensure we have a live connection before invoking.
-                if (!client.connected) {
-                    try { await client.connect(); } catch {
-                        await new Promise(r => window.setTimeout(r, 2000));
-                        continue;
-                    }
-                }
-
-                // Fetch/refresh the login token.
-                let token: Buffer | null = null;
-                try {
-                    const res = await client.invoke(new Api.auth.ExportLoginToken({
-                        apiId: AUTH_API_ID,
-                        apiHash: AUTH_API_HASH,
-                        exceptIds: [],
-                    }));
-                    if (res instanceof Api.auth.LoginToken) {
-                        token = res.token;
-                    } else if (res instanceof Api.auth.LoginTokenSuccess) {
-                        return; // scan confirmed, no 2FA
-                    } else if (res instanceof Api.auth.LoginTokenMigrateTo) {
-                        await (client as unknown as { _switchDC(newDc: number): Promise<boolean> })._switchDC(res.dcId);
-                        if (!client.connected) await client.connect();
-                        await client.invoke(new Api.auth.ImportLoginToken({ token: res.token }));
-                        return; // done after DC migration
-                    }
-                } catch (err) {
-                    if (!this.inlineQrClient) return;
-                    if (errCode(err) === "SESSION_PASSWORD_NEEDED") throw err;
-                    await new Promise(r => window.setTimeout(r, 2000));
-                    continue;
-                }
-
-                if (token) await showQr(token);
-
-                // Poll until the current token expires, checking for a successful scan.
-                const expiresAt = Date.now() + TOKEN_TTL_MS;
-                let dropped = false;
-                while (this.inlineQrClient && Date.now() < expiresAt) {
-                    await new Promise(r => window.setTimeout(r, POLL_MS));
-                    if (!this.inlineQrClient) return;
-                    try {
-                        if (!client.connected) await client.connect();
-                        const poll = await client.invoke(new Api.auth.ExportLoginToken({
-                            apiId: DEFAULT_TG_API_ID,
-                            apiHash: DEFAULT_TG_API_HASH,
-                            exceptIds: [],
-                        }));
-                        if (poll instanceof Api.auth.LoginTokenSuccess) return;
-                        if (poll instanceof Api.auth.LoginTokenMigrateTo) {
-                            await (client as unknown as { _switchDC(newDc: number): Promise<boolean> })._switchDC(poll.dcId);
-                            if (!client.connected) await client.connect();
-                            await client.invoke(new Api.auth.ImportLoginToken({ token: poll.token }));
-                            return;
-                        }
-                        // Still LoginToken — user hasn't scanned yet, keep polling.
-                    } catch (err) {
-                        if (!this.inlineQrClient) return;
-                        if (errCode(err) === "SESSION_PASSWORD_NEEDED") throw err;
-                        dropped = true;
-                        break; // connection dropped; outer loop will reconnect
-                    }
-                }
-                if (dropped) continue;
-                // Token expired — outer loop fetches a fresh one.
+        // mtcute's signInQr drives the whole ExportLoginToken/scan/DC-migration handshake
+        // internally. 2FA is handled by the `password` callback: we render the password step
+        // and resolve it when the user submits (a wrong password re-invokes the callback).
+        void (async () => {
+            const client = await buildClient(undefined, AUTH_API_ID, AUTH_API_HASH);
+            this.inlineQrClient = client;
+            try {
+                await client.connect();
+                await client.signInQr({
+                    onUrlUpdated: (url) => { void showQr(url); },
+                    password: () => new Promise<string>((resolve) => {
+                        this.renderInlineQrPasswordStep(container, resolve);
+                    }),
+                    invalidPasswordCallback: () => { new Notice(`${t.AUTH_ERROR}: ${t.AUTH_PASSWORD_REQUIRED}`); },
+                });
+                if (this.inlineQrClient) await this.saveMtcuteSession(client, AUTH_API_ID, AUTH_API_HASH);
+            } catch (err) {
+                if (this.inlineQrClient) new Notice(`${t.AUTH_ERROR}: ${errMessage(err)}`);
             }
-        };
-
-        client.connect()
-            .then(() => doAuth())
-            .then(async () => {
-                if (this.inlineQrClient) await this.saveInlineQrSession(client);
-            })
-            .catch(async (err: unknown) => {
-                if (!this.inlineQrClient) return;
-                if (errCode(err) === "SESSION_PASSWORD_NEEDED") {
-                    this.renderInlineQrPasswordStep(container, client, async () => {
-                        if (this.inlineQrClient) await this.saveInlineQrSession(client);
-                    });
-                } else {
-                    new Notice(`${t.AUTH_ERROR}: ${errMessage(err)}`);
-                }
-            });
+        })();
     }
 
-    private renderInlineQrPasswordStep(
-        container: HTMLElement,
-        client: TelegramClient,
-        onSuccess: () => void | Promise<void>,
-    ): void {
+    // Renders the 2FA password step and hands the entered password back via `onSubmit`.
+    // Used as the resolver for signInQr's `password` callback (and the phone flow).
+    private renderInlineQrPasswordStep(container: HTMLElement, onSubmit: (password: string) => void): void {
         const { fields, submitEl, noteEl } = this.buildAuthCard(container, t.AUTH_STEP_2);
 
         let passwordValue = "";
@@ -1582,32 +1506,31 @@ export class TelegramSettingTab extends PluginSettingTab {
         window.setTimeout(() => passwordInput.focus(), 50);
 
         submitEl.textContent = t.AUTH_VERIFY_BTN;
-        submitEl.addEventListener("click", voidListener(async () => {
+        submitEl.addEventListener("click", () => {
             if (!passwordValue.trim()) return;
             submitEl.disabled = true;
             submitEl.textContent = t.AUTH_LOADING;
-            try {
-                await client.signInWithPassword(
-                    { apiId: AUTH_API_ID, apiHash: AUTH_API_HASH },
-                    { password: async () => passwordValue.trim(), onError: async () => true }
-                );
-                void onSuccess();
-            } catch (err) {
-                submitEl.disabled = false;
-                submitEl.textContent = t.AUTH_VERIFY_BTN;
-                new Notice(`${t.AUTH_ERROR}: ${errMessage(err)}`);
-            }
-        }));
+            onSubmit(passwordValue.trim());
+        });
 
         noteEl.textContent = t.AUTH_PASSWORD_REQUIRED;
     }
 
-    private async saveInlineQrSession(client: TelegramClient): Promise<void> {
-        const session = client.session.save() as unknown as string;
+    // Exports the mtcute string session for a freshly-authorized client and stores it as a
+    // new account. Bundled credentials aren't persisted — the session alone reconnects.
+    private async saveMtcuteSession(client: TelegramClient, apiId: number, apiHash: string): Promise<void> {
+        const session = await client.exportSession();
+        const isBundled = apiId === AUTH_API_ID;
         const displayName = await this.resolveDisplayName(client);
-        this.plugin.addAccount({ id: Date.now().toString(), displayName, apiId: 0, apiHash: "" }, session);
-        await client.disconnect();
+        this.plugin.addAccount({
+            id: Date.now().toString(),
+            displayName,
+            apiId: isBundled ? 0 : apiId,
+            apiHash: isBundled ? "" : apiHash,
+        }, session);
+        await client.destroy();
         this.inlineQrClient = null;
+        this.inlineLocalClient = null;
         await this.plugin.saveSettings();
         new Notice(t.AUTH_SUCCESS);
         this.render();
@@ -1651,14 +1574,14 @@ export class TelegramSettingTab extends PluginSettingTab {
             submitEl.disabled = true;
             submitEl.textContent = t.AUTH_LOADING;
             try {
-                await this.inlineLocalClient.invoke(new Api.auth.SignIn({
-                    phoneNumber: state.phone,
+                await this.inlineLocalClient.signIn({
+                    phone: state.phone,
                     phoneCodeHash: state.phoneCodeHash,
                     phoneCode: codeValue.trim(),
-                }));
-                await this.saveInlineLocalSession(state.apiId, state.apiHash);
+                });
+                await this.saveMtcuteSession(this.inlineLocalClient, state.apiId, state.apiHash);
             } catch (err) {
-                if (err instanceof Error && err.message.includes("SESSION_PASSWORD_NEEDED")) {
+                if ((err as { text?: string }).text === "SESSION_PASSWORD_NEEDED" || errMessage(err).includes("SESSION_PASSWORD_NEEDED")) {
                     this.renderInlineLocalPasswordStep(container, state);
                 } else {
                     submitEl.disabled = false;
@@ -1692,11 +1615,8 @@ export class TelegramSettingTab extends PluginSettingTab {
             submitEl.disabled = true;
             submitEl.textContent = t.AUTH_LOADING;
             try {
-                await this.inlineLocalClient.signInWithPassword(
-                    { apiId: state.apiId, apiHash: state.apiHash },
-                    { password: () => passwordValue.trim() }
-                );
-                await this.saveInlineLocalSession(state.apiId, state.apiHash);
+                await this.inlineLocalClient.checkPassword(passwordValue.trim());
+                await this.saveMtcuteSession(this.inlineLocalClient, state.apiId, state.apiHash);
             } catch (err) {
                 submitEl.disabled = false;
                 submitEl.textContent = t.AUTH_VERIFY_BTN;
@@ -1705,24 +1625,5 @@ export class TelegramSettingTab extends PluginSettingTab {
         }));
 
         noteEl.textContent = t.AUTH_PASSWORD_REQUIRED;
-    }
-
-    private async saveInlineLocalSession(apiId: number, apiHash: string): Promise<void> {
-        if (!this.inlineLocalClient) return;
-        const session = this.inlineLocalClient.session.save() as unknown as string;
-        // Don't persist bundled credentials — session alone is enough for reconnection.
-        const isBundled = apiId === AUTH_API_ID;
-        const displayName = await this.resolveDisplayName(this.inlineLocalClient);
-        this.plugin.addAccount({
-            id: Date.now().toString(),
-            displayName,
-            apiId: isBundled ? 0 : apiId,
-            apiHash: isBundled ? "" : apiHash,
-        }, session);
-        await this.inlineLocalClient.disconnect();
-        this.inlineLocalClient = null;
-        await this.plugin.saveSettings();
-        new Notice(t.AUTH_SUCCESS);
-        this.render();
     }
 }
