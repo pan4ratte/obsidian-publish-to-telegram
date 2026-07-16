@@ -1,18 +1,69 @@
 name: Build, Attest, and Release
 
+# Releases automatically when the version in manifest.json is bumped on main.
+# manifest.json is the source of truth: its version becomes the release tag, which
+# is what Obsidian (and BRAT) read. No manual tagging required.
 on:
   push:
-    tags:
-      - '[0-9]*'
+    branches:
+      - main
+    paths:
+      - manifest.json
   workflow_dispatch:
 
 jobs:
+  # Decide whether this push introduced a new, not-yet-released version.
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from manifest
+        id: version
+        run: echo "version=$(node -p "require('./manifest.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Guard: manifest.json and package.json must declare the same version, so a
+      # release is never cut with mismatched metadata. Fails the run on any drift.
+      - name: Verify manifest.json and package.json versions match
+        run: |
+          MANIFEST_VERSION="${{ steps.version.outputs.version }}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$MANIFEST_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Version mismatch: manifest.json is $MANIFEST_VERSION but package.json is $PACKAGE_VERSION. Bump both to the same version."
+            exit 1
+          fi
+          echo "Versions match: $MANIFEST_VERSION"
+
+      # Skip if this version already has a release, so re-runs and unrelated
+      # manifest.json edits (e.g. a description tweak) never attempt a duplicate.
+      - name: Check for existing release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists — skipping."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version $VERSION is not released yet — proceeding."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-release:
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     permissions:
       id-token: write      # Required for attestation signing
-      contents: write      # Required to create the GitHub Release
+      contents: write      # Required to create the GitHub Release (and tag)
       attestations: write  # Required to write the attestation
 
     steps:
@@ -43,20 +94,23 @@ jobs:
             manifest.json
             styles.css
 
-      # Step 5: Extract release notes from CHANGELOG.md for this tag
+      # Step 5: Extract release notes from CHANGELOG.md for this version
       - name: Extract release notes
         id: changelog
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${{ needs.check.outputs.version }}"
           NOTES=$(awk "/^## $VERSION/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md)
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           echo "$NOTES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # Step 6: Create the GitHub Release and attach the attested files
+      # Step 6: Create the GitHub Release (creates the tag at this commit) and
+      # attach the attested files
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.check.outputs.version }}
+          name: ${{ needs.check.outputs.version }}
           body: ${{ steps.changelog.outputs.notes }}
           files: |
             main.js
