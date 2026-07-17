@@ -582,6 +582,40 @@ async function editRichMessageBot(token: string, chatId: string, messageId: numb
     }
 }
 
+// Edits a classic message to carry media (editMessageMedia). Used when a note gains an
+// attachment after the post was created, so adding e.g. a photo on edit actually shows it
+// instead of only updating the text. Local media is uploaded as a multipart part and
+// referenced via attach://; remote media is passed by URL. The note text rides as the
+// media caption. Note: the Bot API can only *replace* media on a message that already has
+// media of a compatible kind — Telegram rejects turning a pure-text message into a media
+// message, and that error is surfaced to the caller rather than swallowed.
+async function editMessageMediaBot(token: string, chatId: string, messageId: number, file: MediaFile, caption: string, attachUnderText: boolean): Promise<void> {
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    form.append("message_id", String(messageId));
+
+    const type = file.extension === "gif" ? "animation" : botMediaType(file.extension);
+    const inputMedia: Record<string, unknown> = { type, media: "" };
+    if (caption) { inputMedia.caption = caption; inputMedia.parse_mode = "HTML"; }
+    // show_caption_above_media is only valid for photo/video/animation, not documents.
+    if (caption && attachUnderText && type !== "document") inputMedia.show_caption_above_media = true;
+
+    if (file.url) {
+        inputMedia.media = file.url;
+    } else {
+        form.append("file0", await file.getBlob(), file.name);
+        inputMedia.media = "attach://file0";
+    }
+    form.append("media", JSON.stringify(inputMedia));
+
+    try {
+        await callBotFetch(token, "editMessageMedia", form);
+    } catch (err) {
+        if (isNotModifiedError(err)) return;
+        throw err;
+    }
+}
+
 // Edits comments that were published via the Bot API, in place — the bot counterpart
 // to editNoteCommentsOnly. Each stored comment is matched to an embedded .md file by
 // order (offset by embedOffset). asRich edits as a Rich Message ("bot + rich" method),
@@ -665,10 +699,19 @@ export async function sendNoteViaBotApi(
             // failed rich edit is NOT downgraded to HTML — the error propagates instead.
             const richMarkdown = postAsRich ? obsidianToRichMarkdown(body) : "";
             const htmlContent = mdToBotApiHtml(body);
+            // For the classic method, attach the note's media so adding e.g. a photo on edit
+            // actually shows up (via editMessageMedia). Only a single attachment can ride on
+            // an edit — an album can't be formed this way — so with 0 or >1 attachments we
+            // edit the text/caption only, the pre-existing behaviour. Rich messages carry
+            // their (web) media inside the markdown, so the rich edit needs nothing extra.
+            const { attachments } = postAsRich ? { attachments: [] as MediaFile[] } : collectBotMedia(app, body, file, false);
+            const singleMedia = attachments.length === 1 ? attachments[0] : null;
             for (const target of targets) {
                 const chatId = resolveChatId(target.id);
                 if (richMarkdown.length > 0) {
                     await editRichMessageBot(token, chatId, messageId, richMarkdown);
+                } else if (singleMedia) {
+                    await editMessageMediaBot(token, chatId, messageId, singleMedia, htmlContent, attachUnderText);
                 } else {
                     await editMessageBot(token, chatId, messageId, htmlContent);
                 }

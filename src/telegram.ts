@@ -664,6 +664,14 @@ export async function sendNoteToTelegram(
                     if (postAsRich) {
                         // High-level editMessage has no rich support; the raw messages.editMessage
                         // carries a richMessage field (inputRichMessageMarkdown) — use it directly.
+                        // Web-media embeds ride inside the markdown (Telegram renders them inline),
+                        // but Telegram's editMessage can't add UPLOADED local media to a message
+                        // that was sent without media — doing so collapses the rich message into a
+                        // classic post. So we keep it rich and skip local media, then report that a
+                        // photo couldn't be added this way (the caller shows a notice). A local
+                        // document is still refused up front, as on send.
+                        const { media: skippedLocal, hasUnsupportedLocal } = collectRichMedia(app, body, file);
+                        if (hasUnsupportedLocal) throw new Error("RICH_LOCAL_DOC");
                         const richMarkdown = obsidianToRichMarkdown(body);
                         await client.call({
                             _: "messages.editMessage",
@@ -671,8 +679,24 @@ export async function sendNoteToTelegram(
                             id: messageId,
                             richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown },
                         });
+                        if (skippedLocal.length > 0) {
+                            return { links: [updateLink], commentLinks: [], errors: [new Error("RICH_EDIT_LOCAL_MEDIA")], scheduled: [] };
+                        }
                     } else {
-                        await client.editMessage({ chatId: peer, message: messageId, text: htmlText(mdToTelegramHtml(body)) });
+                        // Classic edit: attach the note's media so adding a photo (or other single
+                        // attachment) to a previously text-only post actually shows up. Only one
+                        // media can ride on an edit — an album can't be formed this way — so with
+                        // multiple attachments we fall back to editing the text/caption only (the
+                        // pre-existing behaviour), leaving any album media untouched.
+                        const { attachments } = collectMediaFiles(app, body, file);
+                        const html = mdToTelegramHtml(body);
+                        if (attachments.length === 1) {
+                            const f = attachments[0];
+                            const media = await toInputMedia(f, f.extension === "pdf", html.length ? htmlText(html) : undefined);
+                            await client.editMessage({ chatId: peer, message: messageId, media, invertMedia: attachUnderText && html.length > 0 });
+                        } else {
+                            await client.editMessage({ chatId: peer, message: messageId, text: htmlText(html) });
+                        }
                     }
                 } catch (err) {
                     if (errMessage(err).includes("MESSAGE_NOT_MODIFIED")) {

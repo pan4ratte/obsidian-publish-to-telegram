@@ -237,6 +237,10 @@ export default class SendToTelegramPlugin extends Plugin {
                 const msg: string = (err.message ?? "").toUpperCase();
                 if (msg.includes("MESSAGE_NOT_MODIFIED")) {
                     new Notice(t.NOTICE_ERR_NOT_MODIFIED);
+                } else if (msg.includes("RICH_EDIT_LOCAL_MEDIA")) {
+                    // The edit itself succeeded; the note just carried a local attachment that
+                    // can't be added to a rich post on edit — surface that as an info notice.
+                    new Notice(t.NOTICE_EDITED_RICH_MEDIA_SKIPPED);
                 } else if (msg.includes("MESSAGE_TOO_LONG") || msg.includes("MESSAGE IS TOO LONG")) {
                     new Notice(t.NOTICE_ERR_TOO_LONG_TEXT);
                 } else if (msg.includes("MEDIA_CAPTION_TOO_LONG") || msg.includes("CAPTION IS TOO LONG")) {
