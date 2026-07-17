@@ -116,7 +116,12 @@ export default class SendToTelegramPlugin extends Plugin {
                 callback: async () => {
                     const file = this.app.workspace.getActiveFile();
                     if (!file) return;
-                    const isForum = await this.isChannelForum(channel);
+                    // A forum needs a topic to post into. Only prompt (via the advanced modal)
+                    // when the preset hasn't already been pointed at specific topic(s); if every
+                    // target carries a topicId, the topic is known — post straight to it.
+                    const targets = channel.chatTargets ?? [];
+                    const hasTopicSelection = targets.length > 0 && targets.every(target => target.topicId !== undefined);
+                    const isForum = !hasTopicSelection && await this.isChannelForum(channel);
                     if (isForum) {
                         new MultiPresetModal(this.app, this, file, channel.id).open();
                     } else {
@@ -164,7 +169,7 @@ export default class SendToTelegramPlugin extends Plugin {
 
         const targets = channel.chatTargets?.length > 0
             ? channel.chatTargets
-            : (channel.chatId ? [{ id: channel.chatId, title: channel.chatTitle }] : []);
+            : (channel.chatId ? [{ id: channel.chatId, title: channel.chatTitle, topicId: channel.topicId }] : []);
 
         if (targets.length === 0) { new Notice(t.NOTICE_ERR_CONFIG); return; }
 
@@ -189,7 +194,7 @@ export default class SendToTelegramPlugin extends Plugin {
             } else {
                 // ── GramJS (User API) path ────────────────────────────────────
                 for (const target of targets) {
-                    const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title };
+                    const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title, topicId: target.topicId };
                     const { links, commentLinks, errors, scheduled } = await sendNoteToTelegram(
                         this.app, file, singleChannel, this.settings, accountSecrets!, silent, attachUnderText,
                         this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
