@@ -250,9 +250,13 @@ function buildPostLinkFromChatId(chatId: string, messageId: number, topicId?: nu
 }
 
 export function parseLinkComponents(link: string): { chatId: string; messageId: number } | null {
-    const privateMatch = link.match(/t\.me\/c\/(\d+)\/(\d+)\/?$/);
+    // A forum-topic post carries an extra topic segment before the message id:
+    // t.me/c/<channelId>/<topicId>/<messageId> (private) or t.me/<user>/<topicId>/<messageId>
+    // (public). The optional `(?:\/\d+)?` absorbs it; the message id is always the last segment
+    // (the topic isn't needed to edit — a message id is unique within its chat).
+    const privateMatch = link.match(/t\.me\/c\/(\d+)(?:\/\d+)?\/(\d+)\/?$/);
     if (privateMatch) return { chatId: `-100${privateMatch[1]}`, messageId: parseInt(privateMatch[2], 10) };
-    const publicMatch = link.match(/t\.me\/([^/]+)\/(\d+)\/?$/);
+    const publicMatch = link.match(/t\.me\/([^/]+)(?:\/\d+)?\/(\d+)\/?$/);
     if (publicMatch) return { chatId: `@${publicMatch[1]}`, messageId: parseInt(publicMatch[2], 10) };
     return null;
 }
