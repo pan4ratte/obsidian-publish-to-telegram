@@ -208,6 +208,7 @@ export class MultiPresetModal extends Modal {
     private initialChannelId?: string;
 
     private silentToggle: ToggleComponent;
+    private silentOptionEl: HTMLElement | null = null;
     private attachToggle: ToggleComponent;
     private attachOptionEl: HTMLElement | null = null;
     private scheduleInput: HTMLInputElement | null = null;
@@ -247,14 +248,27 @@ export class MultiPresetModal extends Modal {
 
     private updateScheduleState() {
         if (!this.scheduleOptionEl || !this.scheduleInput) return;
-        // Scheduling isn't supported by the Bot API. Keep the field visible but disable
-        // it — both visually (greyed, non-interactive) and physically (input disabled +
-        // value cleared) — when the selected preset posts via a bot method.
+        // Scheduling isn't supported by the Bot API, and editing an existing post/comment
+        // can't be scheduled either. Keep the field visible but disable it — both visually
+        // (greyed, non-interactive) and physically (input disabled + value cleared) — when the
+        // selected preset posts via a bot method, or when a link is selected for editing.
         const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
         const allBot = selectedRows.length > 0 && selectedRows.every(r => !isAccountMethod(r.method));
-        this.scheduleInput.disabled = allBot;
-        if (allBot) this.scheduleInput.value = "";
-        this.scheduleOptionEl.toggleClass("is-disabled", allBot);
+        const disabled = allBot || this.anyLinkSelected();
+        this.scheduleInput.disabled = disabled;
+        if (disabled) this.scheduleInput.value = "";
+        this.scheduleOptionEl.toggleClass("is-disabled", disabled);
+    }
+
+    // A silent (no-sound) send only affects a new post's notification; editing an existing
+    // post/comment doesn't re-notify, so the toggle is meaningless there — disable it (and
+    // clear it) while a link is selected for editing.
+    private updateSilentState() {
+        if (!this.silentOptionEl) return;
+        const editing = this.anyLinkSelected();
+        this.silentToggle.setDisabled(editing);
+        if (editing) this.silentToggle.setValue(false);
+        this.silentOptionEl.toggleClass("is-disabled", editing);
     }
 
     // "Attachments below the text" only positions a caption above uploaded media. Rich
@@ -310,30 +324,32 @@ export class MultiPresetModal extends Modal {
 
         if (!editing) {
             this.channelRows.forEach(row => row.container.removeClass("is-disabled"));
-            return;
-        }
-
-        const chatIds = this.editingChatIds();
-        this.channelRows.forEach(row => {
-            const channel = this.plugin.settings.channels.find(c => c.id === row.id);
-            const matches = chatIds !== null && !!channel
-                && (channel.chatTargets ?? []).some(target => chatIds.has(normChatId(target.id)));
-            if (matches) {
-                row.container.removeClass("is-disabled");
-            } else {
-                row.container.addClass("is-disabled");
-                if (this.selectedChannels.has(row.id)) {
-                    // Untoggle just this row (radio selection would otherwise cascade).
-                    this.updatingPresets = true;
-                    row.toggle.setValue(false);
-                    row.methodsEl.toggleClass("is-hidden", true);
-                    this.selectedChannels.delete(row.id);
-                    this.updatingPresets = false;
+        } else {
+            const chatIds = this.editingChatIds();
+            this.channelRows.forEach(row => {
+                const channel = this.plugin.settings.channels.find(c => c.id === row.id);
+                const matches = chatIds !== null && !!channel
+                    && (channel.chatTargets ?? []).some(target => chatIds.has(normChatId(target.id)));
+                if (matches) {
+                    row.container.removeClass("is-disabled");
+                } else {
+                    row.container.addClass("is-disabled");
+                    if (this.selectedChannels.has(row.id)) {
+                        // Untoggle just this row (radio selection would otherwise cascade).
+                        this.updatingPresets = true;
+                        row.toggle.setValue(false);
+                        row.methodsEl.toggleClass("is-hidden", true);
+                        this.selectedChannels.delete(row.id);
+                        this.updatingPresets = false;
+                    }
                 }
-            }
-        });
+            });
+        }
+        // Refresh the option states on every link change (both when a link is picked and when
+        // it's cleared): scheduling and the silent toggle don't apply to edits.
         this.updateScheduleState();
         this.updateAttachState();
+        this.updateSilentState();
     }
 
     // The first selected preset whose chat targets include the given chat, with the
@@ -503,7 +519,8 @@ export class MultiPresetModal extends Modal {
             cls: "telegram-modal-heading"
         });
 
-        const silentOptionEl = contentEl.createDiv("telegram-option-item");
+        this.silentOptionEl = contentEl.createDiv("telegram-option-item");
+        const silentOptionEl = this.silentOptionEl;
         const silentTextEl = silentOptionEl.createDiv("telegram-option-text");
         silentTextEl.createDiv({ text: t.MULTI_PRESET_SILENT_POST_NAME, cls: "telegram-option-name" });
         silentTextEl.createDiv({ text: t.MULTI_PRESET_SILENT_POST_DESC, cls: "telegram-option-desc" });
@@ -528,6 +545,7 @@ export class MultiPresetModal extends Modal {
         // Initial state now that all option elements exist.
         this.updateScheduleState();
         this.updateAttachState();
+        this.updateSilentState();
 
         // ─── Edit Post & Comments Section ─────────────────────────────────────────────
 
