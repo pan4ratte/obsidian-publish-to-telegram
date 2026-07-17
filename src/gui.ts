@@ -26,8 +26,15 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
     const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
     try {
         const chat = await client.getChat(entity);
-        const title = chat.displayName || (chat.username ? `@${chat.username}` : null);
+        let title = chat.displayName || (chat.username ? `@${chat.username}` : null);
         const isChannel = chat.chatType === "channel";
+        // For a forum-topic post, append the topic name so the target reads e.g. "Group: Topic".
+        if (title && parsed.topicId) {
+            try {
+                const [topic] = await client.getForumTopicsById(entity, parsed.topicId);
+                if (topic?.title) title = `${title}: ${topic.title}`;
+            } catch { /* topic name unavailable — keep the chat title alone */ }
+        }
         return { title, isChannel };
     } catch {
         return null;
