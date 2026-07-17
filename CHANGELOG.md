@@ -2,7 +2,7 @@
 
 ## 5.0.1
 
-### Bug fixes and UX enhancements
+### UI/UX enhancements and bug fixes
 
 * Fixed a bug where a photo (or other attachment) added to an existing post did not appear when editing.
 * Fixed a bug where editing a rich-text post converted it into a classic message.
@@ -11,9 +11,10 @@
 * When you select a link to edit a post that lives in a forum topic, the topic's name is now shown next to the group/channel name.
 * When editing a post or a comment, the options that don't apply to edits are now disabled in the advanced publishing settings.
 
-### A note on editing rich-text posts
+Note:
 
-It was discovered that Telegram doesn't allow adding local attachments to rich-text messages when editing, so editing a rich-text post now skips any newly added local attachments (with a notice). Web-link media (HTTP/HTTPS) can still be added or changed when editing.
+* It was discovered that Telegram doesn't allow adding *local* attachments to rich-text messages *when editing*.
+* So now editing a rich-text post now skips any new local attachments with a notice. Web-link media (HTTP/HTTPS) can still be added or changed when editing.
 
 ## 5.0.0
 
