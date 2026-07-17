@@ -1,7 +1,7 @@
 {
   "id": "publish-to-telegram",
   "name": "Publish to Telegram",
-  "version": "5.0.0",
+  "version": "5.0.1",
   "minAppVersion": "1.11.4",
   "description": "Allows you to post notes directly to Telegram channels, groups and personal messages with different presets and advanced publishing settings.",
   "author": "pan4ratte",

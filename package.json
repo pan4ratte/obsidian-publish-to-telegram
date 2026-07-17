@@ -1,6 +1,6 @@
 {
   "name": "obsidian-publish-to-telegram",
-  "version": "5.0.0",
+  "version": "5.0.1",
   "description": "Allows you to post notes directly to Telegram channels, groups and personal messages with different presets and advanced publishing settings.",
   "main": "main.js",
   "scripts": {
