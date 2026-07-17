@@ -116,3 +116,27 @@ jobs:
             main.js
             manifest.json
             styles.css
+
+      # Step 7: Verify each attested file's provenance before finishing, so a
+      # genuine digest/signature mismatch fails the run loudly and a transient
+      # indexing lag is retried here instead of surfacing as an external report.
+      - name: Verify attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for f in main.js manifest.json styles.css; do
+            echo "::group::Verifying $f"
+            for attempt in 1 2 3 4 5; do
+              if gh attestation verify "$f" --repo "$GITHUB_REPOSITORY"; then
+                echo "$f verified on attempt $attempt"
+                break
+              fi
+              if [ "$attempt" = "5" ]; then
+                echo "::error::Attestation verification failed for $f after $attempt attempts."
+                exit 1
+              fi
+              echo "Attestation for $f not verifiable yet (attempt $attempt) — retrying in 15s to allow indexing…"
+              sleep 15
+            done
+            echo "::endgroup::"
+          done

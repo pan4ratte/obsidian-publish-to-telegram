@@ -1,6 +1,6 @@
 # Changelog
 
-## 5.0.1
+## 5.0.2
 
 ### UI/UX enhancements and bug fixes
 
