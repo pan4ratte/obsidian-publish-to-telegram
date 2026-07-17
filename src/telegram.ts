@@ -660,8 +660,19 @@ export async function sendNoteToTelegram(
             const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
             try {
                 const peer = peerFor(channel.chatId);
+                // Always edit a post in its ORIGINAL style. The caller's method comes from the
+                // preset picked at edit time, but the user may have posted with a different one
+                // (e.g. a rich post edited while a classic preset is selected). Editing a rich
+                // message as classic (or vice-versa) would convert it, so we fetch the message
+                // and detect whether it's rich, overriding the preset's choice. Detection
+                // failures fall back to the preset's method.
+                let editAsRich = postAsRich;
                 try {
-                    if (postAsRich) {
+                    const [existing] = await client.getMessages(peer, messageId);
+                    if (existing) editAsRich = existing.richMessage !== null;
+                } catch { /* couldn't fetch — keep the preset's method */ }
+                try {
+                    if (editAsRich) {
                         // High-level editMessage has no rich support; the raw messages.editMessage
                         // carries a richMessage field (inputRichMessageMarkdown) — use it directly.
                         // Web-media embeds ride inside the markdown (Telegram renders them inline),
