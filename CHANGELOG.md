@@ -6,6 +6,7 @@
 
 * Added deletion of duplicate sessions. When you authorize into already added account, new session is saved and the old one is deleted.
 * Fixed a bug when it was impossible to add local media to the rich-text post on edit.
+* Fixed a bug that broke comments publication with account methods.
 
 
 ## 5.0.2

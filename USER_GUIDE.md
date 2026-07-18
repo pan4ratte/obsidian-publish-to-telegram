@@ -360,7 +360,6 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
     * The post is always edited **in its original style** — a rich-text post stays rich and a classic post stays classic, regardless of which preset you edit it with (auto-detected for the "Account" methods). A post published in a forum topic can be edited too; when you pick its link, the topic's name is shown next to the group/channel name.
 
-    * Editing a **rich-text** post can add **local** media as well — photos, videos, GIFs and audio are uploaded and appear inline, exactly as when publishing, even if the post was originally text-only. Local **documents** still can't be embedded in a rich message (see the rich-text formatting section above).
 
 ## 7. Limits
 
