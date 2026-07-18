@@ -328,8 +328,6 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram's 
 * In a **"Bot + rich text"** post, inline media must be an **HTTP(S) web link** — the Bot API can't upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic "Bot" method, or use a web URL).
 * An **"Account + rich text"** post can embed **local** media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. This works in pre-written comments as well. Only local **documents** (e.g. `.pdf`, or `.md` embeds attached as files) can't be embedded in a rich message.
 
-* It was discovered that Telegram doesn't allow adding *local* attachments to a rich-text message *when editing*, so editing a rich-text post now skips any newly added local attachment (with a notice). Web-link media (HTTP/HTTPS) can still be added or changed on edit.
-
 ## 5. Pre-written comments
 
 You can pre-write one or more comments for your post that will appear in its discussion right after the publication. To use that feature:
@@ -362,7 +360,7 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
     * The post is always edited **in its original style** — a rich-text post stays rich and a classic post stays classic, regardless of which preset you edit it with (auto-detected for the "Account" methods). A post published in a forum topic can be edited too; when you pick its link, the topic's name is shown next to the group/channel name.
 
-    * Editing a **rich-text** post can't add a local attachment (see the rich-text formatting section above) — the text is updated but a newly added local file is skipped, since Telegram would otherwise convert the post into a classic message.
+    * Editing a **rich-text** post can add **local** media as well — photos, videos, GIFs and audio are uploaded and appear inline, exactly as when publishing, even if the post was originally text-only. Local **documents** still can't be embedded in a rich message (see the rich-text formatting section above).
 
 ## 7. Limits
 

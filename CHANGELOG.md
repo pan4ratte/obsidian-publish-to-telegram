@@ -5,6 +5,7 @@
 ### UI/UX enhancements and bug fixes
 
 * Added deletion of duplicate sessions. When you authorize into already added account, new session is saved and the old one is deleted.
+* Fixed a bug when it was impossible to add local media to the rich-text post on edit.
 
 
 ## 5.0.2
@@ -17,11 +18,6 @@
 * Fixed a bug where editing a post in a forum topic was impossible due to incorrect link handling.
 * When you select a link to edit a post that lives in a forum topic, the topic's name is now shown next to the group/channel name.
 * When editing a post or a comment, the options that don't apply to edits are now disabled in the advanced publishing settings.
-
-Note:
-
-* It was discovered that Telegram doesn't allow adding *local* attachments to rich-text messages *when editing*.
-* So now editing a rich-text post now skips any new local attachments with a notice. Web-link media (HTTP/HTTPS) can still be added or changed when editing.
 
 
 ## 5.0.0
