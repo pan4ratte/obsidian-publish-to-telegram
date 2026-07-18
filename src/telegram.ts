@@ -12,6 +12,7 @@ import {
     type InputText,
     type InputMediaLike,
     type Message,
+    type tl,
 } from "@mtcute/web";
 import { thtml } from "@mtcute/html-parser";
 import wasmBytes from "@mtcute/wasm/mtcute.wasm";
@@ -219,6 +220,23 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
     if (item.kind === "audio") return InputMedia.audio(file, { fileName: item.file.name });
     if (item.file.extension === "gif") return InputMedia.animation(file, { fileName: item.file.name });
     return InputMedia.video(file, { fileName: item.file.name });
+}
+
+// Uploads local rich media and returns the `files` entries for a raw inputRichMessage*.
+// Sending goes through sendRichMessage, which does this internally from its `attachments`
+// map; editing has to use the raw messages.editMessage (no rich support in the high-level
+// editMessage), so it builds the same structures here. Each file keeps the id its
+// `tg://<kind>?id=…` reference in the markdown points at.
+async function uploadRichFiles(
+    client: TelegramClient, peer: string | number, media: RichMediaItem[]
+): Promise<tl.TypeInputRichFile[] | undefined> {
+    if (media.length === 0) return undefined;
+    return Promise.all(media.map(async (item): Promise<tl.TypeInputRichFile> => {
+        const uploaded = await client.uploadMedia(await toRichAttachment(item), { peer });
+        return uploaded.type === "photo"
+            ? { _: "inputRichFilePhoto", id: item.id, photo: uploaded.inputPhoto }
+            : { _: "inputRichFileDocument", id: item.id, document: uploaded.inputDocument };
+    }));
 }
 
 // Builds a rich message's markdown + uploaded-media attachments from a note body: local
@@ -680,24 +698,22 @@ export async function sendNoteToTelegram(
                     if (editAsRich) {
                         // High-level editMessage has no rich support; the raw messages.editMessage
                         // carries a richMessage field (inputRichMessageMarkdown) — use it directly.
-                        // Web-media embeds ride inside the markdown (Telegram renders them inline),
-                        // but Telegram's editMessage can't add UPLOADED local media to a message
-                        // that was sent without media — doing so collapses the rich message into a
-                        // classic post. So we keep it rich and skip local media, then report that a
-                        // photo couldn't be added this way (the caller shows a notice). A local
-                        // document is still refused up front, as on send.
-                        const { media: skippedLocal, hasUnsupportedLocal } = collectRichMedia(app, body, file);
+                        // Web-media embeds ride inside the markdown (Telegram renders them inline);
+                        // local media is uploaded and passed as `files`, the same structure
+                        // sendRichMessage builds from its `attachments` map, so media can be added
+                        // to a post that was sent without any. A local document is still refused up
+                        // front, as on send — there's no rich reference kind for one.
+                        const { body: richBody, media: localMedia, hasUnsupportedLocal } = collectRichMedia(app, body, file);
                         if (hasUnsupportedLocal) throw new Error("RICH_LOCAL_DOC");
-                        const richMarkdown = obsidianToRichMarkdown(body);
+                        // richBody carries the tg://…?id= refs that the uploaded files bind to.
+                        const richMarkdown = obsidianToRichMarkdown(richBody);
+                        const files = await uploadRichFiles(client, peer, localMedia);
                         await client.call({
                             _: "messages.editMessage",
                             peer: await client.resolvePeer(peer),
                             id: messageId,
-                            richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown },
+                            richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown, files },
                         });
-                        if (skippedLocal.length > 0) {
-                            return { links: [updateLink], commentLinks: [], errors: [new Error("RICH_EDIT_LOCAL_MEDIA")], scheduled: [] };
-                        }
                     } else {
                         // Classic edit: attach the note's media so adding a photo (or other single
                         // attachment) to a previously text-only post actually shows up. Only one
@@ -784,7 +800,10 @@ export async function editNoteCommentsOnly(
             const mdContent = await app.vault.read(mdEmbeds[i + embedOffset]);
             const { body: mdBody } = extractFrontmatter(mdContent);
             const formattedContent = mdToTelegramHtml(mdBody);
-            const richMarkdown = postAsRich ? obsidianToRichMarkdown(mdBody) : "";
+            // As on the post path, local embeds become tg://…?id= refs backed by uploaded
+            // files; each comment resolves its embeds against its own note.
+            const rich = postAsRich ? collectRichMedia(app, mdBody, mdEmbeds[i + embedOffset]) : null;
+            const richMarkdown = rich ? obsidianToRichMarkdown(rich.body) : "";
             if (!formattedContent.length && !richMarkdown.length) continue;
 
             const parsed = parseLinkComponents(storedLinks[i]);
@@ -793,11 +812,13 @@ export async function editNoteCommentsOnly(
             try {
                 if (richMarkdown.length > 0) {
                     // Rich comment edit: raw messages.editMessage carries the richMessage field.
+                    const peer = peerFor(parsed.chatId);
+                    const files = await uploadRichFiles(client, peer, rich?.media ?? []);
                     await client.call({
                         _: "messages.editMessage",
-                        peer: await client.resolvePeer(peerFor(parsed.chatId)),
+                        peer: await client.resolvePeer(peer),
                         id: parsed.messageId,
-                        richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown },
+                        richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown, files },
                     });
                 } else {
                     await client.editMessage({ chatId: peerFor(parsed.chatId), message: parsed.messageId, text: htmlText(formattedContent) });

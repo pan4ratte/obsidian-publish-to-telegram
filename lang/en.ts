@@ -126,7 +126,6 @@ export default {
     NOTICE_ERR_TOO_LONG_CAPTION: "Error: This publishing method supports texts with media attachments of no more than 1024 symbols.",
     NOTICE_ERR_RICH_LOCAL_MEDIA: "Error: This publication method supports only web attachments. Local attachments are not supported.",
     NOTICE_ERR_RICH_LOCAL_DOC: "Error: Local documents can't be attached to rich-text messages. Send them with a classic method, or remove them.",
-    NOTICE_EDITED_RICH_MEDIA_SKIPPED: "Post edited ✅ — but a local attachment couldn't be added: Telegram can't add uploaded media to a rich-text post when editing. Repost it to include the attachment.",
     NOTICE_ERR_MIXED_MEDIA: "Error: The attached combination of attachments can't be sent with the selected method. Use a rich-text method, or send them separately.",
     NOTICE_ERR_ACCOUNT_RICH_PREMIUM: "Error: Sending rich-text messages from a user account requires Telegram Premium on that account.",
     NOTICE_ERR_NOT_AUTHENTICATED: "Error: Authorize into your Telegram account in the plugin settings before publishing.",
