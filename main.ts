@@ -495,6 +495,16 @@ export default class SendToTelegramPlugin extends Plugin {
         this.secrets = this.getAccountSecrets();
     }
 
+    // Re-login into an already-connected account: the old session is overwritten by the
+    // new one and the account keeps its id, so presets referencing it stay wired up.
+    replaceAccount(accountId: string, fields: Omit<TelegramAccount, "id">, session: string): void {
+        const idx = this.settings.accounts.findIndex(a => a.id === accountId);
+        if (idx === -1) return;
+        this.app.secretStorage.setSecret(`account-session-${accountId}`, session);
+        this.settings.accounts[idx] = { id: accountId, ...fields };
+        this.secrets = this.getAccountSecrets();
+    }
+
     removeAccount(accountId: string): void {
         this.app.secretStorage.setSecret(`account-session-${accountId}`, "");
         this.settings.accounts = this.settings.accounts.filter(a => a.id !== accountId);

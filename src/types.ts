@@ -14,6 +14,7 @@ export interface TelegramAccount {
     displayName: string;   // resolved from getMe() at login; shown in the account dropdown / modal
     apiId: number;         // 0 when using bundled credentials
     apiHash: string;       // "" when using bundled credentials
+    userId?: number;       // Telegram user id from getMe(); identifies the account for duplicate-login checks
     // session string lives in SecretStorage under `account-session-${id}`, never in data.json
 }
 

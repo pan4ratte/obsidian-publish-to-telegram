@@ -7,7 +7,16 @@ import * as QRCode from "qrcode";
 import { TelegramChannel, TelegramSecrets, BotToken, PostMethod } from "./types";
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
 import { getBotInfo } from "./telegram-bot";
-import { errMessage } from "./util";
+import { errMessage, retry, withTimeout } from "./util";
+
+// How long to wait on each network step of revoking a superseded session (connect,
+// then log out) before giving up and completing the login regardless.
+const REVOKE_TIMEOUT_MS = 8000;
+
+// getMe() identifies the account that just signed in; a transient failure there would
+// strand a re-login as a duplicate entry, so it's worth a couple of retries.
+const IDENTITY_ATTEMPTS = 3;
+const IDENTITY_RETRY_DELAY_MS = 1000;
 
 // Wraps an async handler so it can be used where a void-returning callback is
 // expected (e.g. addEventListener); the returned promise is explicitly discarded.
@@ -1428,6 +1437,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash
             ).catch(() => null);
             const dialogs = client ? await getUserDialogs(client) : [];
+            if (client) await this.backfillIdentity(accountId, client);
             await client?.destroy().catch(() => {});
             entry.loading = false;
             this.containerEl.querySelectorAll<HTMLInputElement>('.telegram-chat-search').forEach(input => {
@@ -1583,34 +1593,81 @@ export class TelegramSettingTab extends PluginSettingTab {
         noteEl.textContent = t.AUTH_PASSWORD_REQUIRED;
     }
 
-    // Exports the mtcute string session for a freshly-authorized client and stores it as a
-    // new account. Bundled credentials aren't persisted — the session alone reconnects.
+    // Accounts authorized before user ids were recorded carry no `userId`. Fill it in
+    // whenever we already have a live client for one, so a re-login is recognized as the
+    // same account rather than added alongside it.
+    private async backfillIdentity(accountId: string, client: TelegramClient): Promise<void> {
+        const acc = this.plugin.settings.accounts.find(a => a.id === accountId);
+        if (!acc || acc.userId !== undefined) return;
+        const identity = await this.resolveIdentity(client);
+        if (identity.userId === undefined) return;
+        acc.userId = identity.userId;
+        await this.plugin.saveSettings();
+    }
+
+    // Terminates the stored session of an account we're about to overwrite, so the
+    // superseded authorization stops showing up in Telegram's Devices list instead of
+    // lingering there. Best-effort: an expired or already-revoked session just fails,
+    // which is fine — we're discarding it either way.
+    private async revokeSession(accountId: string): Promise<void> {
+        const secrets = this.plugin.getAccountSecrets(accountId);
+        if (!secrets.telegramSession) return;
+        try {
+            const old = await withTimeout(createClient(
+                secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash
+            ), REVOKE_TIMEOUT_MS);
+            try {
+                // Bounded: an unreachable DC must not stall the login we're completing.
+                await withTimeout(old.logOut(), REVOKE_TIMEOUT_MS);
+            } finally {
+                await old.destroy().catch(() => {});
+            }
+        } catch { /* session already dead or unreachable — nothing to revoke */ }
+    }
+
+    // Exports the mtcute string session for a freshly-authorized client and stores it.
+    // Bundled credentials aren't persisted — the session alone reconnects.
+    // Signing into an account that's already connected replaces that account's session
+    // in place instead of adding a duplicate, so presets pointing at it keep working.
     private async saveMtcuteSession(client: TelegramClient, apiId: number, apiHash: string): Promise<void> {
+        const identity = await this.resolveIdentity(client);
+        const existing = identity.userId === undefined
+            ? undefined
+            : this.plugin.settings.accounts.find(a => a.userId === identity.userId);
+
         const session = await client.exportSession();
         const isBundled = apiId === AUTH_API_ID;
-        const displayName = await this.resolveDisplayName(client);
-        this.plugin.addAccount({
-            id: Date.now().toString(),
-            displayName,
+        const fields = {
+            displayName: identity.displayName,
             apiId: isBundled ? 0 : apiId,
             apiHash: isBundled ? "" : apiHash,
-        }, session);
+            userId: identity.userId,
+        };
+        if (existing) {
+            await this.revokeSession(existing.id);
+            this.plugin.replaceAccount(existing.id, fields, session);
+        } else {
+            this.plugin.addAccount({ id: Date.now().toString(), ...fields }, session);
+        }
         await client.destroy();
         this.inlineQrClient = null;
         this.inlineLocalClient = null;
         await this.plugin.saveSettings();
-        new Notice(t.AUTH_SUCCESS);
+        new Notice(existing ? t.AUTH_RECONNECTED : t.AUTH_SUCCESS);
         this.rerender();
     }
 
-    private async resolveDisplayName(client: TelegramClient): Promise<string> {
+    // Who the freshly-authorized client belongs to: label for the UI, plus the user id
+    // the duplicate-login check compares against. Retried, because giving up here means
+    // a re-login lands as a second account entry instead of replacing the first.
+    private async resolveIdentity(client: TelegramClient): Promise<{ displayName: string; userId?: number }> {
         try {
-            const me = await client.getMe();
+            const me = await retry(() => client.getMe(), IDENTITY_ATTEMPTS, IDENTITY_RETRY_DELAY_MS);
             const parts = [me.firstName, me.lastName].filter(Boolean).join(" ");
             const username = me.username ? ` (@${me.username})` : "";
-            return `${parts}${username}`.trim();
+            return { displayName: `${parts}${username}`.trim(), userId: me.id };
         } catch {
-            return "";
+            return { displayName: "" };
         }
     }
 

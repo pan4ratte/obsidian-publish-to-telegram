@@ -17,6 +17,7 @@ export default {
     AUTH_SEND_CODE_BTN: "Send code",
     AUTH_PHONE_NOTE: "*Phone number linked to your Telegram account from which publications will be made",
     AUTH_PHONE_USE_QR: "Log in with QR code",
+    AUTH_RECONNECTED: "Account was already authorized, the session was updated",
     AUTH_QR_TITLE: "Log in with QR Code",
     AUTH_QR_NOTE: "Open Telegram on your phone → Settings → Devices → Link Desktop Device, then scan the code.",
     AUTH_QR_USE_PHONE: "Log in with phone number",
