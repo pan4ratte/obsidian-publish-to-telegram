@@ -442,6 +442,29 @@ export async function getUserDialogs(client: TelegramClient): Promise<DialogData
 
 // ─── Comment (discussion) sending ─────────────────────────────────────────────
 
+// Whether the channel may post comments under its own identity. Telegram validates a
+// comment's `send_as` against the identities allowed in the DISCUSSION GROUP (not the
+// channel), and rejects anything else with SEND_AS_PEER_INVALID — being the channel's
+// admin isn't enough on its own. So we ask for the allowed list and only use the channel
+// when it's actually there; otherwise the comment goes out as the user's own account,
+// which is the default and never needs `send_as` at all.
+async function channelCanSendAs(
+    client: TelegramClient, groupChatId: string, channelChatId: string
+): Promise<boolean> {
+    try {
+        const channelInput = await client.resolvePeer(peerFor(channelChatId));
+        if (!("channelId" in channelInput)) return false;
+        const res = await client.call({
+            _: "channels.getSendAs",
+            peer: await client.resolvePeer(peerFor(groupChatId)),
+        });
+        return res.peers.some(p => p.peer._ === "peerChannel" && p.peer.channelId === channelInput.channelId);
+    } catch {
+        // Not a channel, no access, or the chat has no send-as list — fall back to self.
+        return false;
+    }
+}
+
 async function sendCommentViaAccount(
     client: TelegramClient,
     channelChatId: string,
@@ -460,20 +483,33 @@ async function sendCommentViaAccount(
             ? client.sendRichMessage(channelPeer, { content: { type: "markdown", content: richMarkdown, attachments: richAttachments }, ...params })
             : client.sendText(channelPeer, htmlText(text), params);
 
-    // Resolve the discussion group (if any) and the sendAs identity. Rule: private channels
-    // (no public username) post the comment as the user's own account; public channels post
-    // as the channel itself. mtcute resolves the sendAs InputPeer (and its access hash) from
-    // "me" / the channel id, so no manual GetSendAs is needed.
+    // Resolve the discussion group (if any).
     let linkedGroupChatId: string | undefined;
-    let sendAs: string | number | undefined;
     try {
         const full = await client.getFullChat(channelPeer);
         if (full.linkedChat) linkedGroupChatId = full.linkedChat.id.toString();
-        const isPrivate = !full.username;
-        sendAs = isPrivate ? "me" : channelPeer;
     } catch { /* not a channel or no access — fall through to a direct reply */ }
 
     if (linkedGroupChatId) {
+        // Comment as the channel when Telegram allows it, otherwise as the user's own
+        // account by omitting sendAs entirely — passing an identity Telegram hasn't
+        // green-lit (including an explicit "me") fails with SEND_AS_PEER_INVALID.
+        let sendAs: string | number | undefined =
+            await channelCanSendAs(client, linkedGroupChatId, channelChatId) ? channelPeer : undefined;
+
+        // Last resort: if the identity is refused anyway (e.g. it needs Premium the account
+        // doesn't have), drop it and send as the account itself rather than lose the comment.
+        // Retried inline so it doesn't consume one of the thread-discovery attempts below.
+        const postComment = async (): Promise<Message> => {
+            try {
+                return await sendComment({ commentTo: channelMessageId, sendAs, silent });
+            } catch (err) {
+                if (sendAs === undefined || !errMessage(err).toUpperCase().includes("SEND_AS_PEER_INVALID")) throw err;
+                sendAs = undefined;
+                return sendComment({ commentTo: channelMessageId, sendAs, silent });
+            }
+        };
+
         // Post into the linked discussion group as a comment on the channel post. The
         // forwarded thread head may not exist immediately, so retry the discovery a few times.
         const MAX_ATTEMPTS = 5;
@@ -481,7 +517,7 @@ async function sendCommentViaAccount(
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             if (attempt > 0) await new Promise(r => window.setTimeout(r, DELAY_MS));
             try {
-                const sent = await sendComment({ commentTo: channelMessageId, sendAs, silent });
+                const sent = await postComment();
                 return buildPostLinkFromChatId(linkedGroupChatId, sent.id);
             } catch (err) {
                 // A not-yet-forwarded post is expected early on — retry. Anything else, stop.
