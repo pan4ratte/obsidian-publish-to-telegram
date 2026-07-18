@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.0.3
+
+### UI/UX enhancements and bug fixes
+
+* Added deletion of duplicate sessions. When you authorize into already added account, new session is saved and the old one is deleted.
+
+
 ## 5.0.2
 
 ### UI/UX enhancements and bug fixes
@@ -15,6 +22,7 @@ Note:
 
 * It was discovered that Telegram doesn't allow adding *local* attachments to rich-text messages *when editing*.
 * So now editing a rich-text post now skips any new local attachments with a notice. Web-link media (HTTP/HTTPS) can still be added or changed when editing.
+
 
 ## 5.0.0
 
