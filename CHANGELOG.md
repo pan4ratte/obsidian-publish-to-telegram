@@ -4,7 +4,7 @@
 
 ### New features
 
-* Posts in a note split into parts with the `\split` command can now be edited. After such posts are published, the link to each post is written automatically inside its `\split` command (e.g. `%% \split t.me/channel/123 %%`), and when you edit a post the plugin matches the link you chose to the link inside the `\split` command. Important reminder: the command marks the *end* of a post.
+* **Edit posts that were published separately with the `\split` command.** After the posts are published, the link to each post is written automatically inside its split command — for example `%% \split t.me/channel/123 %%`. When you edit a post, the plugin matches the link you chose in the advanced publishing settings with the link inside the command. Important reminder: the command marks the *end* of a post.
 
 ### UI/UX enhancements and bug fixes
 
