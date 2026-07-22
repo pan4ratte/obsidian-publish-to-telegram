@@ -208,7 +208,15 @@ In addition to the formatting that will be reflected in the Telegram post, you c
 
 ### 3.2 Splitting the note into multiple posts
 
-You can also use the special command `<!-- \split -->` or `%% \split %%` to split the text of your note into separate posts. If you use this command, the plugin will publish all posts at the same time. Attachments (see below), including pre-written comments, must appear before the special command that marks the end of the post.
+You can also use the special command `<!-- \split -->` or `%% \split %%` to split the text of your note into separate posts. How the feature works:
+
+* When you use the command, the plugin publishes all posts at the same time.
+
+* Attachments (see below), including pre-written comments, must be placed *before the split command*, which marks the *end* of the post.
+
+* After a split note is published, if link saving to the note's properties is enabled in the settings, the link to each post is written inside its `\split` command — for example `%% \split t.me/channel/123 %%`. If the last post has no command, one is added automatically.
+
+* When you republish the same note, the new links are written too — for example `%% \split t.me/channel/1 | t.me/channel/2 %%`. When editing posts, the plugin relies on these links.
 
 ### 3.3 Attachments
 

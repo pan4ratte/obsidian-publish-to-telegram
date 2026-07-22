@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.1.0
+
+### New features
+
+* Posts in a note split into parts with the `\split` command can now be edited. After such posts are published, the link to each post is written automatically inside its `\split` command (e.g. `%% \split t.me/channel/123 %%`), and when you edit a post the plugin matches the link you chose to the link inside the `\split` command. Important reminder: the command marks the *end* of a post.
+
+### UI/UX enhancements and bug fixes
+
+* Fixed a bug where attachments, text and pre-written comments hidden with `%% … %%` or `<!-- … -->` comments were still published.
+* Fixed a bug where comment syntax inside inline code or a code block was removed from the published post.
+
+
 ## 5.0.3
 
 ### UI/UX enhancements and bug fixes
