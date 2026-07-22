@@ -39,6 +39,16 @@ export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: 
         .trim();
 }
 
+// Removes only commented-out regions (%% … %% and <!-- … -->), leaving all other content —
+// including embeds and links — intact. Media/embed collection runs on this so an attachment
+// or pre-written comment (embedded note) the user commented out is not posted, mirroring how
+// the text conversion (stripObsidianSyntax) already drops commented-out text.
+export function stripComments(body: string): string {
+    return body
+        .replace(/%%[\s\S]*?%%/g, "")
+        .replace(/<!--[\s\S]*?-->/g, "");
+}
+
 export function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

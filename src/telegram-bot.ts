@@ -4,7 +4,7 @@
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings } from "./types";
-import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl } from "./markdown";
+import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
 import { t } from "../lang/helpers";
 
@@ -70,6 +70,9 @@ function resolveChatId(value: string): string {
 // ─── Media collection ─────────────────────────────────────────────────────────
 
 function collectBotMedia(app: App, body: string, sourceFile: TFile, postAsRich = false): { attachments: MediaFile[]; mdEmbeds: TFile[] } {
+    // Ignore embeds inside commented-out regions so a commented-out attachment or pre-written
+    // comment (embedded note) is not collected — and therefore not posted.
+    const scanBody = stripComments(body);
     const wikilinkRegex = /!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g;
     const mdLinkRegex = /!\[[^\]]*\]\(([^)]+)\)/g;
     const reverseMdLinkRegex = /!\(([^)]+)\)\[[^\]]*\]/g;
@@ -125,9 +128,9 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile, postAsRich =
     };
 
     let m: RegExpExecArray | null;
-    while ((m = wikilinkRegex.exec(body)) !== null) processLinkpath(m[1]);
-    while ((m = mdLinkRegex.exec(body)) !== null) processLinkpath(m[1]);
-    while ((m = reverseMdLinkRegex.exec(body)) !== null) processLinkpath(m[1]);
+    while ((m = wikilinkRegex.exec(scanBody)) !== null) processLinkpath(m[1]);
+    while ((m = mdLinkRegex.exec(scanBody)) !== null) processLinkpath(m[1]);
+    while ((m = reverseMdLinkRegex.exec(scanBody)) !== null) processLinkpath(m[1]);
 
     return { attachments, mdEmbeds };
 }

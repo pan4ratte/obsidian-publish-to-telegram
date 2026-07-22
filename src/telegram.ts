@@ -18,7 +18,7 @@ import { thtml } from "@mtcute/html-parser";
 import wasmBytes from "@mtcute/wasm/mtcute.wasm";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink } from "./types";
 import { errMessage } from "./util";
-import { mdToTelegramHtml, obsidianToRichMarkdown } from "./markdown";
+import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
 
 // Re-exported for callers that import it from this module (gui.ts, main.ts); the
@@ -91,6 +91,9 @@ function extractFrontmatter(content: string): { frontmatter: string; body: strin
 const SUPPORTED_MEDIA_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "pdf", ...VIDEO_EXTS]);
 
 function collectMediaFiles(app: App, body: string, sourceFile: TFile): { attachments: MediaFile[]; mdEmbeds: TFile[] } {
+    // Ignore embeds inside commented-out regions so a commented-out attachment or pre-written
+    // comment (embedded note) is not collected — and therefore not posted.
+    const scanBody = stripComments(body);
     const wikilinkRegex = /!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g;
     const mdLinkRegex = /!\[[^\]]*\]\(([^)]+)\)/g;
     const reverseMdLinkRegex = /!\(([^)]+)\)\[[^\]]*\]/g;
@@ -140,9 +143,9 @@ function collectMediaFiles(app: App, body: string, sourceFile: TFile): { attachm
     };
 
     let m: RegExpExecArray | null;
-    while ((m = wikilinkRegex.exec(body)) !== null) processLinkpath(m[1]);
-    while ((m = mdLinkRegex.exec(body)) !== null) processLinkpath(m[1]);
-    while ((m = reverseMdLinkRegex.exec(body)) !== null) processLinkpath(m[1]);
+    while ((m = wikilinkRegex.exec(scanBody)) !== null) processLinkpath(m[1]);
+    while ((m = mdLinkRegex.exec(scanBody)) !== null) processLinkpath(m[1]);
+    while ((m = reverseMdLinkRegex.exec(scanBody)) !== null) processLinkpath(m[1]);
 
     return { attachments, mdEmbeds };
 }
@@ -204,7 +207,9 @@ function collectRichMedia(app: App, body: string, sourceFile: TFile): { body: st
     const mdLinkRegex = /!\[[^\]]*\]\(([^)]+)\)/g;
     const reverseMdLinkRegex = /!\(([^)]+)\)\[[^\]]*\]/g;
 
-    const rewritten = body
+    // Drop commented-out regions first so an embed the user commented out isn't rewritten
+    // into a rich media block (i.e. isn't uploaded/embedded).
+    const rewritten = stripComments(body)
         .replace(wikilinkRegex, (m, p1: string) => refFor(p1) ?? m)
         .replace(mdLinkRegex, (m, p1: string) => refFor(p1) ?? m)
         .replace(reverseMdLinkRegex, (m, p1: string) => refFor(p1) ?? m);
