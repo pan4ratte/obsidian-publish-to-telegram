@@ -23,18 +23,38 @@ export function isRichAttachmentRef(rawTarget: string): boolean {
     return /^tg:\/\/(?:photo|video|audio)\?id=/i.test(url);
 }
 
+// Removes %% … %% and <!-- … --> comment regions (and any orphaned <!-- opener). Callers
+// that must keep comment-like text inside code go through stripCommentsPreservingCode.
+function removeCommentRegions(text: string): string {
+    return text
+        .replace(/%%[\s\S]*?%%/g, "")             // Obsidian comments %% ... %%
+        .replace(/<!--[\s\S]*?-->/g, "")           // HTML comments
+        .replace(/<!--/g, "");                     // orphaned comment openers left after the pass above
+}
+
+// Strips comments, but leaves comment-like text inside fenced or inline code untouched —
+// there `%% … %%` / `<!-- … -->` is example content meant to be shown verbatim, not a comment.
+// Code spans are stashed before the comment pass and restored after.
+function stripCommentsPreservingCode(text: string): string {
+    const stashed: string[] = [];
+    const stash = (s: string): string => `\x00CM${stashed.push(s) - 1}\x00`;
+    const protectedText = text
+        .replace(/```[\s\S]*?```/g, stash)   // fenced code blocks
+        .replace(/`[^`\n]+`/g, stash);       // inline code spans
+    const stripped = removeCommentRegions(protectedText);
+    // eslint-disable-next-line no-control-regex -- \x00 sentinels delimit stashed code spans
+    return stripped.replace(/\x00CM(\d+)\x00/g, (_, i: string) => stashed[parseInt(i)]);
+}
+
 // keepRichMediaEmbeds: when true (Rich Markdown path), HTTP(S) media embeds are
 // preserved so Telegram renders them as media blocks. The GramJS HTML path leaves
 // it false because that parser can't express URL media blocks.
 export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: boolean } = {}): string {
-    return body
-        .replace(/%%[\s\S]*?%%/g, "")             // Strip Obsidian comments %% ... %%
+    return stripCommentsPreservingCode(body)         // comments (but keep those inside code)
         .replace(/!\[\[[^\]]*\]\]/g, "")           // Strip wikilink embeds (always local)
         .replace(/!\[[^\]]*\]\(([^)]*)\)/g, (match, target: string) =>
             opts.keepRichMediaEmbeds && (isRichEmbeddableUrl(target) || isRichAttachmentRef(target)) ? match : "")
         .replace(/!\([^)]*\)\[[^\]]*\]/g, "")      // Strip reversed MD embeds !()[]
-        .replace(/<!--[\s\S]*?-->/g, "")           // Strip HTML comments
-        .replace(/<!--/g, "")                      // Strip any orphaned comment openers left after the pass above
         .replace(/[ \t]+\n/g, "\n")
         .trim();
 }
@@ -42,11 +62,11 @@ export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: 
 // Removes only commented-out regions (%% … %% and <!-- … -->), leaving all other content —
 // including embeds and links — intact. Media/embed collection runs on this so an attachment
 // or pre-written comment (embedded note) the user commented out is not posted, mirroring how
-// the text conversion (stripObsidianSyntax) already drops commented-out text.
+// the text conversion (stripObsidianSyntax) already drops commented-out text. Not code-aware:
+// media collection works on raw embed syntax, where a commented example embed inside a code
+// block should still be excluded from the actual attachments.
 export function stripComments(body: string): string {
-    return body
-        .replace(/%%[\s\S]*?%%/g, "")
-        .replace(/<!--[\s\S]*?-->/g, "");
+    return removeCommentRegions(body);
 }
 
 export function escHtml(s: string): string {
