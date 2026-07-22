@@ -25,11 +25,20 @@ export function isRichAttachmentRef(rawTarget: string): boolean {
 
 // Removes %% … %% and <!-- … --> comment regions (and any orphaned <!-- opener). Callers
 // that must keep comment-like text inside code go through stripCommentsPreservingCode.
+//
+// The removal runs to a fixpoint: a single pass can let the text on either side of a removed
+// comment recombine into a fresh `<!--`/`%%` (e.g. `<!--a-->b<!--` or nested comments), so we
+// repeat until the string stops changing. Without this the sanitization is incomplete —
+// commented content could survive, and a leftover `<!--` opener could leak into the output.
 function removeCommentRegions(text: string): string {
-    return text
-        .replace(/%%[\s\S]*?%%/g, "")             // Obsidian comments %% ... %%
-        .replace(/<!--[\s\S]*?-->/g, "")           // HTML comments
-        .replace(/<!--/g, "");                     // orphaned comment openers left after the pass above
+    let previous: string;
+    do {
+        previous = text;
+        text = text
+            .replace(/%%[\s\S]*?%%/g, "")          // Obsidian comments %% ... %%
+            .replace(/<!--[\s\S]*?-->/g, "");       // HTML comments
+    } while (text !== previous);
+    return text.replace(/<!--/g, "");              // any unclosed comment opener that remains
 }
 
 // Strips comments, but leaves comment-like text inside fenced or inline code untouched —
