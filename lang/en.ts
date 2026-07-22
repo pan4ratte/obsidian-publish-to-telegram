@@ -127,6 +127,7 @@ export default {
     NOTICE_ERR_RICH_LOCAL_MEDIA: "Error: This publication method supports only web attachments. Local attachments are not supported.",
     NOTICE_ERR_RICH_LOCAL_DOC: "Error: Local documents can't be attached to rich-text messages. Send them with a classic method, or remove them.",
     NOTICE_ERR_MIXED_MEDIA: "Error: The attached combination of attachments can't be sent with the selected method. Use a rich-text method, or send them separately.",
+    NOTICE_ERR_SPLIT_LINK_NOT_FOUND: "Error: This link isn't inside any split command. Add it to the desired `%% \\split %%` command so the plugin knows which part to edit.",
     NOTICE_ERR_ACCOUNT_RICH_PREMIUM: "Error: Sending rich-text messages from a user account requires Telegram Premium on that account.",
     NOTICE_ERR_NOT_AUTHENTICATED: "Error: Authorize into your Telegram account in the plugin settings before publishing.",
     NOTICE_ERR_NOT_MODIFIED: "Nothing to update: contents weren't changed.",

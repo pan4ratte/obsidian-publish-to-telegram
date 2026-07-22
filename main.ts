@@ -3,6 +3,7 @@ import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents } from "./src/telegram";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
+import { writeLinksIntoMarkers } from "./src/split";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 import { errMessage } from "./src/util";
 
@@ -178,11 +179,21 @@ export default class SendToTelegramPlugin extends Plugin {
         const allCommentLinks: string[] = [];
         const allErrors: Error[] = [];
         const allScheduled: PendingScheduledLink[] = [];
+        // Published links grouped by split part (index-aligned to the note's parsed posts),
+        // accumulated across targets so each part's link(s) can be written into its split
+        // marker after publishing. Empty for edits and scheduled posts.
+        const postLinksByPart: string[][] = [];
+        const mergePostLinks = (partLinks: string[][]) => {
+            partLinks.forEach((linksForPart, i) => {
+                if (linksForPart.length === 0) return;
+                (postLinksByPart[i] ??= []).push(...linksForPart);
+            });
+        };
 
         try {
             if (isBotMethod) {
                 // ── Bot API path ──────────────────────────────────────────────
-                const { links, commentLinks, errors } = await sendNoteViaBotApi(
+                const { links, commentLinks, errors, postLinks } = await sendNoteViaBotApi(
                     this.app, file, channel, this.settings,
                     silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink,
                     effectiveMethod === "bot-rich",   // post as Rich Message
@@ -191,11 +202,12 @@ export default class SendToTelegramPlugin extends Plugin {
                 allLinks.push(...links);
                 allCommentLinks.push(...commentLinks);
                 allErrors.push(...errors);
+                mergePostLinks(postLinks);
             } else {
                 // ── GramJS (User API) path ────────────────────────────────────
                 for (const target of targets) {
                     const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title, topicId: target.topicId };
-                    const { links, commentLinks, errors, scheduled } = await sendNoteToTelegram(
+                    const { links, commentLinks, errors, scheduled, postLinks } = await sendNoteToTelegram(
                         this.app, file, singleChannel, this.settings, accountSecrets!, silent, attachUnderText,
                         this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
                         () => { progressNotice.setMessage(t.NOTICE_PUBLISHING_COMMENTS); },
@@ -204,6 +216,7 @@ export default class SendToTelegramPlugin extends Plugin {
                     allLinks.push(...links);
                     allCommentLinks.push(...commentLinks);
                     allErrors.push(...errors);
+                    mergePostLinks(postLinks);
                     for (const s of scheduled) {
                         allScheduled.push({ ...s, notePath: file.path, noteTitle: file.basename, accountId: channel.accountId, createdAt: Date.now() });
                     }
@@ -238,6 +251,14 @@ export default class SendToTelegramPlugin extends Plugin {
                 });
             }
 
+            // Record each published post's link into its split marker (adding a marker to the
+            // last post when it lacks one), so a later edit can match the chosen link back to
+            // the exact part. Only for fresh (non-scheduled) publishes — a scheduled post's
+            // real link isn't known until it goes live.
+            if (this.settings.savePostLinks && !scheduleDate && postLinksByPart.some(l => l && l.length > 0)) {
+                await this.writeSplitMarkerLinks(file, postLinksByPart);
+            }
+
             for (const err of allErrors) {
                 const msg: string = (err.message ?? "").toUpperCase();
                 if (msg.includes("MESSAGE_NOT_MODIFIED")) {
@@ -252,6 +273,8 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
                 } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                     new Notice(t.NOTICE_ERR_MIXED_MEDIA);
+                } else if (msg.includes("SPLIT_LINK_NOT_FOUND")) {
+                    new Notice(t.NOTICE_ERR_SPLIT_LINK_NOT_FOUND);
                 } else if (msg.includes("PREMIUM")) {
                     new Notice(t.NOTICE_ERR_ACCOUNT_RICH_PREMIUM);
                 } else {
@@ -276,10 +299,26 @@ export default class SendToTelegramPlugin extends Plugin {
                 new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
             } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                 new Notice(t.NOTICE_ERR_MIXED_MEDIA);
+            } else if (msg.includes("SPLIT_LINK_NOT_FOUND")) {
+                new Notice(t.NOTICE_ERR_SPLIT_LINK_NOT_FOUND);
             } else {
                 new Notice(`${t.NOTICE_ERR_SEND}${errMessage(err)}`);
             }
         }
+    }
+
+    // Rewrites the note body so each published post's link lives inside its `%% \split %%`
+    // marker (creating a marker for the last post when it has none). Reads the file fresh —
+    // any frontmatter written just before is preserved, and the body it parses matches the
+    // one that was split for sending, so the per-part links line up. `postLinksByPart` is
+    // index-aligned to the note's parsed split posts.
+    private async writeSplitMarkerLinks(file: TFile, postLinksByPart: string[][]): Promise<void> {
+        const content = await this.app.vault.read(file);
+        const fmMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+        const frontmatter = fmMatch ? fmMatch[0] : "";
+        const body = fmMatch ? content.slice(frontmatter.length) : content;
+        const newBody = writeLinksIntoMarkers(body, postLinksByPart);
+        if (newBody !== body) await this.app.vault.modify(file, frontmatter + newBody);
     }
 
     // Checks pending scheduled posts whose send time has passed: writes the published
@@ -330,6 +369,14 @@ export default class SendToTelegramPlugin extends Plugin {
                             if (!existing.includes(link)) existing.push(link);
                             fm.tg_posts = existing;
                         });
+                        // If the scheduled post came from a split part, write its now-known link
+                        // into that part's split marker too (writeLinksIntoMarkers leaves a
+                        // non-split note's body untouched).
+                        if (task.partIndex !== undefined) {
+                            const partLinks: string[][] = [];
+                            partLinks[task.partIndex] = [link];
+                            await this.writeSplitMarkerLinks(noteFile, partLinks);
+                        }
                         new Notice(t.NOTICE_SCHEDULED_LINK_SAVED.replace("{title}", task.noteTitle));
                     }
                     // Note was deleted/renamed away — drop the task silently.

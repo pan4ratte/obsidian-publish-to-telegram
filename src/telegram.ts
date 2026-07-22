@@ -19,6 +19,11 @@ import wasmBytes from "@mtcute/wasm/mtcute.wasm";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink } from "./types";
 import { errMessage } from "./util";
 import { mdToTelegramHtml, obsidianToRichMarkdown } from "./markdown";
+import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
+
+// Re-exported for callers that import it from this module (gui.ts, main.ts); the
+// implementation now lives in split.ts alongside the other link helpers.
+export { parseLinkComponents } from "./split";
 
 // InputMedia factories for uploaded rich-message attachments; the union is what
 // sendRichMessage's `attachments` map accepts (InputRichMessageMedia).
@@ -42,6 +47,7 @@ export interface ScheduledSendInfo {
     scheduledMsgId: number;
     scheduledDate: number;
     text: string;
+    partIndex?: number;   // split-part index, set by the caller so its link can later reach the right marker
 }
 
 interface MediaFile {
@@ -78,13 +84,6 @@ function extractFrontmatter(content: string): { frontmatter: string; body: strin
     const body = match ? content.slice(match[0].length) : content;
     if (!match) return { frontmatter: "", body };
     return { frontmatter: match[1], body };
-}
-
-// ─── Split helpers ────────────────────────────────────────────────────────────
-
-function splitBodyByMarkers(body: string): string[] {
-    const marker = /^[ \t]*(?:%%\s*\\split\s*%%|<!--\s*\\split\s*-->)[ \t]*$/gm;
-    return body.split(marker).map(p => p.trim()).filter(p => p.length > 0);
 }
 
 // ─── Attachment collection (shared) ───────────────────────────────────────────
@@ -265,19 +264,6 @@ function buildPostLinkFromChatId(chatId: string, messageId: number, topicId?: nu
     const channelId = chatId.replace(/^-100/, "");
     if (withTopic) return `https://t.me/c/${channelId}/${topicId}/${messageId}`;
     return `https://t.me/c/${channelId}/${messageId}`;
-}
-
-export function parseLinkComponents(link: string): { chatId: string; messageId: number; topicId?: number } | null {
-    // A forum-topic post carries an extra topic segment before the message id:
-    // t.me/c/<channelId>/<topicId>/<messageId> (private) or t.me/<user>/<topicId>/<messageId>
-    // (public). The optional `(?:\/(\d+))?` captures it; the message id is always the last
-    // segment (the topic isn't needed to edit — a message id is unique within its chat — but
-    // it's surfaced so callers can name the topic).
-    const privateMatch = link.match(/t\.me\/c\/(\d+)(?:\/(\d+))?\/(\d+)\/?$/);
-    if (privateMatch) return { chatId: `-100${privateMatch[1]}`, messageId: parseInt(privateMatch[3], 10), topicId: privateMatch[2] ? parseInt(privateMatch[2], 10) : undefined };
-    const publicMatch = link.match(/t\.me\/([^/]+)(?:\/(\d+))?\/(\d+)\/?$/);
-    if (publicMatch) return { chatId: `@${publicMatch[1]}`, messageId: parseInt(publicMatch[3], 10), topicId: publicMatch[2] ? parseInt(publicMatch[2], 10) : undefined };
-    return null;
 }
 
 function resolveChatId(value: string): string {
@@ -704,7 +690,7 @@ export async function sendNoteToTelegram(
     scheduleDate?: Date,
     onProgress?: () => void,
     postAsRich = false,
-): Promise<{ links: string[]; commentLinks: string[]; errors: Error[]; scheduled: ScheduledSendInfo[] }> {
+): Promise<{ links: string[]; commentLinks: string[]; errors: Error[]; scheduled: ScheduledSendInfo[]; postLinks: string[][] }> {
     const channel = { ...tg_channel, chatId: resolveChatId(tg_channel.chatId) };
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
@@ -714,6 +700,19 @@ export async function sendNoteToTelegram(
     if (updateLink && updateLink !== "none") {
         const msgIdMatch = updateLink.match(/\/(\d+)\/?$/);
         const messageId = msgIdMatch ? parseInt(msgIdMatch[1], 10) : null;
+
+        // When the note is split, the edit must use the specific part whose split marker
+        // records this link — not the whole note. If markers exist but none carries the link,
+        // there's nothing to map the edit to; tell the user to add the link to a split command.
+        // A note without any split markers edits from its whole body (legacy single-post note).
+        let editBody = body;
+        if (hasSplitMarkers(body)) {
+            const matched = findPostContentForLink(body, updateLink);
+            if (matched === null) {
+                return { links: [], commentLinks: [], errors: [new Error("SPLIT_LINK_NOT_FOUND")], scheduled: [], postLinks: [] };
+            }
+            editBody = matched;
+        }
 
         if (messageId) {
             const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
@@ -739,7 +738,7 @@ export async function sendNoteToTelegram(
                         // sendRichMessage builds from its `attachments` map, so media can be added
                         // to a post that was sent without any. A local document is still refused up
                         // front, as on send — there's no rich reference kind for one.
-                        const { body: richBody, media: localMedia, hasUnsupportedLocal } = collectRichMedia(app, body, file);
+                        const { body: richBody, media: localMedia, hasUnsupportedLocal } = collectRichMedia(app, editBody, file);
                         if (hasUnsupportedLocal) throw new Error("RICH_LOCAL_DOC");
                         // richBody carries the tg://…?id= refs that the uploaded files bind to.
                         const richMarkdown = obsidianToRichMarkdown(richBody);
@@ -756,8 +755,8 @@ export async function sendNoteToTelegram(
                         // media can ride on an edit — an album can't be formed this way — so with
                         // multiple attachments we fall back to editing the text/caption only (the
                         // pre-existing behaviour), leaving any album media untouched.
-                        const { attachments } = collectMediaFiles(app, body, file);
-                        const html = mdToTelegramHtml(body);
+                        const { attachments } = collectMediaFiles(app, editBody, file);
+                        const html = mdToTelegramHtml(editBody);
                         if (attachments.length === 1) {
                             const f = attachments[0];
                             const media = await toInputMedia(f, f.extension === "pdf", html.length ? htmlText(html) : undefined);
@@ -768,36 +767,41 @@ export async function sendNoteToTelegram(
                     }
                 } catch (err) {
                     if (errMessage(err).includes("MESSAGE_NOT_MODIFIED")) {
-                        return { links: [updateLink], commentLinks: [], errors: [new Error("MESSAGE_NOT_MODIFIED")], scheduled: [] };
+                        return { links: [updateLink], commentLinks: [], errors: [new Error("MESSAGE_NOT_MODIFIED")], scheduled: [], postLinks: [] };
                     }
                     throw err;
                 }
             } finally {
                 await client.destroy();
             }
-            return { links: [updateLink], commentLinks: [], errors: [], scheduled: [] };
+            return { links: [updateLink], commentLinks: [], errors: [], scheduled: [], postLinks: [] };
         }
     }
 
     // ── Split body and send each part ─────────────────────────────────────────
 
-    const parts = splitBodyByMarkers(body);
-    const effectiveParts = parts.length > 0 ? parts : [body];
+    const posts = parseSplitPosts(body);
+    const effectiveParts = posts.length > 0 ? posts.map(p => p.content) : [body];
 
     const links: string[] = [];
     const commentLinks: string[] = [];
     const errors: Error[] = [];
     const scheduled: ScheduledSendInfo[] = [];
+    // Per-part published links (aligned to effectiveParts / parseSplitPosts order) so the
+    // caller can record each link back into its part's split marker. Skipped for scheduled
+    // posts, whose real link isn't known until they go live.
+    const postLinks: string[][] = effectiveParts.map(() => []);
 
     const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
     try {
-        for (const part of effectiveParts) {
+        for (let i = 0; i < effectiveParts.length; i++) {
             try {
-                const result = await sendPartViaAccount(app, part, channel, client, silent, attachUnderText, file, treatMdEmbedsAsComments, postAsRich, scheduleDate, onProgress);
+                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, silent, attachUnderText, file, treatMdEmbedsAsComments, postAsRich, scheduleDate, onProgress);
                 if (result) {
                     links.push(result.link);
+                    if (!scheduleDate) postLinks[i].push(result.link);
                     if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);
-                    if (result.scheduled) scheduled.push(result.scheduled);
+                    if (result.scheduled) scheduled.push({ ...result.scheduled, partIndex: i });
                 }
             } catch (err) {
                 errors.push(err instanceof Error ? err : new Error(String(err)));
@@ -807,7 +811,7 @@ export async function sendNoteToTelegram(
         await client.destroy();
     }
 
-    return { links, commentLinks, errors, scheduled };
+    return { links, commentLinks, errors, scheduled, postLinks };
 }
 
 // Edits pre-written comments in-place using the provided stored comment links

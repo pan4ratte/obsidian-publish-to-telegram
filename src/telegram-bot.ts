@@ -5,6 +5,7 @@
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings } from "./types";
 import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl } from "./markdown";
+import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
 import { t } from "../lang/helpers";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -36,13 +37,6 @@ const SUPPORTED_MEDIA_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "pdf"
 function extractFrontmatter(content: string): { body: string } {
     const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
     return { body: match ? content.slice(match[0].length) : content };
-}
-
-// ─── Split helpers ────────────────────────────────────────────────────────────
-
-function splitBodyByMarkers(body: string): string[] {
-    const marker = /^[ \t]*(?:%%\s*\\split\s*%%|<!--\s*\\split\s*-->)[ \t]*$/gm;
-    return body.split(marker).map(p => p.trim()).filter(p => p.length > 0);
 }
 
 // Strips HTML tags to recover the visible text. A single pass of /<[^>]+>/g can leave
@@ -674,7 +668,7 @@ export async function sendNoteViaBotApi(
     updateLink?: string,
     postAsRich = false,
     commentsAsRich = false,
-): Promise<{ links: string[]; commentLinks: string[]; errors: Error[] }> {
+): Promise<{ links: string[]; commentLinks: string[]; errors: Error[]; postLinks: string[][] }> {
     const token = channel.botToken ?? "";
     if (!token) throw new Error(t.ERR_BOT_TOKEN_NOT_CONFIGURED);
 
@@ -692,19 +686,29 @@ export async function sendNoteViaBotApi(
     if (updateLink && updateLink !== "none") {
         const msgIdMatch = updateLink.match(/\/(\d+)\/?$/);
         const messageId = msgIdMatch ? parseInt(msgIdMatch[1], 10) : null;
+        // When the note is split, edit from the specific part whose split marker records this
+        // link. If markers exist but none carries the link, there's nothing to map the edit to
+        // — surface it so the user adds the link to the intended split command. A note without
+        // any split markers edits from its whole body (legacy single-post note).
+        let editBody = body;
+        if (hasSplitMarkers(body)) {
+            const matched = findPostContentForLink(body, updateLink);
+            if (matched === null) throw new Error("SPLIT_LINK_NOT_FOUND");
+            editBody = matched;
+        }
         if (messageId) {
             // The edit follows the preset's *current* method: a "bot + rich" preset
             // re-publishes the edit as a Rich Message, a plain "bot" preset as HTML. The
             // user picks the style at edit time by choosing which method they edit with. A
             // failed rich edit is NOT downgraded to HTML — the error propagates instead.
-            const richMarkdown = postAsRich ? obsidianToRichMarkdown(body) : "";
-            const htmlContent = mdToBotApiHtml(body);
+            const richMarkdown = postAsRich ? obsidianToRichMarkdown(editBody) : "";
+            const htmlContent = mdToBotApiHtml(editBody);
             // For the classic method, attach the note's media so adding e.g. a photo on edit
             // actually shows up (via editMessageMedia). Only a single attachment can ride on
             // an edit — an album can't be formed this way — so with 0 or >1 attachments we
             // edit the text/caption only, the pre-existing behaviour. Rich messages carry
             // their (web) media inside the markdown, so the rich edit needs nothing extra.
-            const { attachments } = postAsRich ? { attachments: [] as MediaFile[] } : collectBotMedia(app, body, file, false);
+            const { attachments } = postAsRich ? { attachments: [] as MediaFile[] } : collectBotMedia(app, editBody, file, false);
             const singleMedia = attachments.length === 1 ? attachments[0] : null;
             for (const target of targets) {
                 const chatId = resolveChatId(target.id);
@@ -716,31 +720,35 @@ export async function sendNoteViaBotApi(
                     await editMessageBot(token, chatId, messageId, htmlContent);
                 }
             }
-            return { links: [updateLink], commentLinks: [], errors: [] };
+            return { links: [updateLink], commentLinks: [], errors: [], postLinks: [] };
         }
     }
 
     // ── Send all parts to all targets ─────────────────────────────────────────
 
-    const parts = splitBodyByMarkers(body);
-    const effectiveParts = parts.length > 0 ? parts : [body];
+    const posts = parseSplitPosts(body);
+    const effectiveParts = posts.length > 0 ? posts.map(p => p.content) : [body];
 
     const links: string[] = [];
     const commentLinks: string[] = [];
     const errors: Error[] = [];
+    // Published links per part (aligned to parseSplitPosts order), collecting every target's
+    // link for a given part so they can be recorded together in that part's split marker.
+    const postLinks: string[][] = effectiveParts.map(() => []);
 
     for (const target of targets) {
         const chatId = resolveChatId(target.id);
         const topicId = target.topicId;
 
-        for (const part of effectiveParts) {
+        for (let i = 0; i < effectiveParts.length; i++) {
             try {
                 const result = await sendPartViaBotApi(
-                    app, part, token, chatId, silent, attachUnderText,
+                    app, effectiveParts[i], token, chatId, silent, attachUnderText,
                     treatMdEmbedsAsComments, file, topicId, postAsRich, commentsAsRich,
                 );
                 if (result) {
                     links.push(result.link);
+                    postLinks[i].push(result.link);
                     if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);
                 }
             } catch (err) {
@@ -749,5 +757,5 @@ export async function sendNoteViaBotApi(
         }
     }
 
-    return { links, commentLinks, errors };
+    return { links, commentLinks, errors, postLinks };
 }

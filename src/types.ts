@@ -49,6 +49,7 @@ export interface PendingScheduledLink {
     scheduledMsgId: number; // id in the scheduled queue
     scheduledDate: number;  // unix seconds; equals published message .date
     text: string;           // plain-text body for matching ("" for media-only posts)
+    partIndex?: number;     // index of this post's split part; used to write the resolved link into its split marker
     createdAt: number;
 }
 
