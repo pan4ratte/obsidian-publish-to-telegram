@@ -52,6 +52,20 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
     }
 }
 
+// Resolves a link's chat info by trying each authorized account in turn. The account that
+// published a stored link isn't necessarily the primary one, and an account can only read a
+// chat it belongs to — so when one account can't access the chat, the remaining accounts are
+// tried. Returns the first successful lookup, or null when no account can resolve it.
+async function fetchEntityInfoAnyAccount(link: string, plugin: SendToTelegramPlugin): Promise<{ title: string | null; isChannel: boolean } | null> {
+    for (const account of plugin.settings.accounts) {
+        const secrets = plugin.getAccountSecrets(account.id);
+        if (!secrets.telegramSession) continue;
+        const info = await fetchEntityInfo(link, secrets);
+        if (info) return info;
+    }
+    return null;
+}
+
 // The selectable posting methods with their localized labels, in display order.
 function methodOptions(): Array<[PostMethod, string]> {
     return [
@@ -595,7 +609,7 @@ export class MultiPresetModal extends Modal {
             void (async () => {
                 const allLinksToResolve = [...allStoredPostLinks, ...allStoredCommentLinks];
                 const results = await Promise.all(
-                    allLinksToResolve.map(link => fetchEntityInfo(link, this.plugin.secrets))
+                    allLinksToResolve.map(link => fetchEntityInfoAnyAccount(link, this.plugin))
                 );
 
                 if (!updateLoadingEl.isConnected) return; // modal was closed before resolution
