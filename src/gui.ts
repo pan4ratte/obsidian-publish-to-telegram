@@ -34,9 +34,12 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
     const entity: string | number = /^-?\d+$/.test(parsed.chatId) ? parseInt(parsed.chatId) : parsed.chatId;
     const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
     try {
-        const chat = await client.getChat(entity);
+        // getPeer (not getChat) so personal chats resolve too: getChat throws for user peers
+        // (DMs, Saved Messages, bots), which is why editing a post in personal messages failed
+        // with "Could not resolve this link". getPeer routes users → getUser, chats → getChat.
+        const chat = await client.getPeer(entity);
         let title = chat.displayName || (chat.username ? `@${chat.username}` : null);
-        const isChannel = chat.chatType === "channel";
+        const isChannel = "chatType" in chat && chat.chatType === "channel";
         // For a forum-topic post, append the topic name so the target reads e.g. "Group: Topic".
         if (title && parsed.topicId) {
             try {

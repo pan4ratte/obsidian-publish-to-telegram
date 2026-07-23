@@ -25,6 +25,16 @@ test('parses a forum-topic supergroup link', () => {
   );
 });
 
+test('parses a personal-chat link (positive user id marked "+"), keeping the bare id', () => {
+  // Regression: a personal chat (DM / Saved Messages) has a positive user id and no real
+  // t.me link, so it's marked with a leading "+". Parsing must return the bare positive id
+  // (a user peer), NOT prepend -100 (which would target a nonexistent channel and break editing).
+  assert.deepStrictEqual(
+    parseLinkComponents('https://t.me/c/+123456789/5'),
+    { chatId: '123456789', messageId: 5, topicId: undefined },
+  );
+});
+
 test('parses a public username link', () => {
   assert.deepStrictEqual(
     parseLinkComponents('https://t.me/mychannel/5'),

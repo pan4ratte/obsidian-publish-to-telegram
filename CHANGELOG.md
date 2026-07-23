@@ -4,6 +4,7 @@
 
 ### UI/UX enhancements and bug fixes
 
+* Fixed a bug where posts published to personal chats could not be edited because the link failed to resolve.
 * Fixed a bug where accounts authorized in older versions failed with an "Invalid session string" error and couldn't publish. Such accounts now simply need to be logged into again.
 
 

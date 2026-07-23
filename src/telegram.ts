@@ -266,6 +266,14 @@ function buildPostLinkFromChatId(chatId: string, messageId: number, topicId?: nu
         if (withTopic) return `https://t.me/${chatId.slice(1)}/${topicId}/${messageId}`;
         return `https://t.me/${chatId.slice(1)}/${messageId}`;
     }
+    // A positive numeric id is a personal chat (a user DM, incl. Saved Messages). There's no
+    // real t.me post link for a DM, but a stored link is still needed to locate the message on
+    // edit — mark it with a leading "+" so it round-trips to the exact user peer instead of
+    // colliding with a supergroup id (which is stored -100<id> and loses its -100 in the link).
+    if (/^\d+$/.test(chatId)) {
+        if (withTopic) return `https://t.me/c/+${chatId}/${topicId}/${messageId}`;
+        return `https://t.me/c/+${chatId}/${messageId}`;
+    }
     // Supergroups/channels are marked "-100<id>" and use Telegram's t.me/c/<id> form.
     // Basic (legacy) groups are marked "-<id>" with no -100 prefix; stripping only "-100"
     // keeps their leading "-" so the /c/-<id> link stays distinguishable and parseLinkComponents

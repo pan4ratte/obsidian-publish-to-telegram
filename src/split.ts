@@ -15,13 +15,19 @@
 // t.me/c/<channelId>/<topicId>/<messageId> (private) or t.me/<user>/<topicId>/<messageId>
 // (public); the message id is always the last segment.
 export function parseLinkComponents(link: string): { chatId: string; messageId: number; topicId?: number } | null {
-    // The /c/ id may carry a leading "-": supergroups/channels are stored bare and rebuild
-    // to the marked "-100<id>", but basic (legacy) groups have no -100 prefix, so their link
-    // keeps the sign (t.me/c/-<id>) and rebuilds to the bare marked "-<id>". Prepending -100
-    // to a basic group would target the wrong peer and break editing.
-    const privateMatch = link.match(/t\.me\/c\/(-?\d+)(?:\/(\d+))?\/(\d+)\/?$/);
+    // The /c/ id carries a sign that disambiguates the peer kind, since a bare number is
+    // otherwise ambiguous. Supergroups/channels are stored bare and rebuild to the marked
+    // "-100<id>"; basic (legacy) groups keep a leading "-" (t.me/c/-<id>) and rebuild to the
+    // bare marked "-<id>"; personal chats (DMs, Saved Messages) have a positive user id with
+    // no t.me link of their own, so they're marked with a leading "+" (t.me/c/+<id>) and
+    // rebuild to the bare positive id. Guessing the kind (e.g. prepending -100 unconditionally)
+    // would target the wrong peer and break editing.
+    const privateMatch = link.match(/t\.me\/c\/([+-]?\d+)(?:\/(\d+))?\/(\d+)\/?$/);
     if (privateMatch) {
-        const chatId = privateMatch[1].startsWith("-") ? privateMatch[1] : `-100${privateMatch[1]}`;
+        const rawId = privateMatch[1];
+        const chatId = rawId.startsWith("+") ? rawId.slice(1)
+            : rawId.startsWith("-") ? rawId
+            : `-100${rawId}`;
         return { chatId, messageId: parseInt(privateMatch[3], 10), topicId: privateMatch[2] ? parseInt(privateMatch[2], 10) : undefined };
     }
     const publicMatch = link.match(/t\.me\/([^/]+)(?:\/(\d+))?\/(\d+)\/?$/);
