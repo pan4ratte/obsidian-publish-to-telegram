@@ -893,6 +893,16 @@ body .telegram-changelog-close:hover {
 
 .telegram-formatting-help-modal {
     max-width: 680px;
+    /* Obsidian disables text selection inside modals; re-enable it here so the
+       user guide can be selected and copied. */
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: auto;
+}
+
+.telegram-formatting-help-modal * {
+    user-select: text;
+    -webkit-user-select: text;
 }
 
 .telegram-formatting-help-modal table {

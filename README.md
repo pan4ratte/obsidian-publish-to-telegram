@@ -340,47 +340,47 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’
 
 | Tag(s) | Meaning |
 | --- | --- |
-| `<b>`, `<strong>` | Bold |
-| `<i>`, `<em>` | Italic |
-| `<u>`, `<ins>` | Underline |
-| `<s>`, `<strike>`, `<del>` | Strikethrough |
-| `<code>` | Inline fixed-width code |
-| `<mark>` | Highlight (marked text) |
-| `<sub>` | Subscript |
-| `<sup>` | Superscript |
-| `<tg-spoiler>` | Spoiler |
-| `<tg-emoji emoji-id="…">` | Custom emoji |
-| `<tg-time unix="…" format="…">` | Formatted date-time entity |
-| `<tg-math>` | Inline LaTeX formula |
+| `<b></b>`, `<strong></strong>` | Bold |
+| `<i></i>`, `<em></em>` | Italic |
+| `<u></u>`, `<ins></ins>` | Underline |
+| `<s></s>`, `<strike></strike>`, `<del></del>` | Strikethrough |
+| `<code></code>` | Inline fixed-width code |
+| `<mark></mark>` | Highlight (marked text) |
+| `<sub></sub>` | Subscript |
+| `<sup></sup>` | Superscript |
+| `<tg-spoiler></tg-spoiler>` | Spoiler |
+| `<tg-emoji emoji-id="…"></tg-emoji>` | Custom emoji |
+| `<tg-time unix="…" format="…"></tg-time>` | Formatted date-time entity |
+| `<tg-math></tg-math>` | Inline LaTeX formula |
 
 **Links, anchors & references**
 
 | Tag | Meaning |
 | --- | --- |
-| `<a href="https://…">` | Inline URL |
-| `<a href="mailto:…">` | E-mail link |
-| `<a href="tel:…">` | Phone-number link |
-| `<a href="tg://user?id=…">` | Inline user mention |
+| `<a href="https://…"></a>` | Inline URL |
+| `<a href="mailto:…"></a>` | E-mail link |
+| `<a href="tel:…"></a>` | Phone-number link |
+| `<a href="tg://user?id=…"></a>` | Inline user mention |
 | `<a name="…"></a>` | Anchor target |
-| `<a href="#…">` | In-document link to an anchor or reference |
-| `<tg-reference name="…">` | Referenced text, linked to with `<a href="#…">` |
+| `<a href="#…"></a>` | In-document link to an anchor or reference |
+| `<tg-reference name="…"></tg-reference>` | Referenced text, linked to with `<a href="#…"></a>` |
 
 **Block elements**
 
 | Tag | Meaning |
 | --- | --- |
-| `<h1>` … `<h6>` | Headings (six sizes) |
-| `<p>` | Paragraph |
-| `<pre>` | Preformatted code block |
-| `<pre><code class="language-…">` | Code block with syntax highlighting for the named language |
-| `<blockquote>` (with `<cite>`) | Block quotation, optional credit |
-| `<aside>` (with `<cite>`) | Pull quote (centered), optional credit |
-| `<footer>` | Footer text |
+| `<h1></h1>` … `<h6></h6>` | Headings (six sizes) |
+| `<p></p>` | Paragraph |
+| `<pre></pre>` | Preformatted code block |
+| `<pre><code class="language-…"></code></pre>` | Code block with syntax highlighting for the named language |
+| `<blockquote></blockquote>` (with `<cite></cite>`) | Block quotation, optional credit |
+| `<aside></aside>` (with `<cite></cite>`) | Pull quote (centered), optional credit |
+| `<footer></footer>` | Footer text |
 | `<hr/>` | Divider |
-| `<ul><li>` | Unordered list |
-| `<ol><li>` | Ordered list — `<ol>` accepts `start`, `type` (`a`/`A`/`i`/`I`/`1`) and `reversed`; `<li>` accepts `value` and `type` |
-| `<details>` (with `<summary>`) | Collapsible block — add `open` to expand it by default |
-| `<tg-math-block>` | LaTeX formula block |
+| `<ul><li></li></ul>` | Unordered list |
+| `<ol><li></li></ol>` | Ordered list — `<ol>` accepts `start`, `type` (`a`/`A`/`i`/`I`/`1`) and `reversed`; `<li>` accepts `value` and `type` |
+| `<details></details>` (with `<summary></summary>`) | Collapsible block — add `open` to expand it by default |
+| `<tg-math-block></tg-math-block>` | LaTeX formula block |
 
 **Media** (HTTP(S) URLs only)
 
@@ -389,18 +389,18 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’
 | `<img src="…">` | Photo |
 | `<video src="…">` | Video, or animation for a `.gif` source |
 | `<audio src="…">` | Audio file or voice note |
-| `<figure>` + `<figcaption>` (with `<cite>`) | Captioned media; add the `tg-spoiler` attribute on the media element to cover it with a spoiler |
+| `<figure></figure>` + `<figcaption></figcaption>` (with `<cite></cite>`) | Captioned media; add the `tg-spoiler` attribute on the media element to cover it with a spoiler |
 | `<tg-map lat="…" long="…" zoom="…"/>` | Map block |
-| `<tg-collage>` | Media collage |
-| `<tg-slideshow>` | Media slideshow |
+| `<tg-collage></tg-collage>` | Media collage |
+| `<tg-slideshow></tg-slideshow>` | Media slideshow |
 
 **Tables**
 
 | Tag | Meaning |
 | --- | --- |
-| `<table>` | Table — accepts `bordered` and `striped` |
-| `<caption>` | Table caption |
-| `<tr>`, `<th>`, `<td>` | Rows, header cells and data cells |
+| `<table></table>` | Table — accepts `bordered` and `striped` |
+| `<caption></caption>` | Table caption |
+| `<tr></tr>`, `<th></th>`, `<td></td>` | Rows, header cells and data cells |
 | Cell attributes | `colspan`, `rowspan`, `align` (`left`/`center`/`right`), `valign` (`top`/`middle`/`bottom`) |
 
 **HTML entities**
