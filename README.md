@@ -25,8 +25,9 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
 
 2. Post in different ways: with hotkeys, command palette and context menus, as well as through advanced publishing settings menu.
 
-3. Advanced publishing settings:
+3. Advanced publishing settings allow to:
 
+    * Make a one-time post without a saved preset.
     * Post with preset, using alternative publication method.
   	* Post without sound.
   	* Post with attached media under the text.
@@ -438,6 +439,8 @@ A couple of notes:
 ## 6. Advanced publishing settings
 
 You can open an advanced publishing settings window with command palette (`Ctrl + P`) by typing "Publish to Telegram: Publish with advanced settings". In that settings window you can choose to:
+
+* Make a one-time post without a saved preset.
 
 * Post with notification without sound.
 

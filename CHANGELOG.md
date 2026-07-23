@@ -1,11 +1,15 @@
 # Changelog
 
-## 5.2.1
+## 5.3.0
+
+### New features
+
+* **Publish without a preset.** To the advanced publishing settings a "Post without a preset" section was added. It allows to pick target chats, an author and a publishing method to send a one-off post without saving a preset.
 
 ### UI/UX enhancements and bug fixes
 
 * Fixed a bug where posts published to personal chats could not be edited because the link failed to resolve.
-* Fixed a bug where accounts authorized in older versions failed with an "Invalid session string" error and couldn't publish. Such accounts now simply need to be logged into again.
+* Fixed a bug where accounts authorized in older versions failed with an "Invalid session string" error and couldn't publish.
 
 
 ## 5.2.0

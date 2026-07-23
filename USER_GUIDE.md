@@ -364,6 +364,8 @@ A couple of notes:
 
 You can open an advanced publishing settings window with command palette (`Ctrl + P`) by typing "Publish to Telegram: Publish with advanced settings". In that settings window you can choose to:
 
+* Make a one-time post without a saved preset.
+
 * Post without sound.
 
 * Post with attached media under the text.
