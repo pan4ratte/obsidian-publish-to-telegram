@@ -43,7 +43,9 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
 
 8. Publish multiple posts in a row from a single note using a special command that splits the note's text into separate posts.
 
-9. Detailed user guide in the plugin settings with detailed description of all features and supported formatting options.
+9. Insert `\split` markers and rich-text formatting elements straight from the note's editor context menu.
+
+10. Detailed user guide in the plugin settings with detailed description of all features and supported formatting options.
 
 
 ## Installation
@@ -77,7 +79,7 @@ To post notes to Telegram, you need to set up a preset. When creating a preset, 
 
 **Important aspects of this publishing method:**
 
-* Posting as an account lets you use Telegram Premium features. Since July 2026 it can also post rich-text messages — choose the “Account + rich text” method — but that specifically **requires Telegram Premium** on the account (Telegram’s restriction). The plain “Account” method needs no Premium.
+* Posting as an account lets you use Telegram Premium features. Since July 2026 it can also post rich-text messages — choose the “Account + rich text” method — but that specifically *requires Telegram Premium* on the account (Telegram’s restriction). The plain “Account” method needs no Premium.
 
 * The plugin supports logging into multiple accounts.
 
@@ -217,6 +219,8 @@ You can also use the special command `<!-- \split -->` or `%% \split %%` to spli
 * After a split note is published, if link saving to the note's properties is enabled in the settings, the link to each post is written inside its `\split` command — for example `%% \split t.me/channel/123 %%`. If the last post has no command, one is added automatically.
 
 * When you republish the same note, the new links are written too — for example `%% \split t.me/channel/1 | t.me/channel/2 %%`. When editing posts, the plugin relies on these links.
+
+* You can insert the `%% \split %%` command into the text with the **Insert post split marker** command in the note's editor context menu.
 
 ### 3.3 Attachments
 
@@ -406,8 +410,12 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’
 
 **Note:**
 
-* In a **“Bot + rich text”** post, inline media must be an **HTTP(S) web link** — the Bot API can’t upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic “Bot” method, or use a web URL).
-* An **“Account + rich text”** post can embed **local** media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. This works in pre-written comments as well. Only local **documents** (e.g. `.pdf`, or `.md` embeds attached as files) can’t be embedded in a rich message.
+* In a **”Bot + rich text”** post, inline media must be an *HTTP(S) web link* — the Bot API can’t upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic “Bot” method, or use a web URL).
+* An **”Account + rich text”** post can embed *local* media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. Only local *documents* (e.g. `.pdf`, or `.md` embeds attached as files) can’t be embedded in a rich message.
+
+### 4.3 Inserting elements from the context menu
+
+You don't have to add this formatting by hand. Right-click in the note editor to open the "Rich-text formatting" submenu and choose an element to insert it into the text or to wrap the selected text.
 
 ## 5. Pre-written comments
 
@@ -441,7 +449,7 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
     * The post is always edited **in its original style** — a rich-text post stays rich and a classic post stays classic, regardless of which preset you edit it with (auto-detected for the “Account” methods). A post published in a forum topic can be edited too; when you pick its link, the topic’s name is shown next to the group/channel name.
 
-    * Editing a **rich-text** post can add **local** media as well — photos, videos, GIFs and audio are uploaded and appear inline, exactly as when publishing, even if the post was originally text-only. Local **documents** still can’t be embedded in a rich message (see the rich-text formatting section above).
+    * Editing a **rich-text** post can add *local* media as well — photos, videos, GIFs and audio are uploaded and appear inline, exactly as when publishing, even if the post was originally text-only. Local *documents* still can’t be embedded in a rich message (see the rich-text formatting section above).
 
 ## 7. Limits
 

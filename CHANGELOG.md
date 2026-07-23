@@ -1,5 +1,17 @@
 # Changelog
 
+## 5.2.0
+
+### New features
+
+* **Formatting tools in the note editor's context menu.** A new section has been added to the note's right-click menu, below the standard formatting options, with the "Insert post split marker" command and a "Rich-text formatting" submenu.
+
+### UI/UX enhancements and bug fixes
+
+* Fixed a bug where links to posts and comments in chats the primary account can't access failed to load for editing when several accounts are authorized.
+* Improved security and stability.
+
+
 ## 5.1.0
 
 ### New features

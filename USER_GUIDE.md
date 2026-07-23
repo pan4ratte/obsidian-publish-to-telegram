@@ -4,7 +4,7 @@ You can open these instructions from the command palette by typing "Publish to T
 
 **Important aspects of this posting method:**
 
-* Posting as an account lets you use Telegram Premium features. Since July 2026 it can also post rich-text messages — choose the “Account + rich text” method — but that specifically **requires Telegram Premium** on the account (Telegram’s restriction). The plain “Account” method needs no Premium.
+* Posting as an account lets you use Telegram Premium features. Since July 2026 it can also post rich-text messages — choose the “Account + rich text” method — but that specifically *requires Telegram Premium* on the account (Telegram’s restriction). The plain “Account” method needs no Premium.
 
 * The plugin supports logging into multiple accounts.
 
@@ -144,6 +144,8 @@ You can also use the special command `<!-- \split -->` or `%% \split %%` to spli
 * After a split note is published, if link saving to the note's properties is enabled in the settings, the link to each post is written inside its `\split` command — for example `%% \split t.me/channel/123 %%`. If the last post has no command, one is added automatically.
 
 * When you republish the same note, the new links are written too — for example `%% \split t.me/channel/1 | t.me/channel/2 %%`. When editing posts, the plugin relies on these links.
+
+* You can insert the `%% \split %%` command into the text with the **Insert post split marker** command in the note's editor context menu.
 
 ### 3.3 Attachments
 
@@ -333,8 +335,12 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram's 
 
 **Note:**
 
-* In a **"Bot + rich text"** post, inline media must be an **HTTP(S) web link** — the Bot API can't upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic "Bot" method, or use a web URL).
-* An **"Account + rich text"** post can embed **local** media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. This works in pre-written comments as well. Only local **documents** (e.g. `.pdf`, or `.md` embeds attached as files) can't be embedded in a rich message.
+* In a **"Bot + rich text"** post, inline media must be an *HTTP(S) web link* — the Bot API can't upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic "Bot" method, or use a web URL).
+* An **"Account + rich text"** post can embed *local* media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. Only local *documents* (e.g. `.pdf`, or `.md` embeds attached as files) can't be embedded in a rich message.
+
+### 4.3 Inserting elements from the context menu
+
+You don't have to add this formatting by hand. Right-click in the note editor to open the "Rich-text formatting" submenu and choose an element to insert it into the text or to wrap the selected text.
 
 ## 5. Pre-written comments
 
