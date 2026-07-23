@@ -151,6 +151,8 @@ export default {
     MENU_FMT_REFERENCE_LINK: "Link to a reference",
     MENU_FMT_REFERENCE_TEXT: "Reference text",
     MENU_FMT_FOOTER: "Footer",
+    MENU_FMT_SUPERSCRIPT: "Superscript",
+    MENU_FMT_SUBSCRIPT: "Subscript",
     MENU_FMT_MATH: "LaTeX formula",
     MENU_FMT_CAPTIONED_MEDIA: "Captioned media",
     MENU_FMT_MAP: "Map",

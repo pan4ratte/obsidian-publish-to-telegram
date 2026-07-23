@@ -24,6 +24,8 @@ const richFormattingOptions = (): FormattingOption[] => [
     { title: t.MENU_FMT_REFERENCE_LINK, icon: "link", before: '<a href="#reference-name">', inner: "Text", after: "</a>" },
     { title: t.MENU_FMT_REFERENCE_TEXT, icon: "bookmark", before: '<tg-reference name="reference-name">', inner: "Text", after: "</tg-reference>" },
     { title: t.MENU_FMT_FOOTER, icon: "separator-horizontal", before: "<footer>", inner: "Footer text", after: "</footer>" },
+    { title: t.MENU_FMT_SUPERSCRIPT, icon: "arrow-up", before: "<sup>", inner: "Text", after: "</sup>" },
+    { title: t.MENU_FMT_SUBSCRIPT, icon: "arrow-down", before: "<sub>", inner: "Text", after: "</sub>" },
     { title: t.MENU_FMT_MATH, icon: "sigma", before: "<tg-math-block>", inner: "E = mc^2", after: "</tg-math-block>" },
     { title: t.MENU_FMT_CAPTIONED_MEDIA, icon: "image", before: '<figure>\n<img src="https://example.com/photo.jpg">\n<figcaption>', inner: "Caption", after: "</figcaption>\n</figure>\n" },
     { title: t.MENU_FMT_MAP, icon: "navigation", before: '<tg-map lat="', inner: "0.0", after: '" long="0.0" zoom="15"/>' },

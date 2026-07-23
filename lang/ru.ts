@@ -151,6 +151,8 @@ export default {
     MENU_FMT_REFERENCE_LINK: "Ссылка на сноску",
     MENU_FMT_REFERENCE_TEXT: "Текст сноски",
     MENU_FMT_FOOTER: "Нижний колонтитул",
+    MENU_FMT_SUPERSCRIPT: "Верхний индекс",
+    MENU_FMT_SUBSCRIPT: "Нижний индекс",
     MENU_FMT_MATH: "Формула LaTeX",
     MENU_FMT_CAPTIONED_MEDIA: "Медиа с подписью",
     MENU_FMT_MAP: "Карта",
