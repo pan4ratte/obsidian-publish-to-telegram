@@ -141,6 +141,22 @@ export default {
     MULTI_PRESET_NO_SELECTION: "Выберите пресет",
     MULTI_PRESET_UPDATE_NO_MATCH_NOTICE: "Не удалось определить источник ссылки!",
 
+    // ─── Editor context menu ──────────────────────────────────────────────────────
+    MENU_INSERT_SPLIT: "Вставить команду разделения постов",
+    MENU_RICH_FORMATTING: "Rich-text форматирование",
+    MENU_FMT_ACCORDION: "Аккордеон",
+    MENU_FMT_CENTERED_QUOTE: "Цитата по центру",
+    MENU_FMT_CENTERED_QUOTE_AUTHOR: "Цитата по центру с автором",
+    MENU_FMT_EMAIL_LINK: "Ссылка на почту",
+    MENU_FMT_REFERENCE_LINK: "Ссылка на сноску",
+    MENU_FMT_REFERENCE_TEXT: "Текст сноски",
+    MENU_FMT_FOOTER: "Нижний колонтитул",
+    MENU_FMT_MATH: "Формула LaTeX",
+    MENU_FMT_CAPTIONED_MEDIA: "Медиа с подписью",
+    MENU_FMT_MAP: "Карта",
+    MENU_FMT_COLLAGE: "Коллаж",
+    MENU_FMT_SLIDESHOW: "Слайдшоу",
+
     // ─── Other ───────────────────────────────────────────────────────────────────
     MENU_TITLE: "Опубликовать в Telegram",
     CONFIRM_DELETE_TITLE: "Удалить пресет?",

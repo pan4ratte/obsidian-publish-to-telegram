@@ -141,6 +141,22 @@ export default {
     MULTI_PRESET_NO_SELECTION: "Choose a preset",
     MULTI_PRESET_UPDATE_NO_MATCH_NOTICE: "Could not resolve the link source!",
 
+    // ─── Editor context menu ──────────────────────────────────────────────────────
+    MENU_INSERT_SPLIT: "Insert post split marker",
+    MENU_RICH_FORMATTING: "Rich-text formatting",
+    MENU_FMT_ACCORDION: "Accordion",
+    MENU_FMT_CENTERED_QUOTE: "Centered quote",
+    MENU_FMT_CENTERED_QUOTE_AUTHOR: "Centered quote with author",
+    MENU_FMT_EMAIL_LINK: "Email link",
+    MENU_FMT_REFERENCE_LINK: "Link to a reference",
+    MENU_FMT_REFERENCE_TEXT: "Reference text",
+    MENU_FMT_FOOTER: "Footer",
+    MENU_FMT_MATH: "LaTeX formula",
+    MENU_FMT_CAPTIONED_MEDIA: "Captioned media",
+    MENU_FMT_MAP: "Map",
+    MENU_FMT_COLLAGE: "Collage",
+    MENU_FMT_SLIDESHOW: "Slideshow",
+
     // ─── Other ───────────────────────────────────────────────────────────────────
     MENU_TITLE: "Publish to Telegram",
     CONFIRM_DELETE_TITLE: "Delete preset?",

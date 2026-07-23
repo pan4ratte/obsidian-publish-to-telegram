@@ -1,4 +1,4 @@
-import { Plugin, Notice, TFile, TFolder, Menu } from "obsidian";
+import { Plugin, Notice, TFile, TFolder, Menu, Editor } from "obsidian";
 import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents } from "./src/telegram";
@@ -6,6 +6,30 @@ import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot
 import { writeLinksIntoMarkers } from "./src/split";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 import { errMessage } from "./src/util";
+
+// Rich-text formatting snippets offered in the editor context menu. Each entry wraps the
+// current selection (or, with nothing selected, a placeholder that gets selected after
+// insertion) as `before` + selection + `after`. These mirror the rich-text tags documented
+// in the README's "Rich-text formatting" section.
+// Dedicated section id grouping the plugin's editor-menu items together, separated by a divider.
+const MENU_SECTION = "publish-to-telegram";
+
+interface FormattingOption { title: string; icon: string; before: string; inner: string; after: string; }
+
+const richFormattingOptions = (): FormattingOption[] => [
+    { title: t.MENU_FMT_ACCORDION, icon: "chevrons-down-up", before: "<details>\n<summary>Title</summary>\n\n", inner: "Content", after: "\n</details>\n" },
+    { title: t.MENU_FMT_CENTERED_QUOTE, icon: "quote", before: "<aside>", inner: "Quote", after: "</aside>" },
+    { title: t.MENU_FMT_CENTERED_QUOTE_AUTHOR, icon: "users", before: "<aside>", inner: "Quote", after: "<cite>Author</cite></aside>" },
+    { title: t.MENU_FMT_EMAIL_LINK, icon: "send", before: '<a href="mailto:email@example.com">', inner: "Text", after: "</a>" },
+    { title: t.MENU_FMT_REFERENCE_LINK, icon: "link", before: '<a href="#reference-name">', inner: "Text", after: "</a>" },
+    { title: t.MENU_FMT_REFERENCE_TEXT, icon: "bookmark", before: '<tg-reference name="reference-name">', inner: "Text", after: "</tg-reference>" },
+    { title: t.MENU_FMT_FOOTER, icon: "separator-horizontal", before: "<footer>", inner: "Footer text", after: "</footer>" },
+    { title: t.MENU_FMT_MATH, icon: "sigma", before: "<tg-math-block>", inner: "E = mc^2", after: "</tg-math-block>" },
+    { title: t.MENU_FMT_CAPTIONED_MEDIA, icon: "image", before: '<figure>\n<img src="https://example.com/photo.jpg">\n<figcaption>', inner: "Caption", after: "</figcaption>\n</figure>\n" },
+    { title: t.MENU_FMT_MAP, icon: "navigation", before: '<tg-map lat="', inner: "0.0", after: '" long="0.0" zoom="15"/>' },
+    { title: t.MENU_FMT_COLLAGE, icon: "layout-grid", before: '<tg-collage>\n<img src="', inner: "https://example.com/1.jpg", after: '">\n<img src="https://example.com/2.jpg">\n</tg-collage>\n' },
+    { title: t.MENU_FMT_SLIDESHOW, icon: "gallery-vertical", before: '<tg-slideshow>\n<img src="', inner: "https://example.com/1.jpg", after: '">\n<img src="https://example.com/2.jpg">\n</tg-slideshow>\n' },
+];
 
 export default class SendToTelegramPlugin extends Plugin {
     settings: TelegramSettings;
@@ -57,6 +81,82 @@ export default class SendToTelegramPlugin extends Plugin {
                 menu.addSeparator();
             })
         );
+
+        this.registerEditorMenu();
+    }
+
+    // Adds the in-note context-menu group: a "Insert post split marker" command and a
+    // "Rich-text formatting" submenu that inserts the rich-text tags documented in the README.
+    // Both items live in their own section rendered directly below Obsidian's formatting section.
+    private registerEditorMenu() {
+        this.registerEvent(
+            this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
+                this.placeSectionBelowFormatting(menu, MENU_SECTION);
+
+                menu.addItem((item) => {
+                    item.setTitle(t.MENU_INSERT_SPLIT).setIcon("scissors").setSection(MENU_SECTION);
+                    item.onClick(() => this.insertSplitMarker(editor));
+                });
+
+                menu.addItem((item) => {
+                    item.setTitle(t.MENU_RICH_FORMATTING).setIcon("type").setSection(MENU_SECTION);
+                    // setSubmenu() exists at runtime (Obsidian ≥ 1.4) but isn't in the public typings.
+                    const submenu = (item as unknown as { setSubmenu(): Menu }).setSubmenu();
+                    for (const opt of richFormattingOptions()) {
+                        submenu.addItem((sub) => {
+                            sub.setTitle(opt.title).setIcon(opt.icon);
+                            sub.onClick(() => this.insertFormatting(editor, opt.before, opt.inner, opt.after));
+                        });
+                    }
+                });
+            })
+        );
+    }
+
+    // Slots our section into the menu's ordered section list directly below Obsidian's formatting
+    // group. In the editor menu, formatting spans the "selection-link" / "selection" / "insert"
+    // sections, immediately followed by "clipboard" (cut/copy/paste) — so inserting right before
+    // "clipboard" lands our group directly beneath the whole formatting group (with a divider).
+    // `menu.sections` is the runtime order array driving section layout; it isn't in the public
+    // typings, so guard defensively and fall back sensibly when the expected sections are absent.
+    private placeSectionBelowFormatting(menu: Menu, section: string): void {
+        const sections = (menu as unknown as { sections?: string[] }).sections;
+        if (!Array.isArray(sections) || sections.includes(section)) return;
+        const clipboard = sections.indexOf("clipboard");
+        if (clipboard >= 0) { sections.splice(clipboard, 0, section); return; }
+        // No clipboard section (e.g. nothing selected): fall in just after the last formatting section.
+        const formatting = ["insert", "selection", "selection-link"].map(s => sections.indexOf(s)).filter(i => i >= 0);
+        if (formatting.length > 0) sections.splice(Math.max(...formatting) + 1, 0, section);
+        else sections.push(section);
+    }
+
+    // Inserts `%% \split %%` on its own line at the cursor, adding blank lines as needed so the
+    // marker never shares a line with other text (the split parser only matches whole-line markers).
+    private insertSplitMarker(editor: Editor): void {
+        const cursor = editor.getCursor();
+        const line = editor.getLine(cursor.line);
+        const before = line.slice(0, cursor.ch).trim().length > 0 ? "\n\n" : "";
+        const after = line.slice(cursor.ch).trim().length > 0 ? "\n\n" : "\n";
+        editor.replaceSelection(`${before}%% \\split %%${after}`);
+        editor.focus();
+    }
+
+    // Wraps the current selection as before + selection + after. With nothing selected, inserts
+    // the placeholder instead and selects it so the user can type over it immediately.
+    private insertFormatting(editor: Editor, before: string, placeholder: string, after: string): void {
+        const selection = editor.getSelection();
+        const inner = selection || placeholder;
+        const fromOffset = editor.posToOffset(editor.getCursor("from"));
+        editor.replaceSelection(before + inner + after);
+        if (selection) {
+            editor.setSelection(editor.offsetToPos(fromOffset + before.length + inner.length + after.length));
+        } else {
+            editor.setSelection(
+                editor.offsetToPos(fromOffset + before.length),
+                editor.offsetToPos(fromOffset + before.length + inner.length),
+            );
+        }
+        editor.focus();
     }
 
     private registerStaticCommands() {
