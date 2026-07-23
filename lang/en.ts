@@ -77,6 +77,9 @@ export default {
 
     // ─── Advanced settings ────────────────────────────────────────────────────────
     MULTI_PRESET_TITLE: "Advanced publishing settings",
+    MULTI_PRESET_ADHOC_HEADING: "Post without a preset",
+    MULTI_PRESET_ADHOC_AUTHOR_PLACEHOLDER: "Select post author…",
+    MULTI_PRESET_ADHOC_METHOD_PLACEHOLDER: "Select post method…",
     MULTI_PRESET_CHANNEL_SELECTION: "Choose a preset",
     MULTI_PRESET_METHOD_DEFAULT: "Default ({method})",
     MULTI_PRESET_ADVANCED_FORMATTING: "Advanced post settings",

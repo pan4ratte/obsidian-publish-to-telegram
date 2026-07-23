@@ -4,7 +4,7 @@ import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
-import { TelegramChannel, TelegramSecrets, BotToken, PostMethod } from "./types";
+import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget } from "./types";
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
 import { getBotInfo } from "./telegram-bot";
 import { errMessage, retry, withTimeout } from "./util";
@@ -254,6 +254,23 @@ export class MultiPresetModal extends Modal {
     private scheduleOptionEl: HTMLElement | null = null;
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
 
+    // ── Ad-hoc (preset-less) publishing ──────────────────────────────────────────
+    // Lets the user publish once by picking targets + an author + a method directly in
+    // this modal, without a saved preset. Mirrors the preset chat-target picker.
+    private adhocTargets: ChatTarget[] = [];
+    private adhocAuthor: { type: "account" | "bot"; id: string } | null = null;
+    private adhocMethod: PostMethod | null = null;
+    private adhocMethodDropdown: DropdownComponent | null = null;
+    private adhocPickerFieldEl: HTMLElement | null = null;
+    private adhocActiveSuggest: ChatSuggest | null = null;
+    // Obsidian autofocuses the first focusable element when the modal opens. We don't want the
+    // ad-hoc search field grabbing focus (and eagerly loading chats / opening suggestions), so
+    // the first focus that arrives while this flag is set is swallowed. Cleared on the next tick
+    // so any genuine, user-initiated focus afterwards behaves normally.
+    private adhocSuppressAutofocus = false;
+    // One dialog fetch per account for the modal's lifetime (chat-picker suggestions).
+    private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
+
     constructor(app: App, plugin: SendToTelegramPlugin, file: TFile, initialChannelId?: string) {
         super(app);
         this.plugin = plugin;
@@ -272,14 +289,22 @@ export class MultiPresetModal extends Modal {
         this.publishBtn?.setButtonText(this.anyLinkSelected() ? t.MULTI_PRESET_EDIT_BTN : t.MULTI_PRESET_POST_BTN);
     }
 
+    // The methods that would actually be used on publish: one per selected preset plus the
+    // ad-hoc method (when chosen). Drives which advanced options apply.
+    private activeMethods(): PostMethod[] {
+        const methods = this.channelRows.filter(r => this.selectedChannels.has(r.id)).map(r => r.method);
+        if (this.adhocMethod) methods.push(this.adhocMethod);
+        return methods;
+    }
+
     private updateScheduleState() {
         if (!this.scheduleOptionEl || !this.scheduleInput) return;
         // Scheduling isn't supported by the Bot API, and editing an existing post/comment
         // can't be scheduled either. Keep the field visible but disable it — both visually
         // (greyed, non-interactive) and physically (input disabled + value cleared) — when the
-        // selected preset posts via a bot method, or when a link is selected for editing.
-        const selectedRows = this.channelRows.filter(r => this.selectedChannels.has(r.id));
-        const allBot = selectedRows.length > 0 && selectedRows.every(r => !isAccountMethod(r.method));
+        // selected preset/ad-hoc author posts via a bot method, or when a link is selected for editing.
+        const methods = this.activeMethods();
+        const allBot = methods.length > 0 && methods.every(m => !isAccountMethod(m));
         const disabled = allBot || this.anyLinkSelected();
         this.scheduleInput.disabled = disabled;
         if (disabled) this.scheduleInput.value = "";
@@ -302,7 +327,7 @@ export class MultiPresetModal extends Modal {
     // the option is meaningless there — disable it when a selected preset is a rich method.
     private updateAttachState() {
         if (!this.attachOptionEl) return;
-        const anyRich = this.channelRows.some(r => this.selectedChannels.has(r.id) && isRichMethod(r.method));
+        const anyRich = this.activeMethods().some(isRichMethod);
         this.attachToggle.setDisabled(anyRich);
         if (anyRich) this.attachToggle.setValue(false);
         this.attachOptionEl.toggleClass("is-disabled", anyRich);
@@ -451,16 +476,240 @@ export class MultiPresetModal extends Modal {
         }
     }
 
+    // Builds the "Post without a preset" section: a chat-target picker plus author/method
+    // dropdowns, letting the user publish once without a saved preset.
+    private renderAdhocSection(container: HTMLElement): void {
+        container.createDiv({ text: t.MULTI_PRESET_ADHOC_HEADING, cls: "telegram-modal-heading" });
+        // Bordered box matching the other sections in this modal.
+        const boxEl = container.createDiv("telegram-adhoc-box");
+
+        // Chat-target picker (chips + always-visible search / manual-entry input).
+        const pickerEl = boxEl.createDiv("telegram-chat-picker");
+        const fieldEl = pickerEl.createDiv("telegram-chat-picker-field");
+        this.adhocPickerFieldEl = fieldEl;
+        fieldEl.addEventListener("click", (e: MouseEvent) => {
+            if (!(e.target as HTMLElement).closest(".telegram-chat-chip-remove")) {
+                fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+            }
+        });
+        this.renderAdhocPickerField();
+
+        // Author + method dropdowns, side by side.
+        const selectorsEl = boxEl.createDiv("telegram-adhoc-selectors");
+
+        const authorDropdown = new DropdownComponent(selectorsEl.createDiv("telegram-adhoc-select"));
+        authorDropdown.addOption("", t.MULTI_PRESET_ADHOC_AUTHOR_PLACEHOLDER);
+        for (const account of this.plugin.settings.accounts) {
+            authorDropdown.addOption(`account:${account.id}`, account.displayName || t.METHOD_ACCOUNT);
+        }
+        for (const bot of this.plugin.settings.botTokens) {
+            authorDropdown.addOption(`bot:${bot.id}`, bot.name);
+        }
+        authorDropdown.setValue("");
+
+        const methodDropdown = new DropdownComponent(selectorsEl.createDiv("telegram-adhoc-select"));
+        this.adhocMethodDropdown = methodDropdown;
+        this.resetAdhocMethodDropdown();
+
+        authorDropdown.onChange(value => {
+            this.adhocAuthor = value ? this.parseAdhocAuthor(value) : null;
+            this.adhocMethod = null;
+            // The method options depend on the author kind; suggestions come from the account
+            // (bots can't list dialogs), so rebuild both the method dropdown and the picker.
+            this.resetAdhocMethodDropdown();
+            this.renderAdhocPickerField();
+            this.updateScheduleState();
+            this.updateAttachState();
+        });
+
+        methodDropdown.onChange(value => {
+            this.adhocMethod = value ? (value as PostMethod) : null;
+            this.updateScheduleState();
+            this.updateAttachState();
+        });
+    }
+
+    private parseAdhocAuthor(value: string): { type: "account" | "bot"; id: string } {
+        const sep = value.indexOf(":");
+        const type = value.slice(0, sep);
+        return { type: type === "bot" ? "bot" : "account", id: value.slice(sep + 1) };
+    }
+
+    // Repopulates the method dropdown for the current author: an account offers the account
+    // methods, a bot the bot methods. Stays disabled (and reset) until an author is chosen.
+    private resetAdhocMethodDropdown(): void {
+        const dropdown = this.adhocMethodDropdown;
+        if (!dropdown) return;
+        dropdown.selectEl.empty();
+        dropdown.addOption("", t.MULTI_PRESET_ADHOC_METHOD_PLACEHOLDER);
+        if (this.adhocAuthor) {
+            const family: PostMethod[] = this.adhocAuthor.type === "bot"
+                ? ["bot", "bot-rich"] : ["account", "account-rich"];
+            for (const [value, label] of methodOptions()) {
+                if (family.includes(value)) dropdown.addOption(value, label);
+            }
+        }
+        dropdown.setValue("");
+        dropdown.setDisabled(!this.adhocAuthor);
+    }
+
+    // Rebuilds the ad-hoc chat-target field (chips + input). Called on every target change and
+    // when the author switches (its account, if any, is the source of chat suggestions).
+    private renderAdhocPickerField(): void {
+        const fieldEl = this.adhocPickerFieldEl;
+        if (!fieldEl) return;
+        this.adhocActiveSuggest?.close();
+        this.adhocActiveSuggest = null;
+        fieldEl.empty();
+
+        for (const target of this.adhocTargets) {
+            const chip = fieldEl.createSpan({ cls: "telegram-chat-chip" });
+            chip.createSpan({ text: target.title || target.id, cls: "telegram-chat-chip-text" });
+            const removeBtn = chip.createEl("button", { cls: "telegram-chat-chip-remove" });
+            setIcon(removeBtn, "x");
+            removeBtn.addEventListener("mouseenter", () => chip.classList.add("remove-hover"));
+            removeBtn.addEventListener("mouseleave", () => chip.classList.remove("remove-hover"));
+            removeBtn.addEventListener("click", (e: MouseEvent) => {
+                e.stopPropagation();
+                this.adhocTargets = this.adhocTargets.filter(x => !(x.id === target.id && x.topicId === target.topicId));
+                this.renderAdhocPickerField();
+            });
+        }
+
+        const input = fieldEl.createEl("input", { cls: "telegram-chat-search" });
+        input.type = "text";
+        const hasChips = this.adhocTargets.length > 0;
+        fieldEl.classList.toggle("has-chips", hasChips);
+
+        // Suggestions load from the chosen account. When no account author is picked, fall back
+        // to the sole authorized account (if there's exactly one) purely to load chats — this
+        // does NOT select it as the post author. With several accounts and no author chosen,
+        // there's no unambiguous source, so only manual @username/ID entry is offered.
+        const soleAccountId = this.plugin.settings.accounts.length === 1
+            ? this.plugin.settings.accounts[0].id : undefined;
+        const suggestAccountId = this.adhocAuthor?.type === "account" ? this.adhocAuthor.id : soleAccountId;
+        // Peek the cache without starting a fetch — chats load lazily on focus, not on render.
+        const cached = suggestAccountId ? this.dialogsByAccount.get(suggestAccountId) : undefined;
+        input.placeholder = hasChips ? "" : (
+            suggestAccountId
+                ? (cached?.loading ? t.SETTING_CHAT_PICKER_LOADING : t.SETTING_PLACEHOLDER_CHAT_SEARCH)
+                : t.SETTING_PLACEHOLDER_CHAT
+        );
+
+        let suggest: ChatSuggest | null = null;
+        if (suggestAccountId) {
+            const accountId = suggestAccountId;
+            suggest = new ChatSuggest(
+                this.app, input,
+                () => this.dialogsFor(accountId).fetch,
+                () => this.adhocTargets,
+            );
+            this.adhocActiveSuggest = suggest;
+            suggest.onPick = async (dialog: DialogData) => {
+                const isDupe = this.adhocTargets.some(x => x.id === dialog.id && x.topicId === dialog.topicId);
+                if (!isDupe) this.adhocTargets.push({ id: dialog.id, title: dialog.title, topicId: dialog.topicId });
+                this.renderAdhocPickerField();
+            };
+        }
+
+        input.addEventListener("focus", () => {
+            // Swallow the modal's open-time autofocus: no load, no suggestion popover.
+            if (this.adhocSuppressAutofocus) {
+                this.adhocSuppressAutofocus = false;
+                input.blur();
+                return;
+            }
+            if (!suggestAccountId || !suggest) return; // manual-entry only — nothing to load/open
+            // Kick off the (cached, once-per-account) dialog fetch only now that the field is
+            // focused; show the loading placeholder until it resolves, then open the picker.
+            const activeSuggest = suggest;
+            const entry = this.dialogsFor(suggestAccountId);
+            if (entry.loading) {
+                if (!hasChips) input.placeholder = t.SETTING_CHAT_PICKER_LOADING;
+                void entry.fetch.then(() => {
+                    if (activeDocument.activeElement === input) activeSuggest.open();
+                });
+            } else {
+                activeSuggest.open();
+            }
+        });
+
+        // Manual entry: Enter adds an @username/ID chip. Registered after the suggest's own
+        // keydown so it fires second (if the suggest picked an item, input.value is empty).
+        input.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key !== "Enter") return;
+            const id = input.value.trim();
+            if (!id) return;
+            e.preventDefault();
+            if (!this.adhocTargets.some(x => x.id === id)) this.adhocTargets.push({ id });
+            this.renderAdhocPickerField();
+            this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+        });
+    }
+
+    // Returns (creating + caching on first use) the dialog-fetch state for an account, so the
+    // ad-hoc chat picker can suggest chats. One fetch per account for the modal's lifetime.
+    private dialogsFor(accountId: string): { fetch: Promise<DialogData[]>; loading: boolean } {
+        const cached = this.dialogsByAccount.get(accountId);
+        if (cached) return cached;
+        const secrets = this.plugin.getAccountSecrets(accountId);
+        const entry: { fetch: Promise<DialogData[]>; loading: boolean } = { fetch: Promise.resolve([]), loading: true };
+        entry.fetch = (async () => {
+            const client = await createClient(
+                secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash
+            ).catch(() => null);
+            const dialogs = client ? await getUserDialogs(client) : [];
+            await client?.destroy().catch(() => {});
+            entry.loading = false;
+            this.contentEl.querySelectorAll<HTMLInputElement>('.telegram-chat-search').forEach(input => {
+                if (input.placeholder === t.SETTING_CHAT_PICKER_LOADING) {
+                    input.placeholder = t.SETTING_PLACEHOLDER_CHAT_SEARCH;
+                }
+            });
+            return dialogs;
+        })();
+        this.dialogsByAccount.set(accountId, entry);
+        return entry;
+    }
+
+    // Assembles a throwaway TelegramChannel from the ad-hoc selections, or null if incomplete.
+    private buildAdhocChannel(): TelegramChannel | null {
+        if (!this.adhocAuthor || !this.adhocMethod || this.adhocTargets.length === 0) return null;
+        const isBot = this.adhocAuthor.type === "bot";
+        const targets = this.adhocTargets.map(target => ({ ...target }));
+        return {
+            id: `adhoc-${Date.now()}`,
+            name: "",
+            defaultMethod: this.adhocMethod,
+            chatTargets: targets,
+            chatId: targets[0]?.id ?? "",
+            chatTitle: targets[0]?.title,
+            topicId: targets[0]?.topicId,
+            isDefault: false,
+            accountId: isBot ? undefined : this.adhocAuthor.id,
+            botTokenId: isBot ? this.adhocAuthor.id : undefined,
+            botToken: isBot ? (this.app.secretStorage.getSecret(`bot-token-${this.adhocAuthor.id}`) ?? "") : undefined,
+        };
+    }
+
     onOpen() {
         const { contentEl, titleEl } = this;
         titleEl.setText(t.MULTI_PRESET_TITLE);
 
-        if (this.plugin.settings.channels.length === 0) {
+        const hasPresets = this.plugin.settings.channels.length > 0;
+        const hasAuthors = this.plugin.settings.accounts.length > 0 || this.plugin.settings.botTokens.length > 0;
+
+        // Nothing to post with at all: no presets and no author to publish ad-hoc from.
+        if (!hasPresets && !hasAuthors) {
             contentEl.createEl("p", { text: t.NOTICE_ERR_CONFIG });
             return;
         }
 
-        contentEl.createDiv({
+        // ─── Post without a preset ────────────────────────────────────────────────────
+        // Pick targets + an author + a method here to publish once without a saved preset.
+        if (hasAuthors) this.renderAdhocSection(contentEl);
+
+        if (hasPresets) contentEl.createDiv({
             text: t.MULTI_PRESET_CHANNEL_SELECTION,
             cls: "telegram-modal-heading"
         });
@@ -681,7 +930,8 @@ export class MultiPresetModal extends Modal {
                 const commentDropdownValue = this.commentLinkDropdown?.getValue();
                 const isEditingComments = !!commentDropdownValue && commentDropdownValue !== "none";
 
-                if (!isUpdatingPost && !isEditingComments && this.selectedChannels.size === 0) {
+                const adhocChannel = this.buildAdhocChannel();
+                if (!isUpdatingPost && !isEditingComments && this.selectedChannels.size === 0 && !adhocChannel) {
                     new Notice(t.MULTI_PRESET_NO_SELECTION);
                     return;
                 }
@@ -746,8 +996,18 @@ export class MultiPresetModal extends Modal {
                         const method = this.channelRows.find(r => r.id === channelId)?.method;
                         if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, method);
                     }
+                    // Preset-less publish: post to the ad-hoc targets with the chosen author + method.
+                    if (adhocChannel) {
+                        await this.plugin.sendNoteToTelegram(this.file, adhocChannel, silent, attachUnderText, undefined, scheduleDate, adhocChannel.defaultMethod);
+                    }
                 }
             });
+
+        // Arm the autofocus guard: Obsidian focuses the first focusable element right after
+        // onOpen returns (the ad-hoc search field), which the focus handler swallows. Disarm on
+        // the next tick so a real user focus after that opens the picker normally.
+        this.adhocSuppressAutofocus = true;
+        window.setTimeout(() => { this.adhocSuppressAutofocus = false; }, 0);
     }
 
     onClose() {

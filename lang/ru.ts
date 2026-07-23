@@ -77,6 +77,9 @@ export default {
 
     // ─── Advanced settings ────────────────────────────────────────────────────────
     MULTI_PRESET_TITLE: "Расширенные настройки публикации",
+    MULTI_PRESET_ADHOC_HEADING: "Публикация без пресета",
+    MULTI_PRESET_ADHOC_AUTHOR_PLACEHOLDER: "Выберите автора поста…",
+    MULTI_PRESET_ADHOC_METHOD_PLACEHOLDER: "Выберите метод публикации…",
     MULTI_PRESET_CHANNEL_SELECTION: "Выберите пресет",
     MULTI_PRESET_METHOD_DEFAULT: "По умолчанию ({method})",
     MULTI_PRESET_ADVANCED_FORMATTING: "Расширенное настройки поста",

@@ -272,6 +272,36 @@ body .telegram-delete-button:hover {
     height: 14px;
 }
 
+/* Ad-hoc (preset-less) publishing: bordered box matching the modal's other sections */
+.telegram-adhoc-box {
+    padding: 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--setting-items-radius);
+    margin-bottom: 8px;
+}
+
+.telegram-adhoc-box .telegram-chat-picker {
+    margin-top: 0;
+}
+
+/* author + method dropdowns side by side, each dropping to its own full-width row when
+   there isn't enough space for its text (min-width forces a wrap instead of squeezing) */
+.telegram-adhoc-selectors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 0;
+}
+
+.telegram-adhoc-selectors .telegram-adhoc-select {
+    flex: 1 1 180px;
+    min-width: 180px;
+}
+
+.telegram-adhoc-selectors .telegram-adhoc-select select {
+    width: 100%;
+}
+
 /* ─── Authentication ───────────────────────────────────────────────────────────── */
 
 /* ── Status bar ── */
