@@ -9,6 +9,8 @@
 ### UI/UX enhancements and bug fixes
 
 * Fixed a bug where links to posts and comments in chats the primary account can't access failed to load for editing when several accounts are authorized.
+* Fixed a bug where the link to a post in an old-type (non-supergroup) group was fetched incorrectly, which prevented the post from being edited.
+* The user guide inside the plugin can now be selected and copied.
 * Improved security and stability.
 
 
