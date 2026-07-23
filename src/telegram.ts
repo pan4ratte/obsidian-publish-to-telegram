@@ -266,6 +266,10 @@ function buildPostLinkFromChatId(chatId: string, messageId: number, topicId?: nu
         if (withTopic) return `https://t.me/${chatId.slice(1)}/${topicId}/${messageId}`;
         return `https://t.me/${chatId.slice(1)}/${messageId}`;
     }
+    // Supergroups/channels are marked "-100<id>" and use Telegram's t.me/c/<id> form.
+    // Basic (legacy) groups are marked "-<id>" with no -100 prefix; stripping only "-100"
+    // keeps their leading "-" so the /c/-<id> link stays distinguishable and parseLinkComponents
+    // can rebuild the exact marked id (dropping the sign would collide with a supergroup id).
     const channelId = chatId.replace(/^-100/, "");
     if (withTopic) return `https://t.me/c/${channelId}/${topicId}/${messageId}`;
     return `https://t.me/c/${channelId}/${messageId}`;

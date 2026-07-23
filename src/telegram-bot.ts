@@ -55,6 +55,9 @@ function stripHtmlTags(input: string): string {
 
 function buildBotPostLink(chatId: string, messageId: number): string {
     if (chatId.startsWith("@")) return `https://t.me/${chatId.slice(1)}/${messageId}`;
+    // Basic (legacy) groups are marked "-<id>" (no -100 prefix); stripping only "-100" keeps
+    // their leading "-" so the /c/-<id> link round-trips through parseLinkComponents when a
+    // post is later edited. See buildPostLinkFromChatId in telegram.ts for the full rationale.
     const channelId = String(chatId).replace(/^-100/, "");
     return `https://t.me/c/${channelId}/${messageId}`;
 }

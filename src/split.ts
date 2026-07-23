@@ -15,8 +15,15 @@
 // t.me/c/<channelId>/<topicId>/<messageId> (private) or t.me/<user>/<topicId>/<messageId>
 // (public); the message id is always the last segment.
 export function parseLinkComponents(link: string): { chatId: string; messageId: number; topicId?: number } | null {
-    const privateMatch = link.match(/t\.me\/c\/(\d+)(?:\/(\d+))?\/(\d+)\/?$/);
-    if (privateMatch) return { chatId: `-100${privateMatch[1]}`, messageId: parseInt(privateMatch[3], 10), topicId: privateMatch[2] ? parseInt(privateMatch[2], 10) : undefined };
+    // The /c/ id may carry a leading "-": supergroups/channels are stored bare and rebuild
+    // to the marked "-100<id>", but basic (legacy) groups have no -100 prefix, so their link
+    // keeps the sign (t.me/c/-<id>) and rebuilds to the bare marked "-<id>". Prepending -100
+    // to a basic group would target the wrong peer and break editing.
+    const privateMatch = link.match(/t\.me\/c\/(-?\d+)(?:\/(\d+))?\/(\d+)\/?$/);
+    if (privateMatch) {
+        const chatId = privateMatch[1].startsWith("-") ? privateMatch[1] : `-100${privateMatch[1]}`;
+        return { chatId, messageId: parseInt(privateMatch[3], 10), topicId: privateMatch[2] ? parseInt(privateMatch[2], 10) : undefined };
+    }
     const publicMatch = link.match(/t\.me\/([^/]+)(?:\/(\d+))?\/(\d+)\/?$/);
     if (publicMatch) return { chatId: `@${publicMatch[1]}`, messageId: parseInt(publicMatch[3], 10), topicId: publicMatch[2] ? parseInt(publicMatch[2], 10) : undefined };
     return null;

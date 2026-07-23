@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
-    "test": "esbuild tests/*.test.ts --bundle --platform=node --format=cjs --outdir=tests/.tmp --out-extension:.js=.cjs && node --test tests/.tmp/convert.test.cjs tests/.tmp/util.test.cjs",
+    "test": "esbuild tests/*.test.ts --bundle --platform=node --format=cjs --outdir=tests/.tmp --out-extension:.js=.cjs && node --test tests/.tmp/convert.test.cjs tests/.tmp/util.test.cjs tests/.tmp/split.test.cjs",
     "lint": "eslint ."
   },
   "keywords": [],
