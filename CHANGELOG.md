@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.2.1
+
+### UI/UX enhancements and bug fixes
+
+* Fixed a bug where accounts authorized in older versions failed with an "Invalid session string" error and couldn't publish. Such accounts now simply need to be logged into again.
+
+
 ## 5.2.0
 
 ### New features

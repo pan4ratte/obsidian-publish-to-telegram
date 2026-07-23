@@ -1,7 +1,7 @@
 import { Plugin, Notice, TFile, TFolder, Menu, Editor } from "obsidian";
 import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
-import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents } from "./src/telegram";
+import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
@@ -605,6 +605,16 @@ export default class SendToTelegramPlugin extends Plugin {
                     if (ch.defaultMethod === "account" && !ch.accountId) ch.accountId = id;
                 }
                 await this.saveData(this.settings);
+            }
+        }
+        // Sessions authorized before the mtcute migration (v4.1.0) are in a format mtcute
+        // refuses to import ("Invalid session string"). The legacy migration above (and older
+        // installs) may have carried such a session into an account slot; clear it so the
+        // account shows the "Log in" state instead of throwing an uncaught error on publish.
+        for (const acc of this.settings.accounts) {
+            const s = this.app.secretStorage.getSecret(`account-session-${acc.id}`);
+            if (s && !isValidAccountSession(s)) {
+                this.app.secretStorage.setSecret(`account-session-${acc.id}`, "");
             }
         }
         await this.loadSecrets();

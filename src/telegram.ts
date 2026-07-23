@@ -352,6 +352,20 @@ export async function createClient(session: string, apiId?: number, apiHash?: st
     return client;
 }
 
+// True only for an mtcute (version 3) string session. Sessions authorized before the
+// mtcute migration (v4.1.0) are in an incompatible format whose decoded version byte
+// isn't 3; mtcute's importSession rejects them with "Invalid session string". We detect
+// them up front so such an account falls back to the "Log in" state instead of throwing.
+export function isValidAccountSession(session: string | undefined | null): boolean {
+    if (!session) return false;
+    try {
+        const b64 = session.replace(/-/g, "+").replace(/_/g, "/");
+        return atob(b64.slice(0, 4)).charCodeAt(0) === 3;
+    } catch {
+        return false;
+    }
+}
+
 export async function checkIsForum(client: TelegramClient, entity: string | number): Promise<boolean> {
     try {
         const chat = await client.getChat(entity);
