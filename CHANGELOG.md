@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.4.0
+
+### New features
+
+* **Post previews and per-post settings.** The advanced publishing settings now show a preview of every post — one for a regular note, several for a note split with `\split` commands. Post settings are now displayed in a more compact form, and the send button selects which posts to publish (when there are several).
+* **Link preview controls.** Click a link in the preview window to make it the source of Telegram's link preview (Ctrl+Click opens the link). The resulting link preview is also shown in the post's preview window. The link preview can also be moved above the text or disabled. This update closes a feature request by @MrEfrill.
+* **New option "Always publish silently".** The toggle was added to the general plugin settings and makes all posts publish with a soundless notification by default, unless set otherwise in the advanced publishing settings. This update closes a feature request by @MrEfrill.
+
+### UI/UX enhancements and bug fixes
+
+* The "Insert post split marker" command no longer adds an empty line after the marker.
+* Fixed a bug where the loaded chat list opened automatically without clicking the search field.
+
+
 ## 5.3.0
 
 ### New features

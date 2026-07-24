@@ -32,6 +32,8 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
   	* Post without sound.
   	* Post with attached media under the text.
     * Schedule the publication.
+    * Set publishing options for each split post separately.
+    * Choose the link preview source, move the preview above the text or disable it.
     * Edit already existing posts or pre-written comments.
 
 4. Photo, video, audio, album and document attachments.
@@ -222,6 +224,8 @@ You can also use the special command `<!-- \split -->` or `%% \split %%` to spli
 * When you republish the same note, the new links are written too — for example `%% \split t.me/channel/1 | t.me/channel/2 %%`. When editing posts, the plugin relies on these links.
 
 * You can insert the `%% \split %%` command into the text with the **Insert post split marker** command in the note's editor context menu.
+
+* In the advanced publishing settings, a split note shows a preview of every post with its own row of publishing settings and lets you choose which posts to publish.
 
 ### 3.3 Attachments
 
@@ -442,11 +446,21 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 * Make a one-time post without a saved preset.
 
-* Post with notification without sound.
+* Post with notification without sound (the "Always publish silently" option in the plugin settings makes this the default).
 
 * Post with attached media under the text.
 
 * Schedule the publication.
+
+* Move the link preview above the text or disable it.
+
+* Preview the posts before publishing. A preview is shown for every post:
+
+    * When post splitting is used, each post gets its own settings row.
+
+    * The send button in the row selects which posts will be published. It works only when the note contains a `\split` command.
+
+    * Click a link in the preview window to make it the source of Telegram's link preview (while Ctrl+Click opens the link). The resulting preview is shown right in the post.
 
 * Edit already existing posts or pre-written comments. Links are stored in the `tg_posts` and `tg_comments` properties, that are filled automatically if the corresponding option is enabled in the settings. You can also create them and fill manually. A few things to know about editing:
 

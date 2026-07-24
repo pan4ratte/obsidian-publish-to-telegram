@@ -147,6 +147,8 @@ You can also use the special command `<!-- \split -->` or `%% \split %%` to spli
 
 * You can insert the `%% \split %%` command into the text with the **Insert post split marker** command in the note's editor context menu.
 
+* In the advanced publishing settings, a split note shows a preview of every post with its own row of publishing settings and lets you choose which posts to publish.
+
 ### 3.3 Attachments
 
 Media, album (groups of media) and document attachments are supported. To attach a file to your post, use any of the standard Obsidian embed syntax options:
@@ -366,16 +368,27 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 * Make a one-time post without a saved preset.
 
-* Post without sound.
+* Post with notification without sound (the "Always publish silently" option in the plugin settings makes this the default).
 
 * Post with attached media under the text.
 
 * Schedule the publication.
 
+* Move the link preview above the text or disable it.
+
+* Preview the posts before publishing. A preview is shown for every post:
+
+    * When post splitting is used, each post gets its own settings row.
+
+    * The send button in the row selects which posts will be published. It works only when the note contains a `\split` command.
+
+    * Click a link in the preview window to make it the source of Telegram's link preview (while Ctrl+Click opens the link). The resulting preview is shown right in the post.
+
 * Edit already existing posts or pre-written comments. Links are stored in the `tg_posts` and `tg_comments` properties, that are filled automatically if the corresponding option is enabled in the settings. You can also create them and fill manually. A few things to know about editing:
 
     * The post is always edited **in its original style** — a rich-text post stays rich and a classic post stays classic, regardless of which preset you edit it with (auto-detected for the "Account" methods). A post published in a forum topic can be edited too; when you pick its link, the topic's name is shown next to the group/channel name.
 
+    * Editing a **rich-text** post can add *local* media as well — photos, videos, GIFs and audio are uploaded and appear inline, exactly as when publishing, even if the post was originally text-only. Local *documents* still can't be embedded in a rich message (see the rich-text formatting section above).
 
 ## 7. Limits
 
