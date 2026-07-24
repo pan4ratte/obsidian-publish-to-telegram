@@ -1,6 +1,6 @@
 import { Plugin, Notice, TFile, TFolder, Menu, Editor } from "obsidian";
 import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
-import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink } from "./src/types";
+import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink, SplitPartOptions } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
@@ -258,7 +258,7 @@ export default class SendToTelegramPlugin extends Plugin {
         }
     }
 
-    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date, method?: PostMethod): Promise<void> {
+    async sendNoteToTelegram(file: TFile, channel: TelegramChannel, silent: boolean, attachUnderText: boolean, updateLink?: string, scheduleDate?: Date, method?: PostMethod, partOptions?: SplitPartOptions[]): Promise<void> {
         // Resolve the effective posting method: explicit override, else the preset default.
         const effectiveMethod = method ?? channel.defaultMethod ?? "account";
         const isBotMethod = effectiveMethod === "bot" || effectiveMethod === "bot-rich";
@@ -300,6 +300,7 @@ export default class SendToTelegramPlugin extends Plugin {
                     silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink,
                     effectiveMethod === "bot-rich",   // post as Rich Message
                     effectiveMethod === "bot-rich",   // comments follow the post method (rich for "bot + rich")
+                    partOptions,
                 );
                 allLinks.push(...links);
                 allCommentLinks.push(...commentLinks);
@@ -314,6 +315,7 @@ export default class SendToTelegramPlugin extends Plugin {
                         this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
                         () => { progressNotice.setMessage(t.NOTICE_PUBLISHING_COMMENTS); },
                         accountPostAsRich,
+                        partOptions,
                     );
                     allLinks.push(...links);
                     allCommentLinks.push(...commentLinks);
@@ -384,7 +386,10 @@ export default class SendToTelegramPlugin extends Plugin {
                 }
             }
 
-            if (allErrors.length === 0) new Notice(scheduleDate ? t.NOTICE_SCHEDULED : (updateLink && updateLink !== "none" ? t.NOTICE_EDITED : t.NOTICE_SUCCESS));
+            // With per-part scheduling every selected part may have been scheduled (no
+            // immediate links) — report that as "scheduled", not "published".
+            const allPartsScheduled = allScheduled.length > 0 && allLinks.length === 0;
+            if (allErrors.length === 0) new Notice(scheduleDate || allPartsScheduled ? t.NOTICE_SCHEDULED : (updateLink && updateLink !== "none" ? t.NOTICE_EDITED : t.NOTICE_SUCCESS));
 
         } catch (err) {
             progressNotice.hide();

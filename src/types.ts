@@ -40,6 +40,16 @@ export interface TelegramChannel {
     topicId?: number;
 }
 
+// Per-part publish options chosen in the advanced modal's split layout, index-aligned to
+// parseSplitPosts order. When provided to a send path, unselected parts are skipped and each
+// sent part uses its own silent/attachments/schedule values instead of the publish-wide ones.
+export interface SplitPartOptions {
+    selected: boolean;
+    silent: boolean;
+    attachUnderText: boolean;
+    scheduleDate?: Date;   // account methods only; bot methods can't schedule
+}
+
 export interface PendingScheduledLink {
     notePath: string;
     noteTitle: string;

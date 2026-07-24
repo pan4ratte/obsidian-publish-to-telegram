@@ -1,11 +1,12 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, AbstractInputSuggest } from "obsidian";
+import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, AbstractInputSuggest } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
-import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget } from "./types";
+import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions } from "./types";
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
+import { hasSplitMarkers, parseSplitPosts, type SplitPost } from "./split";
 import { getBotInfo } from "./telegram-bot";
 import { errMessage, retry, withTimeout } from "./util";
 
@@ -254,6 +255,24 @@ export class MultiPresetModal extends Modal {
     private scheduleOptionEl: HTMLElement | null = null;
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
 
+    // ── Split layout ─────────────────────────────────────────────────────────────
+    // When the note contains `%% \split %%` markers, the classic option rows are replaced
+    // by a per-post layout: each split part gets its own settings button row, a rendered
+    // preview, and a checkbox choosing whether that part is published. One entry per part,
+    // index-aligned to parseSplitPosts order.
+    private splitPosts: SplitPost[] = [];
+    private splitRows: Array<{
+        selectedOn: boolean;
+        silentOn: boolean;
+        attachOn: boolean;
+        attachBtn: HTMLElement;
+        scheduleInput: HTMLInputElement;
+        schedulePillEl: HTMLElement;
+    }> = [];
+    private splitSectionEl: HTMLElement | null = null;
+    // Scoped to the modal lifecycle so the preview MarkdownRenderer children unload on close.
+    private readonly splitRenderComponent = new Component();
+
     // ── Ad-hoc (preset-less) publishing ──────────────────────────────────────────
     // Lets the user publish once by picking targets + an author + a method directly in
     // this modal, without a saved preset. Mirrors the preset chat-target picker.
@@ -313,6 +332,11 @@ export class MultiPresetModal extends Modal {
         this.scheduleInput.disabled = disabled;
         if (disabled) this.scheduleInput.value = "";
         this.scheduleOptionEl.toggleClass("is-disabled", disabled);
+        for (const row of this.splitRows) {
+            row.scheduleInput.disabled = disabled;
+            if (disabled) row.scheduleInput.value = "";
+            row.schedulePillEl.toggleClass("is-disabled", disabled);
+        }
     }
 
     // A silent (no-sound) send only affects a new post's notification; editing an existing
@@ -335,6 +359,25 @@ export class MultiPresetModal extends Modal {
         this.attachToggle.setDisabled(anyRich);
         if (anyRich) this.attachToggle.setValue(false);
         this.attachOptionEl.toggleClass("is-disabled", anyRich);
+        for (const row of this.splitRows) {
+            row.attachBtn.toggleClass("is-disabled", anyRich);
+            if (anyRich) {
+                row.attachOn = false;
+                row.attachBtn.removeClass("is-active");
+            }
+        }
+    }
+
+    // In split mode the per-post layout and the classic option rows swap places depending on
+    // whether a link is selected for editing: an edit applies to one already-published message,
+    // so the split (new-post) layout hides and the classic rows take over.
+    private updateSplitVisibility() {
+        if (!this.splitSectionEl) return;
+        const editing = this.anyLinkSelected();
+        this.splitSectionEl.toggleClass("is-hidden", editing);
+        this.silentOptionEl?.toggleClass("is-hidden", !editing);
+        this.attachOptionEl?.toggleClass("is-hidden", !editing);
+        this.scheduleOptionEl?.toggleClass("is-hidden", !editing);
     }
 
     // Selects a single preset (or none), enforcing radio-style behaviour: turning one on
@@ -405,6 +448,7 @@ export class MultiPresetModal extends Modal {
         this.updateScheduleState();
         this.updateAttachState();
         this.updateSilentState();
+        this.updateSplitVisibility();
     }
 
     // The first selected preset whose chat targets include the given chat, with the
@@ -707,9 +751,113 @@ export class MultiPresetModal extends Modal {
         };
     }
 
-    onOpen() {
+    // Builds the split layout: one block per split part with a row of circle setting buttons
+    // (send / silent / attachments / schedule pill) above a rendered preview clamped to a few
+    // lines with an expand control. The send button chooses whether the part gets published:
+    // a part whose marker already carries links was published before, so it starts off;
+    // turning it on re-posts the part as a new message (the fresh link joins its marker).
+    private renderSplitSection(container: HTMLElement): void {
+        this.splitRenderComponent.load();
+        this.splitSectionEl = container.createDiv("telegram-split-section");
+
+        for (const post of this.splitPosts) {
+            const postEl = this.splitSectionEl.createDiv("telegram-split-post");
+            const row = {
+                selectedOn: post.links.length === 0,
+                silentOn: false,
+                attachOn: false,
+                attachBtn: null as unknown as HTMLElement,
+                scheduleInput: null as unknown as HTMLInputElement,
+                schedulePillEl: null as unknown as HTMLElement,
+            };
+
+            // ── Per-post settings row ──
+            const controlsEl = postEl.createDiv("telegram-split-controls");
+
+            const silentBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+            setIcon(silentBtn, "bell");
+            setTooltip(silentBtn, t.MULTI_PRESET_SILENT_POST_NAME);
+            silentBtn.addEventListener("click", () => {
+                row.silentOn = !row.silentOn;
+                setIcon(silentBtn, row.silentOn ? "bell-off" : "bell");
+                silentBtn.toggleClass("is-active", row.silentOn);
+            });
+
+            const attachBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+            setIcon(attachBtn, "image-down");
+            setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
+            attachBtn.addEventListener("click", () => {
+                row.attachOn = !row.attachOn;
+                attachBtn.toggleClass("is-active", row.attachOn);
+            });
+            row.attachBtn = attachBtn;
+
+            const pillEl = controlsEl.createDiv("telegram-split-schedule-pill");
+            setTooltip(pillEl, t.MULTI_PRESET_SCHEDULE_NAME);
+            const scheduleInput = pillEl.createEl("input", { cls: "telegram-split-schedule-input" });
+            scheduleInput.type = "datetime-local";
+            row.scheduleInput = scheduleInput;
+            row.schedulePillEl = pillEl;
+
+            // Send toggle, pinned to the right end of the row.
+            const sendBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn telegram-split-send-btn", attr: { type: "button" } });
+            setIcon(sendBtn, "send-horizontal");
+            setTooltip(sendBtn, t.MULTI_PRESET_SPLIT_SEND_TIP);
+            // A marker that already records links means this part was published before.
+            sendBtn.toggleClass("is-active", row.selectedOn);
+            sendBtn.addEventListener("click", () => {
+                row.selectedOn = !row.selectedOn;
+                sendBtn.toggleClass("is-active", row.selectedOn);
+            });
+
+            // ── Preview ──
+            const previewEl = postEl.createDiv("telegram-split-preview");
+            // markdown-rendered pulls in Obsidian's reading-view styling so the preview
+            // looks exactly like the note's own preview.
+            const previewContentEl = previewEl.createDiv("telegram-split-preview-content markdown-rendered");
+            const expandBtn = previewEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
+            setIcon(expandBtn, "chevron-down");
+            setTooltip(expandBtn, t.MULTI_PRESET_SPLIT_EXPAND);
+            let expanded = false;
+            expandBtn.addEventListener("click", () => {
+                expanded = !expanded;
+                previewEl.toggleClass("is-expanded", expanded);
+                setIcon(expandBtn, expanded ? "chevron-up" : "chevron-down");
+                setTooltip(expandBtn, expanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
+            });
+            void MarkdownRenderer.render(this.app, post.content, previewContentEl, this.file.path, this.splitRenderComponent)
+                .then(() => window.requestAnimationFrame(() => {
+                    // Nothing clipped by the three-line clamp — the expand control is pointless.
+                    if (previewContentEl.scrollHeight <= previewContentEl.clientHeight + 1) {
+                        expandBtn.hide();
+                        previewEl.addClass("no-expand");
+                    }
+                }));
+
+            this.splitRows.push(row);
+        }
+    }
+
+    // The per-part options to publish with, or undefined when the split layout isn't active.
+    private collectSplitPartOptions(): SplitPartOptions[] | undefined {
+        if (this.splitRows.length === 0) return undefined;
+        return this.splitRows.map(row => ({
+            selected: row.selectedOn,
+            silent: row.silentOn,
+            attachUnderText: row.attachOn,
+            scheduleDate: row.scheduleInput.value && !row.scheduleInput.disabled
+                ? new Date(row.scheduleInput.value) : undefined,
+        }));
+    }
+
+    async onOpen() {
         const { contentEl, titleEl } = this;
         titleEl.setText(t.MULTI_PRESET_TITLE);
+
+        // The split layout activates when the note body carries `%% \split %%` markers.
+        const noteContent = await this.app.vault.cachedRead(this.file);
+        const noteBody = noteContent.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+        this.splitPosts = hasSplitMarkers(noteBody) ? parseSplitPosts(noteBody) : [];
 
         const hasPresets = this.plugin.settings.channels.length > 0;
         const hasAuthors = this.plugin.settings.accounts.length > 0 || this.plugin.settings.botTokens.length > 0;
@@ -809,6 +957,10 @@ export class MultiPresetModal extends Modal {
             cls: "telegram-modal-heading"
         });
 
+        // Split layout (per-post settings + previews). The classic option rows below are
+        // still built — they take over when a link is selected for editing.
+        if (this.splitPosts.length > 0) this.renderSplitSection(contentEl);
+
         this.silentOptionEl = contentEl.createDiv("telegram-option-item");
         const silentOptionEl = this.silentOptionEl;
         const silentTextEl = silentOptionEl.createDiv("telegram-option-text");
@@ -836,6 +988,7 @@ export class MultiPresetModal extends Modal {
         this.updateScheduleState();
         this.updateAttachState();
         this.updateSilentState();
+        this.updateSplitVisibility();
 
         // ─── Edit Post & Comments Section ─────────────────────────────────────────────
 
@@ -963,6 +1116,18 @@ export class MultiPresetModal extends Modal {
                     scheduleDate = new Date(this.scheduleInput.value);
                 }
 
+                // Split layout: per-part options (selection, silent, attachments, schedule)
+                // replace the publish-wide values for a fresh publish. Edits still target one
+                // already-published message, so they ignore the split rows.
+                let partOptions: SplitPartOptions[] | undefined;
+                if (!isUpdatingPost && !isEditingComments) {
+                    partOptions = this.collectSplitPartOptions();
+                    if (partOptions && !partOptions.some(p => p.selected)) {
+                        new Notice(t.MULTI_PRESET_SPLIT_NONE_SELECTED);
+                        return;
+                    }
+                }
+
                 this.close();
 
                 if (isUpdatingPost) {
@@ -1009,17 +1174,18 @@ export class MultiPresetModal extends Modal {
                     for (const channelId of this.selectedChannels) {
                         const channel = this.plugin.settings.channels.find(c => c.id === channelId);
                         const method = this.channelRows.find(r => r.id === channelId)?.method;
-                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, method);
+                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, scheduleDate, method, partOptions);
                     }
                     // Preset-less publish: post to the ad-hoc targets with the chosen author + method.
                     if (adhocChannel) {
-                        await this.plugin.sendNoteToTelegram(this.file, adhocChannel, silent, attachUnderText, undefined, scheduleDate, adhocChannel.defaultMethod);
+                        await this.plugin.sendNoteToTelegram(this.file, adhocChannel, silent, attachUnderText, undefined, scheduleDate, adhocChannel.defaultMethod, partOptions);
                     }
                 }
             });
     }
 
     onClose() {
+        this.splitRenderComponent.unload();
         this.contentEl.empty();
     }
 }

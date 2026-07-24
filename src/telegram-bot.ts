@@ -3,7 +3,7 @@
 // Self-contained: only imports from markdown.ts and Obsidian's API.
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
-import { TelegramChannel, TelegramSettings } from "./types";
+import { TelegramChannel, TelegramSettings, SplitPartOptions } from "./types";
 import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
 import { t } from "../lang/helpers";
@@ -674,6 +674,7 @@ export async function sendNoteViaBotApi(
     updateLink?: string,
     postAsRich = false,
     commentsAsRich = false,
+    partOptions?: SplitPartOptions[],
 ): Promise<{ links: string[]; commentLinks: string[]; errors: Error[]; postLinks: string[][] }> {
     const token = channel.botToken ?? "";
     if (!token) throw new Error(t.ERR_BOT_TOKEN_NOT_CONFIGURED);
@@ -747,9 +748,13 @@ export async function sendNoteViaBotApi(
         const topicId = target.topicId;
 
         for (let i = 0; i < effectiveParts.length; i++) {
+            // Per-part options from the modal's split layout: skip parts the user unchecked and
+            // let each part carry its own silent/attachments values (no scheduling via Bot API).
+            const opts = partOptions?.[i];
+            if (opts && !opts.selected) continue;
             try {
                 const result = await sendPartViaBotApi(
-                    app, effectiveParts[i], token, chatId, silent, attachUnderText,
+                    app, effectiveParts[i], token, chatId, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText,
                     treatMdEmbedsAsComments, file, topicId, postAsRich, commentsAsRich,
                 );
                 if (result) {

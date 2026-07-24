@@ -16,7 +16,7 @@ import {
 } from "@mtcute/web";
 import { thtml } from "@mtcute/html-parser";
 import wasmBytes from "@mtcute/wasm/mtcute.wasm";
-import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink } from "./types";
+import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions } from "./types";
 import { errMessage } from "./util";
 import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
@@ -721,6 +721,7 @@ export async function sendNoteToTelegram(
     scheduleDate?: Date,
     onProgress?: () => void,
     postAsRich = false,
+    partOptions?: SplitPartOptions[],
 ): Promise<{ links: string[]; commentLinks: string[]; errors: Error[]; scheduled: ScheduledSendInfo[]; postLinks: string[][] }> {
     const channel = { ...tg_channel, chatId: resolveChatId(tg_channel.chatId) };
     const content = await app.vault.read(file);
@@ -826,11 +827,20 @@ export async function sendNoteToTelegram(
     const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
     try {
         for (let i = 0; i < effectiveParts.length; i++) {
+            // Per-part options from the modal's split layout: skip parts the user unchecked and
+            // let each part carry its own silent/attachments/schedule values.
+            const opts = partOptions?.[i];
+            if (opts && !opts.selected) continue;
+            const partSchedule = opts ? opts.scheduleDate : scheduleDate;
             try {
-                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, silent, attachUnderText, file, treatMdEmbedsAsComments, postAsRich, scheduleDate, onProgress);
+                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress);
                 if (result) {
-                    links.push(result.link);
-                    if (!scheduleDate) postLinks[i].push(result.link);
+                    // A scheduled part's link points at the scheduled queue, not a real post —
+                    // it's resolved later via the scheduled task instead of being recorded now.
+                    if (!partSchedule) {
+                        links.push(result.link);
+                        postLinks[i].push(result.link);
+                    }
                     if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);
                     if (result.scheduled) scheduled.push({ ...result.scheduled, partIndex: i });
                 }
