@@ -905,9 +905,15 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     padding-bottom: 6px;
 }
 
+/* Collapsed clamp: 1.5× taller when the note splits into several posts, 3× taller
+   for a single previewed post (the --single class comes from renderSplitSection). */
 .telegram-split-preview-content {
-    max-height: calc(4.5em * var(--line-height-normal, 1.5));
+    max-height: calc(6.75em * var(--line-height-normal, 1.5));
     overflow: hidden;
+}
+
+.telegram-split-section--single .telegram-split-preview-content {
+    max-height: calc(13.5em * var(--line-height-normal, 1.5));
 }
 
 /* ── In-preview link-preview card (imitates Telegram's webpage preview) ── */

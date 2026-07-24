@@ -69,7 +69,7 @@ export default class SendToTelegramPlugin extends Plugin {
                             new MultiPresetModal(this.app, this, file).open();
                             return;
                         }
-                        void this.sendNoteToTelegram(file, defaultChannel, false, false);
+                        void this.sendNoteToTelegram(file, defaultChannel, this.settings.alwaysSilent, false);
                     });
                 });
 
@@ -170,7 +170,7 @@ export default class SendToTelegramPlugin extends Plugin {
                 if (!file) return;
                 const defaultChannel = await this.resolveDefaultChannel();
                 if (!defaultChannel) { new MultiPresetModal(this.app, this, file).open(); return; }
-                await this.sendNoteToTelegram(file, defaultChannel, false, false);
+                await this.sendNoteToTelegram(file, defaultChannel, this.settings.alwaysSilent, false);
             }
         });
 
@@ -228,7 +228,7 @@ export default class SendToTelegramPlugin extends Plugin {
                     if (isForum) {
                         new MultiPresetModal(this.app, this, file, channel.id).open();
                     } else {
-                        await this.sendNoteToTelegram(file, channel, false, false);
+                        await this.sendNoteToTelegram(file, channel, this.settings.alwaysSilent, false);
                     }
                 }
             });

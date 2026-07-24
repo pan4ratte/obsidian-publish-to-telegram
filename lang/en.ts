@@ -34,6 +34,8 @@ export default {
     SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "Contents of .md-attachments will be sent as comments to the post discussion",
     SETTING_ALWAYS_PREVIEW_NAME: "Always show post preview",
     SETTING_ALWAYS_PREVIEW_DESC: "Allows to select preview links in the advanced publishing settings even in single-post notes",
+    SETTING_ALWAYS_SILENT_NAME: "Always publish silently",
+    SETTING_ALWAYS_SILENT_DESC: "All posts will be published with a notification without sound by default",
     SECTION_PRESETS: "Presets",
     SETTING_ADD_CHANNEL_NAME: "Preset creation and usage",
     SETTING_ADD_CHANNEL_DESC: `We strongly recommend that you carefully read the user guide, it describes all plugin features and supported formatting options. Key differences between publication methods:

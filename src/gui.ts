@@ -811,12 +811,16 @@ export class MultiPresetModal extends Modal {
         // Obsidian's bundled lucide set lacks "link-2-off" — register it so setIcon renders it.
         if (!getIcon("link-2-off")) addIcon("link-2-off", LINK_2_OFF_ICON);
         this.splitSectionEl = container.createDiv("telegram-split-section");
+        // A lone previewed post gets a taller collapsed clamp than a multi-post split.
+        if (this.splitPosts.length === 1) this.splitSectionEl.addClass("telegram-split-section--single");
 
         for (const post of this.splitPosts) {
             const postEl = this.splitSectionEl.createDiv("telegram-split-post");
             const row = {
-                selectedOn: post.links.length === 0,
-                silentOn: false,
+                // With a single previewed post there's nothing to choose between — it always
+                // publishes, and the send toggle isn't rendered at all.
+                selectedOn: this.splitPosts.length === 1 || post.links.length === 0,
+                silentOn: this.plugin.settings.alwaysSilent,
                 attachOn: false,
                 attachBtn: null as unknown as HTMLElement,
                 previewMode: "default" as "default" | "top" | "off",
@@ -831,12 +835,15 @@ export class MultiPresetModal extends Modal {
             const controlsEl = postEl.createDiv("telegram-split-controls");
 
             const silentBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
-            setIcon(silentBtn, "bell");
+            const applySilent = () => {
+                setIcon(silentBtn, row.silentOn ? "bell-off" : "bell");
+                silentBtn.toggleClass("is-active", row.silentOn);
+            };
+            applySilent(); // reflects the "Always publish silently" default
             setTooltip(silentBtn, t.MULTI_PRESET_SILENT_POST_NAME);
             silentBtn.addEventListener("click", () => {
                 row.silentOn = !row.silentOn;
-                setIcon(silentBtn, row.silentOn ? "bell-off" : "bell");
-                silentBtn.toggleClass("is-active", row.silentOn);
+                applySilent();
             });
 
             const attachBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
@@ -875,16 +882,19 @@ export class MultiPresetModal extends Modal {
             row.scheduleInput = scheduleInput;
             row.schedulePillEl = pillEl;
 
-            // Send toggle, pinned to the right end of the row.
-            const sendBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn telegram-split-send-btn", attr: { type: "button" } });
-            setIcon(sendBtn, "send-horizontal");
-            setTooltip(sendBtn, t.MULTI_PRESET_SPLIT_SEND_TIP);
-            // A marker that already records links means this part was published before.
-            sendBtn.toggleClass("is-active", row.selectedOn);
-            sendBtn.addEventListener("click", () => {
-                row.selectedOn = !row.selectedOn;
+            // Send toggle, pinned to the right end of the row. Only offered when the note
+            // splits into several posts — a single previewed post always publishes.
+            if (this.splitPosts.length > 1) {
+                const sendBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn telegram-split-send-btn", attr: { type: "button" } });
+                setIcon(sendBtn, "send-horizontal");
+                setTooltip(sendBtn, t.MULTI_PRESET_SPLIT_SEND_TIP);
+                // A marker that already records links means this part was published before.
                 sendBtn.toggleClass("is-active", row.selectedOn);
-            });
+                sendBtn.addEventListener("click", () => {
+                    row.selectedOn = !row.selectedOn;
+                    sendBtn.toggleClass("is-active", row.selectedOn);
+                });
+            }
 
             // ── Preview ──
             const previewEl = postEl.createDiv("telegram-split-preview");
@@ -1137,7 +1147,7 @@ export class MultiPresetModal extends Modal {
         silentTextEl.createDiv({ text: t.MULTI_PRESET_SILENT_POST_NAME, cls: "telegram-option-name" });
         silentTextEl.createDiv({ text: t.MULTI_PRESET_SILENT_POST_DESC, cls: "telegram-option-desc" });
         this.silentToggle = new ToggleComponent(silentOptionEl.createDiv("telegram-option-control"))
-            .setValue(false);
+            .setValue(this.plugin.settings.alwaysSilent);
 
         this.attachOptionEl = contentEl.createDiv("telegram-option-item");
         const attachTextEl = this.attachOptionEl.createDiv("telegram-option-text");
@@ -1454,7 +1464,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             aliases: [
                 t.SECTION_GENERAL, t.SECTION_PRESETS, t.SETTING_ADD_CHANNEL_NAME,
                 t.SETTING_SAVE_POST_LINKS_NAME, t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME,
-                t.SETTING_ALWAYS_PREVIEW_NAME,
+                t.SETTING_ALWAYS_PREVIEW_NAME, t.SETTING_ALWAYS_SILENT_NAME,
                 t.SETTING_ADD_PRESET, t.SETTING_FORMATTING_HELP,
                 t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
                 t.AUTH_MANAGE_CREDENTIALS_BTN,
@@ -1611,6 +1621,11 @@ export class TelegramSettingTab extends PluginSettingTab {
         new Setting(containerEl).setName(t.SETTING_ALWAYS_PREVIEW_NAME).setDesc(t.SETTING_ALWAYS_PREVIEW_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.alwaysShowPostPreview)
                 .onChange(async (v) => { this.plugin.settings.alwaysShowPostPreview = v; await this.plugin.saveSettings(); }))
+            .settingEl.addClass("telegram-bordered-setting");
+
+        new Setting(containerEl).setName(t.SETTING_ALWAYS_SILENT_NAME).setDesc(t.SETTING_ALWAYS_SILENT_DESC)
+            .addToggle(toggle => toggle.setValue(this.plugin.settings.alwaysSilent)
+                .onChange(async (v) => { this.plugin.settings.alwaysSilent = v; await this.plugin.saveSettings(); }))
             .settingEl.addClass("telegram-bordered-setting");
 
         // ── Presets ──
