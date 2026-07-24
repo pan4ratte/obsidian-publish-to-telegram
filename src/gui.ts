@@ -1,4 +1,4 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, AbstractInputSuggest } from "obsidian";
+import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
@@ -18,6 +18,10 @@ const REVOKE_TIMEOUT_MS = 8000;
 // strand a re-login as a duplicate entry, so it's worth a couple of retries.
 const IDENTITY_ATTEMPTS = 3;
 const IDENTITY_RETRY_DELAY_MS = 1000;
+
+// Official lucide "link-2-off" path data (24×24, scaled to Obsidian's 100×100 icon
+// viewBox). Registered on demand because Obsidian's bundled lucide set lacks this icon.
+const LINK_2_OFF_ICON = `<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="scale(4.1667)"><path d="M9 17H7A5 5 0 0 1 7 7"/><path d="M15 7h2a5 5 0 0 1 4 8"/><line x1="8" y1="12" x2="12" y2="12"/><line x1="2" y1="2" x2="22" y2="22"/></g>`;
 
 // Wraps an async handler so it can be used where a void-returning callback is
 // expected (e.g. addEventListener); the returned promise is explicitly discarded.
@@ -269,6 +273,7 @@ export class MultiPresetModal extends Modal {
         previewMode: "default" | "top" | "off";
         previewModeBtn: HTMLElement;
         applyPreviewMode: () => void;
+        updateLinkPreviewCard: () => void;
         linkPreviewUrl: string | null;
         scheduleInput: HTMLInputElement;
         schedulePillEl: HTMLElement;
@@ -276,6 +281,8 @@ export class MultiPresetModal extends Modal {
     private splitSectionEl: HTMLElement | null = null;
     // Scoped to the modal lifecycle so the preview MarkdownRenderer children unload on close.
     private readonly splitRenderComponent = new Component();
+    // OpenGraph data for chosen link-preview sources, fetched once per URL per modal.
+    private linkPreviewCache = new Map<string, Promise<{ siteName: string; title?: string; description?: string; image?: string }>>();
 
     // ── Ad-hoc (preset-less) publishing ──────────────────────────────────────────
     // Lets the user publish once by picking targets + an author + a method directly in
@@ -765,8 +772,36 @@ export class MultiPresetModal extends Modal {
     // lines with an expand control. The send button chooses whether the part gets published:
     // a part whose marker already carries links was published before, so it starts off;
     // turning it on re-posts the part as a new message (the fresh link joins its marker).
+    // Fetches OpenGraph metadata for a link-preview card, cached per URL. Falls back to
+    // just the hostname when the page can't be fetched or parsed.
+    private fetchLinkPreview(url: string): Promise<{ siteName: string; title?: string; description?: string; image?: string }> {
+        const cached = this.linkPreviewCache.get(url);
+        if (cached) return cached;
+        const hostname = new URL(url).hostname.replace(/^www\./, "");
+        const promise = (async () => {
+            try {
+                const res = await requestUrl({ url });
+                const doc = new DOMParser().parseFromString(res.text, "text/html");
+                const og = (prop: string) => doc.querySelector(`meta[property="og:${prop}"], meta[name="og:${prop}"]`)?.getAttribute("content") ?? undefined;
+                const rawImage = og("image");
+                return {
+                    siteName: og("site_name") ?? hostname,
+                    title: og("title") ?? doc.querySelector("title")?.textContent?.trim() ?? undefined,
+                    description: og("description") ?? doc.querySelector('meta[name="description"]')?.getAttribute("content") ?? undefined,
+                    image: rawImage ? new URL(rawImage, url).href : undefined,
+                };
+            } catch {
+                return { siteName: hostname };
+            }
+        })();
+        this.linkPreviewCache.set(url, promise);
+        return promise;
+    }
+
     private renderSplitSection(container: HTMLElement): void {
         this.splitRenderComponent.load();
+        // Obsidian's bundled lucide set lacks "link-2-off" — register it so setIcon renders it.
+        if (!getIcon("link-2-off")) addIcon("link-2-off", LINK_2_OFF_ICON);
         this.splitSectionEl = container.createDiv("telegram-split-section");
 
         for (const post of this.splitPosts) {
@@ -779,6 +814,7 @@ export class MultiPresetModal extends Modal {
                 previewMode: "default" as "default" | "top" | "off",
                 previewModeBtn: null as unknown as HTMLElement,
                 applyPreviewMode: () => {},
+                updateLinkPreviewCard: () => {},
                 linkPreviewUrl: null as string | null,
                 scheduleInput: null as unknown as HTMLInputElement,
                 schedulePillEl: null as unknown as HTMLElement,
@@ -809,11 +845,14 @@ export class MultiPresetModal extends Modal {
             // automatic placement) → preview above the text → preview disabled entirely.
             const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
             const applyPreviewMode = () => {
-                setIcon(previewModeBtn, row.previewMode === "off" ? "unlink" : "panel-top-close");
+                setIcon(previewModeBtn, row.previewMode === "off" ? "link-2-off" : "panel-top-close");
                 setTooltip(previewModeBtn, row.previewMode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
                     : row.previewMode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
                     : t.MULTI_PRESET_SPLIT_PREVIEW_DEFAULT);
                 previewModeBtn.toggleClass("is-active", row.previewMode !== "default");
+                // The in-preview card mirrors the mode (placement / hidden); late-bound —
+                // it's a noop until the preview block below is built.
+                row.updateLinkPreviewCard();
             };
             applyPreviewMode();
             previewModeBtn.addEventListener("click", () => {
@@ -846,6 +885,10 @@ export class MultiPresetModal extends Modal {
             // markdown-rendered pulls in Obsidian's reading-view styling so the preview
             // looks exactly like the note's own preview.
             const previewContentEl = previewEl.createDiv("telegram-split-preview-content markdown-rendered");
+            // Telegram-style card showing what the chosen link's preview will look like.
+            // It lives INSIDE the text flow (previewContentEl) so it clamps and scrolls with
+            // the content; hidden until a link is selected, moved above/below the text by mode.
+            const linkCardEl = previewContentEl.createDiv("telegram-split-linkpreview is-hidden");
             const expandBtn = previewEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
             setIcon(expandBtn, "chevron-down");
             setTooltip(expandBtn, t.MULTI_PRESET_SPLIT_EXPAND);
@@ -856,6 +899,62 @@ export class MultiPresetModal extends Modal {
                 setIcon(expandBtn, expanded ? "chevron-up" : "chevron-down");
                 setTooltip(expandBtn, expanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
             });
+            // Shows the expand control only while the collapsed clamp actually clips content.
+            // Re-run whenever the content height changes — the link-preview card appearing,
+            // growing (OpenGraph data arriving) or disappearing can flip the answer.
+            const refreshExpand = () => {
+                if (expanded) return;
+                const clipped = previewContentEl.scrollHeight > previewContentEl.clientHeight + 1;
+                expandBtn.toggle(clipped);
+                previewEl.toggleClass("no-expand", !clipped);
+            };
+            // Renders / repositions the card imitating the chosen link's Telegram preview:
+            // hidden with no link chosen (or previews disabled), placed above or below the
+            // text to mirror where Telegram will put it. Content is rebuilt only when the
+            // URL changes; OpenGraph data fills in asynchronously over the URL skeleton.
+            let cardUrl: string | null = null;
+            row.updateLinkPreviewCard = () => {
+                // Telegram renders a preview by default — for the first web link in the
+                // text — so with no explicit selection the card falls back to that link.
+                const autoUrl = (): string | null => {
+                    for (const a of Array.from(previewContentEl.querySelectorAll("a"))) {
+                        const href = a.getAttribute("href") ?? "";
+                        if (/^https?:\/\//i.test(href)) return href;
+                    }
+                    return null;
+                };
+                const url = row.linkPreviewUrl ?? autoUrl();
+                if (!url || row.previewMode === "off") {
+                    linkCardEl.addClass("is-hidden");
+                    window.requestAnimationFrame(refreshExpand);
+                    return;
+                }
+                linkCardEl.removeClass("is-hidden");
+                // In the text flow: first child of the content in "top" mode, last otherwise —
+                // so it scrolls (and clamps) together with the text.
+                if (row.previewMode === "top") previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
+                else previewContentEl.appendChild(linkCardEl);
+                window.requestAnimationFrame(refreshExpand);
+                if (cardUrl === url) return;
+                cardUrl = url;
+                linkCardEl.empty();
+                const textEl = linkCardEl.createDiv("telegram-split-linkpreview-text");
+                const siteEl = textEl.createDiv({ cls: "telegram-split-linkpreview-site", text: new URL(url).hostname.replace(/^www\./, "") });
+                const titleEl = textEl.createDiv({ cls: "telegram-split-linkpreview-title", text: url });
+                void this.fetchLinkPreview(url).then(data => {
+                    if (cardUrl !== url || !linkCardEl.isConnected) return;
+                    siteEl.setText(data.siteName);
+                    if (data.title) titleEl.setText(data.title);
+                    if (data.description) textEl.createDiv({ cls: "telegram-split-linkpreview-desc", text: data.description });
+                    if (data.image) {
+                        const img = linkCardEl.createEl("img", { cls: "telegram-split-linkpreview-image" });
+                        img.src = data.image;
+                        img.addEventListener("error", () => img.remove());
+                    }
+                    window.requestAnimationFrame(refreshExpand);
+                });
+            };
+
             // Clicking a web link chooses it as the post's link-preview source (clicking the
             // chosen one again clears the choice); Ctrl/Cmd+Click keeps the normal behaviour
             // of opening the link. Capture phase so the anchor's own handlers never fire.
@@ -873,6 +972,7 @@ export class MultiPresetModal extends Modal {
                     anchor.addClass("is-preview-source");
                     row.linkPreviewUrl = anchor.getAttribute("href");
                 }
+                row.updateLinkPreviewCard();
             }, { capture: true });
 
             void MarkdownRenderer.render(this.app, post.content, previewContentEl, this.file.path, this.splitRenderComponent)
@@ -881,11 +981,9 @@ export class MultiPresetModal extends Modal {
                     previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
                         if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.MULTI_PRESET_SPLIT_LINK_TIP);
                     });
-                    // Nothing clipped by the three-line clamp — the expand control is pointless.
-                    if (previewContentEl.scrollHeight <= previewContentEl.clientHeight + 1) {
-                        expandBtn.hide();
-                        previewEl.addClass("no-expand");
-                    }
+                    // Now that the links exist, show Telegram's default preview (first link).
+                    row.updateLinkPreviewCard();
+                    refreshExpand();
                 }));
 
             this.splitRows.push(row);

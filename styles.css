@@ -910,6 +910,58 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     overflow: hidden;
 }
 
+/* ── In-preview link-preview card (imitates Telegram's webpage preview) ── */
+
+.telegram-split-linkpreview {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 6px 0;
+    padding: 6px 10px;
+    border-left: 3px solid var(--interactive-accent);
+    border-radius: var(--radius-s);
+    background-color: var(--background-secondary);
+}
+
+.telegram-split-linkpreview.is-hidden {
+    display: none;
+}
+
+.telegram-split-linkpreview-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.telegram-split-linkpreview-site {
+    color: var(--text-accent);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+}
+
+.telegram-split-linkpreview-title {
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
+    overflow-wrap: anywhere;
+}
+
+.telegram-split-linkpreview-desc {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+img.telegram-split-linkpreview-image {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: var(--radius-s);
+    flex-shrink: 0;
+}
+
 /* The link chosen as the post's link-preview source. */
 body .telegram-split-preview-content a.is-preview-source {
     background-color: var(--text-highlight-bg);
