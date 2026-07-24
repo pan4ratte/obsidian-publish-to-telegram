@@ -794,7 +794,7 @@ body .telegram-auth-submit:disabled {
 .telegram-split-post {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
-    margin-bottom: 8px;
+    margin-bottom: 16px;
     overflow: hidden;
 }
 
@@ -924,7 +924,6 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     font-weight: var(--font-semibold);
     color: var(--text-muted);
     border-bottom: 1px solid var(--background-modifier-border);
-    margin-bottom: 16px;
 }
 
 /* Indented from the left so the comments read as attached to, not part of, the post. */
@@ -932,7 +931,7 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
    bottom padding gives the fade room and shrinks when nothing is clipped (.no-expand). */
 .telegram-split-comment {
     position: relative;
-    padding: 0 16px 24px 32px;
+    padding: 16px 16px 0px 16px;
     background-color: var(--background-primary);
 }
 
