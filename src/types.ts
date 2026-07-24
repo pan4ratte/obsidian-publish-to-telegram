@@ -72,6 +72,7 @@ export interface PendingScheduledLink {
 export interface CustomEmojiSet {
     id: string;
     title: string;
+    iconId?: string;   // custom emoji used as the pack's icon (its own thumb, else its first emoji)
     entries: Array<{ id: string; alt: string }>;
 }
 

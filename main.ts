@@ -3,7 +3,7 @@ import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink, SplitPartOptions } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
 import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
-import { CustomEmojiThumbnails, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
+import { CustomEmojiThumbnails, PreviewStore, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
 import { hasCustomEmoji } from "./src/markdown";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
@@ -189,7 +189,7 @@ export default class SendToTelegramPlugin extends Plugin {
             inserted => void this.rememberEmoji(inserted),
             {
                 sets: hasAccount ? this.settings.customEmojiSets ?? [] : [],
-                thumbnails: hasAccount ? new CustomEmojiThumbnails(secrets) : null,
+                thumbnails: hasAccount ? new CustomEmojiThumbnails(secrets, this.emojiPreviewStore()) : null,
             },
         );
         picker.open();
@@ -199,6 +199,14 @@ export default class SendToTelegramPlugin extends Plugin {
         if (hasAccount && Date.now() - fetchedAt > CUSTOM_EMOJI_TTL) {
             void this.refreshCustomEmojiSets(secrets, picker);
         }
+    }
+
+    // Downloaded custom emoji previews live in the plugin's own folder, so a pack only ever
+    // has to be fetched once. Without a plugin directory (never, in practice) previews are
+    // simply re-downloaded each session.
+    private emojiPreviewStore(): PreviewStore | null {
+        const dir = this.manifest.dir;
+        return dir ? new PreviewStore(this.app.vault.adapter, `${dir}/emoji-previews`) : null;
     }
 
     // Reloads the account's custom emoji packs into the cache, updating the open picker.

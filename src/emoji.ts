@@ -8,10 +8,10 @@
 // (the emotion-based rows Telegram shows above emoji search: "smiling", "love", "angry"),
 // not the panel's sections, and covers only a subset of the set. The panel's own grouping
 // is client-side data in Telegram Desktop, which is what emoji-data.ts mirrors.
-import { Editor, setIcon, setTooltip } from "obsidian";
+import { Editor, getIcon, setIcon, setTooltip } from "obsidian";
 import { t } from "../lang/helpers";
 import { emojiSections, searchEmoji, searchCustomEmoji, parseCustomEmojiRef, customEmojiRef } from "./emoji-search";
-import { CustomEmojiThumbnails } from "./custom-emoji";
+import { CustomEmojiThumbnails, type CustomEmojiPreview } from "./custom-emoji";
 import { CustomEmojiSet } from "./types";
 
 // One tile in the grid: what gets written into the note, the glyph shown while no preview
@@ -24,6 +24,19 @@ interface PickerItem {
 
 // Recently used emoji kept for the "Recent" section, as in Telegram's panel.
 export const RECENT_EMOJI_LIMIT = 32;
+
+// Tab icons for the standard sections — lucide names, matching what each section holds.
+// Anything Obsidian's icon set doesn't know falls back to the section's emoji glyph, so a
+// renamed icon can never leave a blank tab.
+const SECTION_ICONS: Record<string, string> = {
+    people: "smile",
+    nature: "leaf",
+    food: "utensils",
+    activity: "trophy",
+    travel: "car",
+    objects: "lightbulb",
+    symbols: "hash",
+};
 
 // Localized headings for the sections emoji-data.ts ships, keyed by section id.
 const SECTION_TITLES: Record<string, string> = {
@@ -157,6 +170,7 @@ export class EmojiPicker {
         // Custom emoji previews are fetched only for the tiles in (or near) view — a pack
         // can hold hundreds, and each preview is a round trip.
         if (this.thumbnails) {
+            this.thumbnails.onUpdate = ids => this.applyPreviews(ids);
             this.thumbObserver = new IntersectionObserver(entries => {
                 const ids: string[] = [];
                 for (const entry of entries) {
@@ -177,8 +191,13 @@ export class EmojiPicker {
             if (event.target !== this.searchEl) event.preventDefault();
         });
 
+        // Not every event target is a Node — a window `resize` reports the window itself,
+        // and Node.contains() throws on anything that isn't a Node.
+        const insidePanel = (target: EventTarget | null): boolean =>
+            target instanceof Node && this.panelEl.contains(target);
+
         const onPointerDown = (event: MouseEvent) => {
-            if (!this.panelEl.contains(event.target as Node)) this.close();
+            if (!insidePanel(event.target)) this.close();
         };
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape") {
@@ -190,8 +209,8 @@ export class EmojiPicker {
         // line it belongs to is no longer visible. The panel's own grid scrolling is not a
         // reason to recompute anything.
         const onReposition = (event?: Event) => {
-            if (event && this.panelEl.contains(event.target as Node)) return;
-            this.position();
+            if (event && insidePanel(event.target)) return;
+            this.queuePosition();
         };
         activeDocument.addEventListener("mousedown", onPointerDown, true);
         activeDocument.addEventListener("keydown", onKeyDown, true);
@@ -265,24 +284,33 @@ export class EmojiPicker {
         }
 
         // "Recent" leads, exactly as in Telegram's panel; then the standard sections, then
-        // one section per installed custom emoji pack.
-        const sections: Array<{ title: string; icon: string | null; items: PickerItem[] }> = [];
+        // one section per installed custom emoji pack. Each carries what its tab shows: a
+        // lucide icon for the standard ones, the pack's own artwork for a custom one.
+        interface PickerSection {
+            title: string;
+            items: PickerItem[];
+            lucide?: string;
+            glyph?: string;      // fallback when the lucide icon is unknown
+            iconEmojiId?: string;
+        }
+
+        const sections: PickerSection[] = [];
         if (this.recent.length > 0) {
-            sections.push({ title: t.EMOJI_RECENT, icon: null, items: this.recent.map(toPickerItem) });
+            sections.push({ title: t.EMOJI_RECENT, lucide: "clock", glyph: "🕘", items: this.recent.map(toPickerItem) });
         }
         for (const section of emojiSections()) {
             sections.push({
                 title: SECTION_TITLES[section.key] ?? section.key,
-                icon: section.icon,
+                lucide: SECTION_ICONS[section.key],
+                glyph: section.icon,
                 items: section.entries.map(entry => ({ insert: entry.emoji, alt: entry.emoji })),
             });
         }
         for (const set of this.customSets) {
             sections.push({
                 title: set.title,
-                // The pack's own artwork isn't rendered in the tab strip; its first emoji's
-                // fallback glyph identifies it well enough.
-                icon: set.entries[0]?.alt ?? "⭐",
+                iconEmojiId: set.iconId ?? set.entries[0]?.id,
+                glyph: set.entries[0]?.alt ?? "⭐",
                 items: set.entries.map(entry => ({
                     insert: customEmojiRef(entry.alt, entry.id),
                     alt: entry.alt,
@@ -291,19 +319,36 @@ export class EmojiPicker {
             });
         }
 
+        const packIconIds: string[] = [];
         for (const section of sections) {
             const sectionEl = this.scrollEl.createDiv("telegram-emoji-section");
             sectionEl.createDiv({ text: section.title, cls: "telegram-emoji-section-title" });
             this.renderGrid(sectionEl, section.items);
 
-            const tabBtn = this.tabsEl.createEl("button", { cls: "telegram-emoji-tab", attr: { type: "button" } });
-            // Telegram marks its recents with a clock; every other tab shows the section's glyph.
-            if (section.icon) tabBtn.setText(section.icon);
-            else setIcon(tabBtn, "clock");
+            const tabBtn = this.tabsEl.createEl("button", {
+                cls: "telegram-emoji-tab",
+                attr: { type: "button", "aria-label": section.title },
+            });
+            if (section.iconEmojiId) {
+                // Pack tabs show the pack's icon emoji, like Telegram's own tab strip.
+                tabBtn.dataset.emojiId = section.iconEmojiId;
+                tabBtn.dataset.fallback = section.glyph ?? "";
+                const cached = CustomEmojiThumbnails.cached(section.iconEmojiId);
+                if (cached) this.setTilePreview(tabBtn, cached, section.glyph ?? "");
+                else tabBtn.setText(section.glyph ?? "");
+                packIconIds.push(section.iconEmojiId);
+            } else if (section.lucide && getIcon(section.lucide)) {
+                setIcon(tabBtn, section.lucide);
+            } else {
+                tabBtn.setText(section.glyph ?? "");
+            }
             setTooltip(tabBtn, section.title);
             tabBtn.addEventListener("click", () => this.scrollToSection(sectionEl));
             this.tabs.push({ btn: tabBtn, sectionEl });
         }
+
+        // Tab icons are on screen from the start, so they don't wait for a scroll.
+        if (packIconIds.length > 0) void this.loadThumbnails(packIconIds);
 
         this.syncActiveTab();
         this.position();
@@ -314,7 +359,8 @@ export class EmojiPicker {
         for (const item of items) {
             const btn = gridEl.createEl("button", {
                 cls: "telegram-emoji-btn",
-                attr: { type: "button", "aria-label": item.alt, "data-insert": item.insert },
+                // data-fallback is what the tile shows if its preview can't be rendered.
+                attr: { type: "button", "aria-label": item.alt, "data-insert": item.insert, "data-fallback": item.alt },
             });
             if (!item.customId) {
                 btn.setText(item.insert);
@@ -325,7 +371,7 @@ export class EmojiPicker {
             btn.addClass("is-custom");
             btn.dataset.emojiId = item.customId;
             const cached = CustomEmojiThumbnails.cached(item.customId);
-            if (cached) this.setTileImage(btn, cached, item.alt);
+            if (cached) this.setTilePreview(btn, cached, item.alt);
             else {
                 btn.setText(item.alt);
                 this.thumbObserver?.observe(btn);
@@ -333,24 +379,45 @@ export class EmojiPicker {
         }
     }
 
-    private setTileImage(btn: HTMLElement, url: string, alt: string): void {
+    private setTilePreview(btn: HTMLElement, preview: CustomEmojiPreview, alt: string): void {
         btn.empty();
+        // The outline placeholder is dimmed, so it reads as "not the final artwork".
+        btn.toggleClass("is-placeholder", preview.placeholder === true);
+        // Whatever fails to decode falls back to the glyph rather than leaving an empty tile.
+        const onError = () => { btn.empty(); btn.setText(alt); };
+        if (preview.kind === "video") {
+            // Video packs animate in place, as they do in Telegram's own panel.
+            const video = btn.createEl("video", { cls: "telegram-emoji-image" });
+            video.autoplay = true;
+            video.loop = true;
+            video.muted = true;
+            video.playsInline = true;
+            video.src = preview.url;
+            video.addEventListener("error", onError);
+            return;
+        }
         const img = btn.createEl("img", { cls: "telegram-emoji-image", attr: { alt } });
-        img.src = url;
-        // A broken preview falls back to the glyph rather than an empty tile.
-        img.addEventListener("error", () => { btn.empty(); btn.setText(alt); });
+        img.src = preview.url;
+        img.addEventListener("error", onError);
     }
 
-    // Downloads the previews of the tiles that just scrolled into view and swaps them in.
+    // Asks for the previews of the tiles that just scrolled into view. Tiles are filled in
+    // by applyPreviews as they arrive, so nothing waits for the slowest download.
     private async loadThumbnails(ids: string[]): Promise<void> {
         if (!this.thumbnails) return;
         await this.thumbnails.load(ids);
+        this.applyPreviews(ids);
+    }
+
+    // Swaps whatever preview is now available into every tile showing these emoji.
+    private applyPreviews(ids: string[]): void {
         if (this.closed) return;
         for (const id of ids) {
-            const url = CustomEmojiThumbnails.cached(id);
-            if (!url) continue;
-            this.panelEl.querySelectorAll<HTMLElement>(`.telegram-emoji-btn[data-emoji-id="${id}"]`)
-                .forEach(btn => this.setTileImage(btn, url, btn.getAttr("aria-label") ?? ""));
+            const preview = CustomEmojiThumbnails.cached(id);
+            if (!preview) continue;
+            // Grid tiles and the pack's tab alike.
+            this.panelEl.querySelectorAll<HTMLElement>(`[data-emoji-id="${id}"]`)
+                .forEach(el => this.setTilePreview(el, preview, el.dataset.fallback ?? ""));
         }
     }
 
@@ -381,6 +448,20 @@ export class EmojiPicker {
 
     private setActiveTab(sectionEl: HTMLElement): void {
         for (const tab of this.tabs) tab.btn.toggleClass("is-active", tab.sectionEl === sectionEl);
+    }
+
+    // Repositioning measures the editor (coordsAtPos), which must not happen synchronously
+    // inside a scroll handler: that re-enters CodeMirror's own measure cycle and makes it
+    // restart the loop ("Viewport failed to stabilize"). Coalescing to one measurement per
+    // frame keeps the panel glued to the line without fighting the editor.
+    private repositionQueued = false;
+    private queuePosition(): void {
+        if (this.repositionQueued || this.closed) return;
+        this.repositionQueued = true;
+        window.requestAnimationFrame(() => {
+            this.repositionQueued = false;
+            this.position();
+        });
     }
 
     // Anchors the panel under the current line, flipping above it when the space below is

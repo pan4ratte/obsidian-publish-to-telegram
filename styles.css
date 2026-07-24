@@ -1435,6 +1435,19 @@ body .telegram-changelog-close:hover {
     object-fit: contain;
 }
 
+/* Pack tabs carry the pack's icon at tab size. */
+.telegram-emoji-panel .telegram-emoji-tab .telegram-emoji-image {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+
+/* Vector-outline placeholder shown until the artwork arrives (or instead of it, when the
+   data centre holding the file can't be reached). */
+.telegram-emoji-panel .is-placeholder .telegram-emoji-image {
+    opacity: 0.75;
+}
+
 /* Loading / error / empty state, shown in place of the tabs and the grid. */
 .telegram-emoji-message {
     padding: 16px;
