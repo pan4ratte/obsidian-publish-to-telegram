@@ -138,7 +138,7 @@ export default class SendToTelegramPlugin extends Plugin {
         const cursor = editor.getCursor();
         const line = editor.getLine(cursor.line);
         const before = line.slice(0, cursor.ch).trim().length > 0 ? "\n\n" : "";
-        const after = line.slice(cursor.ch).trim().length > 0 ? "\n\n" : "\n";
+        const after = line.slice(cursor.ch).trim().length > 0 ? "\n\n" : "";
         editor.replaceSelection(`${before}%% \\split %%${after}`);
         editor.focus();
     }
