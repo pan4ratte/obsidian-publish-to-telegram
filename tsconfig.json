@@ -4,6 +4,10 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "strict": true,
+    // mtcute re-exports Long via `import { default as Long } from "long"`, a CommonJS
+    // module. Without interop that import resolves to `any`, which makes every Long
+    // (custom emoji ids, TL hashes) untyped. Type-checking only — esbuild does the build.
+    "esModuleInterop": true,
     "skipLibCheck": true,
     "lib": ["DOM", "ESNext"],
     "importHelpers": true,

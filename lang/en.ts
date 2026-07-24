@@ -154,6 +154,8 @@ export default {
     NOTICE_ERR_MIXED_MEDIA: "Error: The attached combination of attachments can't be sent with the selected method. Use a rich-text method, or send them separately.",
     NOTICE_ERR_SPLIT_LINK_NOT_FOUND: "Error: This link isn't inside any split command. Add it to the desired `%% \\split %%` command so the plugin knows which part to edit.",
     NOTICE_ERR_ACCOUNT_RICH_PREMIUM: "Error: Sending rich-text messages from a user account requires Telegram Premium on that account.",
+    NOTICE_ERR_CUSTOM_EMOJI_PREMIUM: "Error: Posting custom emoji requires Telegram Premium on the publishing account. Bots can only use custom emoji with a username bought on Fragment.",
+    NOTICE_ERR_CUSTOM_EMOJI: "Error: Telegram rejected a custom emoji from this post. The publishing account may have no access to it.",
     NOTICE_ERR_NOT_AUTHENTICATED: "Error: Authorize into your Telegram account in the plugin settings before publishing.",
     NOTICE_ERR_NOT_MODIFIED: "Nothing to update: contents weren't changed.",
     NOTICE_COMMENT_DISCUSSION_NOT_FOUND: "Could not find the discussion message to comment under.",

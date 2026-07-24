@@ -67,6 +67,14 @@ export interface PendingScheduledLink {
     createdAt: number;
 }
 
+// A custom emoji pack installed on the account (Telegram Premium emoji), as the picker
+// needs it: the document id to insert and the standard emoji it falls back to.
+export interface CustomEmojiSet {
+    id: string;
+    title: string;
+    entries: Array<{ id: string; alt: string }>;
+}
+
 export interface TelegramSettings {
     channels: TelegramChannel[];
     botTokens: BotToken[];
@@ -78,6 +86,8 @@ export interface TelegramSettings {
     dismissedChangelogVersion?: string;
     pendingScheduledLinks: PendingScheduledLink[];
     recentEmoji: string[];            // most recently picked emoji, newest first (emoji picker)
+    customEmojiSets?: CustomEmojiSet[];   // custom emoji packs installed on the account, cached for the picker
+    customEmojiFetchedAt?: number;        // unix ms of that cache; drives the background refresh
 }
 
 export interface TelegramSecrets {

@@ -1427,6 +1427,14 @@ body .telegram-changelog-close:hover {
     background-color: var(--background-modifier-hover);
 }
 
+/* Custom emoji (Premium) tiles: the pack's own artwork once its preview has been
+   downloaded, the fallback emoji until then. */
+.telegram-emoji-panel .telegram-emoji-btn .telegram-emoji-image {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
 /* Loading / error / empty state, shown in place of the tabs and the grid. */
 .telegram-emoji-message {
     padding: 16px;

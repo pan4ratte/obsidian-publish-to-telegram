@@ -10,7 +10,17 @@
 // is client-side data in Telegram Desktop, which is what emoji-data.ts mirrors.
 import { Editor, setIcon, setTooltip } from "obsidian";
 import { t } from "../lang/helpers";
-import { emojiSections, searchEmoji } from "./emoji-search";
+import { emojiSections, searchEmoji, searchCustomEmoji, parseCustomEmojiRef, customEmojiRef } from "./emoji-search";
+import { CustomEmojiThumbnails } from "./custom-emoji";
+import { CustomEmojiSet } from "./types";
+
+// One tile in the grid: what gets written into the note, the glyph shown while no preview
+// is available, and — for custom emoji — the document id its preview is fetched by.
+interface PickerItem {
+    insert: string;
+    alt: string;
+    customId?: string;
+}
 
 // Recently used emoji kept for the "Recent" section, as in Telegram's panel.
 export const RECENT_EMOJI_LIMIT = 32;
@@ -25,6 +35,15 @@ const SECTION_TITLES: Record<string, string> = {
     objects: t.EMOJI_SECTION_OBJECTS,
     symbols: t.EMOJI_SECTION_SYMBOLS,
 };
+
+// A stored recent is either a plain emoji or a custom-emoji reference, exactly as it was
+// inserted into the note.
+function toPickerItem(recent: string): PickerItem {
+    const custom = parseCustomEmojiRef(recent);
+    return custom
+        ? { insert: recent, alt: custom.alt, customId: custom.id }
+        : { insert: recent, alt: recent };
+}
 
 // The cursor's on-screen rectangle, used to anchor the panel under the current line.
 // Obsidian's Editor wraps a CodeMirror 6 view that isn't in the public typings, so the
@@ -61,23 +80,36 @@ export class EmojiPicker {
     private static current: EmojiPicker | null = null;
 
     private readonly editor: Editor;
-    private readonly onPick: (emoji: string) => void;
+    private readonly onPick: (inserted: string) => void;
     private readonly recent: string[];
+    // Custom emoji packs installed on the account, appended after the standard sections,
+    // and the loader for their preview images (both absent without an account).
+    private customSets: CustomEmojiSet[];
+    private readonly thumbnails: CustomEmojiThumbnails | null;
 
     private panelEl!: HTMLElement;
     private searchEl!: HTMLInputElement;
     private tabsEl!: HTMLElement;
     private scrollEl!: HTMLElement;
     private tabs: Array<{ btn: HTMLElement; sectionEl: HTMLElement }> = [];
+    // Watches custom-emoji tiles so their previews download only once they scroll into view.
+    private thumbObserver: IntersectionObserver | null = null;
     // Set while a tab click is scrolling the list, so the scroll handler doesn't fight it.
     private scrollingToSection = false;
     private closed = false;
     private detach: Array<() => void> = [];
 
-    constructor(editor: Editor, recent: string[], onPick: (emoji: string) => void) {
+    constructor(
+        editor: Editor,
+        recent: string[],
+        onPick: (inserted: string) => void,
+        custom: { sets?: CustomEmojiSet[]; thumbnails?: CustomEmojiThumbnails | null } = {},
+    ) {
         this.editor = editor;
         this.recent = recent;
         this.onPick = onPick;
+        this.customSets = custom.sets ?? [];
+        this.thumbnails = custom.thumbnails ?? null;
     }
 
     // Closes whichever bar is open; the return value lets the command toggle (pressing the
@@ -120,8 +152,22 @@ export class EmojiPicker {
         // aren't worth a listener each.
         this.scrollEl.addEventListener("click", event => {
             const btn = (event.target as HTMLElement).closest<HTMLElement>(".telegram-emoji-btn");
-            if (btn?.dataset.emoji) this.pick(btn.dataset.emoji);
+            if (btn?.dataset.insert) this.pick(btn.dataset.insert);
         });
+        // Custom emoji previews are fetched only for the tiles in (or near) view — a pack
+        // can hold hundreds, and each preview is a round trip.
+        if (this.thumbnails) {
+            this.thumbObserver = new IntersectionObserver(entries => {
+                const ids: string[] = [];
+                for (const entry of entries) {
+                    if (!entry.isIntersecting) continue;
+                    const el = entry.target as HTMLElement;
+                    this.thumbObserver?.unobserve(el);
+                    if (el.dataset.emojiId) ids.push(el.dataset.emojiId);
+                }
+                if (ids.length > 0) void this.loadThumbnails(ids);
+            }, { root: this.scrollEl, rootMargin: "120px" });
+        }
         this.renderBody();
 
         // A click inside the panel must not steal focus from the editor — the cursor has to
@@ -169,8 +215,24 @@ export class EmojiPicker {
         if (EmojiPicker.current === this) EmojiPicker.current = null;
         for (const off of this.detach) off();
         this.detach = [];
+        this.thumbObserver?.disconnect();
+        this.thumbObserver = null;
+        // Closes the custom-emoji connection; the previews already downloaded stay cached.
+        this.thumbnails?.dispose();
         this.panelEl.remove();
         if (refocus) this.editor.focus();
+    }
+
+    get isOpen(): boolean {
+        return !this.closed;
+    }
+
+    // Swaps in a freshly loaded pack list (the background refresh) without disturbing an
+    // open panel more than necessary — nothing to do while the user is searching.
+    setCustomSets(sets: CustomEmojiSet[]): void {
+        if (this.closed) return;
+        this.customSets = sets;
+        if (!this.searchEl.value.trim()) this.renderBody();
     }
 
     // Browsing shows the tabs and one grid per section; searching replaces both with a
@@ -184,31 +246,55 @@ export class EmojiPicker {
         this.tabsEl.toggle(!query);
 
         if (query) {
-            const results = searchEmoji(query);
+            // Custom emoji join the results, matched through their fallback emoji and their
+            // pack name, and lead — they're the ones a search is usually after.
+            const custom = searchCustomEmoji(this.customSets, query).map(hit => ({
+                insert: customEmojiRef(hit.alt, hit.id),
+                alt: hit.alt,
+                customId: hit.id,
+            }));
+            const standard = searchEmoji(query).map(entry => ({ insert: entry.emoji, alt: entry.emoji }));
+            const results = [...custom, ...standard];
             if (results.length === 0) {
                 this.scrollEl.createDiv({ text: t.EMOJI_NO_RESULTS, cls: "telegram-emoji-message" });
             } else {
-                this.renderGrid(this.scrollEl, results.map(entry => entry.emoji));
+                this.renderGrid(this.scrollEl, results);
             }
             this.position();
             return;
         }
 
-        // "Recent" leads, exactly as in Telegram's panel; the rest are the standard sections.
-        const sections: Array<{ title: string; icon: string | null; emoji: string[] }> = [];
-        if (this.recent.length > 0) sections.push({ title: t.EMOJI_RECENT, icon: null, emoji: this.recent });
+        // "Recent" leads, exactly as in Telegram's panel; then the standard sections, then
+        // one section per installed custom emoji pack.
+        const sections: Array<{ title: string; icon: string | null; items: PickerItem[] }> = [];
+        if (this.recent.length > 0) {
+            sections.push({ title: t.EMOJI_RECENT, icon: null, items: this.recent.map(toPickerItem) });
+        }
         for (const section of emojiSections()) {
             sections.push({
                 title: SECTION_TITLES[section.key] ?? section.key,
                 icon: section.icon,
-                emoji: section.entries.map(entry => entry.emoji),
+                items: section.entries.map(entry => ({ insert: entry.emoji, alt: entry.emoji })),
+            });
+        }
+        for (const set of this.customSets) {
+            sections.push({
+                title: set.title,
+                // The pack's own artwork isn't rendered in the tab strip; its first emoji's
+                // fallback glyph identifies it well enough.
+                icon: set.entries[0]?.alt ?? "⭐",
+                items: set.entries.map(entry => ({
+                    insert: customEmojiRef(entry.alt, entry.id),
+                    alt: entry.alt,
+                    customId: entry.id,
+                })),
             });
         }
 
         for (const section of sections) {
             const sectionEl = this.scrollEl.createDiv("telegram-emoji-section");
             sectionEl.createDiv({ text: section.title, cls: "telegram-emoji-section-title" });
-            this.renderGrid(sectionEl, section.emoji);
+            this.renderGrid(sectionEl, section.items);
 
             const tabBtn = this.tabsEl.createEl("button", { cls: "telegram-emoji-tab", attr: { type: "button" } });
             // Telegram marks its recents with a clock; every other tab shows the section's glyph.
@@ -223,23 +309,57 @@ export class EmojiPicker {
         this.position();
     }
 
-    private renderGrid(parentEl: HTMLElement, emoji: string[]): void {
+    private renderGrid(parentEl: HTMLElement, items: PickerItem[]): void {
         const gridEl = parentEl.createDiv("telegram-emoji-grid");
-        for (const item of emoji) {
-            gridEl.createEl("button", {
+        for (const item of items) {
+            const btn = gridEl.createEl("button", {
                 cls: "telegram-emoji-btn",
-                text: item,
-                attr: { type: "button", "aria-label": item, "data-emoji": item },
+                attr: { type: "button", "aria-label": item.alt, "data-insert": item.insert },
             });
+            if (!item.customId) {
+                btn.setText(item.insert);
+                continue;
+            }
+            // Custom emoji show their own artwork; until it's downloaded (or if it can't be),
+            // the fallback emoji stands in — the same glyph Telegram shows in its place.
+            btn.addClass("is-custom");
+            btn.dataset.emojiId = item.customId;
+            const cached = CustomEmojiThumbnails.cached(item.customId);
+            if (cached) this.setTileImage(btn, cached, item.alt);
+            else {
+                btn.setText(item.alt);
+                this.thumbObserver?.observe(btn);
+            }
         }
     }
 
-    private pick(emoji: string): void {
-        this.editor.replaceSelection(emoji);
+    private setTileImage(btn: HTMLElement, url: string, alt: string): void {
+        btn.empty();
+        const img = btn.createEl("img", { cls: "telegram-emoji-image", attr: { alt } });
+        img.src = url;
+        // A broken preview falls back to the glyph rather than an empty tile.
+        img.addEventListener("error", () => { btn.empty(); btn.setText(alt); });
+    }
+
+    // Downloads the previews of the tiles that just scrolled into view and swaps them in.
+    private async loadThumbnails(ids: string[]): Promise<void> {
+        if (!this.thumbnails) return;
+        await this.thumbnails.load(ids);
+        if (this.closed) return;
+        for (const id of ids) {
+            const url = CustomEmojiThumbnails.cached(id);
+            if (!url) continue;
+            this.panelEl.querySelectorAll<HTMLElement>(`.telegram-emoji-btn[data-emoji-id="${id}"]`)
+                .forEach(btn => this.setTileImage(btn, url, btn.getAttr("aria-label") ?? ""));
+        }
+    }
+
+    private pick(inserted: string): void {
+        this.editor.replaceSelection(inserted);
         // Typing in the search field keeps the focus there; otherwise the caret goes back
         // to the note so the user can keep writing straight away.
         if (activeDocument.activeElement !== this.searchEl) this.editor.focus();
-        this.onPick(emoji);
+        this.onPick(inserted);
     }
 
     private scrollToSection(sectionEl: HTMLElement): void {

@@ -3,6 +3,9 @@
 // imports so the matching rules can be unit-tested; the picker UI in emoji.ts adds the
 // localized section titles on top.
 import { EMOJI_SECTION_DATA } from "./emoji-data";
+import { CustomEmojiSet } from "./types";
+
+export { customEmojiRef, parseCustomEmojiRef } from "./markdown";
 
 export interface EmojiEntry {
     emoji: string;
@@ -54,30 +57,40 @@ function wordScore(word: string, token: string): number | null {
     return null;
 }
 
+// How well a set of words answers the whole query: every token has to match something,
+// and the scores add up. null when the entry isn't a match at all.
+function matchWords(words: string[], tokens: string[]): number | null {
+    let total = 0;
+    for (const token of tokens) {
+        let best: number | null = null;
+        for (const word of words) {
+            const score = wordScore(word, token);
+            if (score !== null && (best === null || score < best)) best = score;
+        }
+        // Last resort: the token sits inside a word ("ippo" in "hippopotamus").
+        if (best === null && words.some(word => word.includes(token))) best = 3;
+        if (best === null) return null;
+        total += best;
+    }
+    return total;
+}
+
+function queryTokens(query: string): string[] {
+    return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
 // Emoji matching every word of the query, best matches first: exact word hits, then word
 // prefixes, then shared stems, then anything containing the query. Matching runs over the
 // English names and the Russian keywords alike, so either language finds the same emoji.
 export function searchEmoji(query: string, limit = 180): EmojiEntry[] {
     emojiSections();
-    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const tokens = queryTokens(query);
     if (tokens.length === 0) return [];
 
     const scored: Array<{ entry: EmojiEntry; score: number }> = [];
     for (const entry of flatCache) {
-        let total = 0;
-        let matched = true;
-        for (const token of tokens) {
-            let best: number | null = null;
-            for (const word of entry.words) {
-                const score = wordScore(word, token);
-                if (score !== null && (best === null || score < best)) best = score;
-            }
-            // Last resort: the token sits inside a word ("ippo" in "hippopotamus").
-            if (best === null && entry.words.some(word => word.includes(token))) best = 3;
-            if (best === null) { matched = false; break; }
-            total += best;
-        }
-        if (matched) scored.push({ entry, score: total });
+        const score = matchWords(entry.words, tokens);
+        if (score !== null) scored.push({ entry, score });
     }
 
     // Stable by construction: equal scores keep the dataset's (Telegram's) own order.
@@ -85,4 +98,38 @@ export function searchEmoji(query: string, limit = 180): EmojiEntry[] {
         .sort((a, b) => a.score - b.score)
         .slice(0, limit)
         .map(hit => hit.entry);
+}
+
+export interface CustomEmojiHit {
+    id: string;
+    alt: string;
+    title: string;  // the pack the emoji belongs to
+}
+
+// Standard emoji by glyph, so a custom emoji can borrow the search terms of the emoji it
+// falls back to: a custom 👍 is findable by "thumbs up" / "палец вверх" like the real one.
+let glyphIndex: Map<string, EmojiEntry> | null = null;
+
+// Custom emoji matching the query, by their pack name or through their fallback emoji.
+export function searchCustomEmoji(sets: CustomEmojiSet[], query: string, limit = 60): CustomEmojiHit[] {
+    if (sets.length === 0) return [];
+    const tokens = queryTokens(query);
+    if (tokens.length === 0) return [];
+
+    if (!glyphIndex) {
+        emojiSections();
+        glyphIndex = new Map(flatCache.map(entry => [entry.emoji, entry]));
+    }
+
+    const hits: CustomEmojiHit[] = [];
+    for (const set of sets) {
+        const titleMatches = matchWords(set.title.toLowerCase().split(/\s+/).filter(Boolean), tokens) !== null;
+        for (const entry of set.entries) {
+            const fallback = glyphIndex.get(entry.alt);
+            if (!titleMatches && (!fallback || matchWords(fallback.words, tokens) === null)) continue;
+            hits.push({ id: entry.id, alt: entry.alt, title: set.title });
+            if (hits.length >= limit) return hits;
+        }
+    }
+    return hits;
 }

@@ -3,6 +3,8 @@ import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink, SplitPartOptions } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
 import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
+import { CustomEmojiThumbnails, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
+import { hasCustomEmoji } from "./src/markdown";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
@@ -88,8 +90,12 @@ export default class SendToTelegramPlugin extends Plugin {
         this.registerEditorMenu();
 
         // The emoji bar lives on document.body, outside any leaf — make sure it goes away
-        // with the plugin (disable / reload) instead of being orphaned there.
-        this.register(() => EmojiPicker.closeCurrent());
+        // with the plugin (disable / reload) instead of being orphaned there, and release
+        // the custom emoji previews held for the session.
+        this.register(() => {
+            EmojiPicker.closeCurrent();
+            CustomEmojiThumbnails.releaseAll();
+        });
     }
 
     // Adds the in-note context-menu group: a "Insert post split marker" command and a
@@ -168,12 +174,46 @@ export default class SendToTelegramPlugin extends Plugin {
 
     // ── Emoji picker ──────────────────────────────────────────────────────────────
 
-    // Opens the emoji bar under the cursor's line. The emoji set ships with the plugin, so
-    // the bar appears instantly and needs neither an account nor a connection.
+    // Opens the emoji bar under the cursor's line. The standard emoji set ships with the
+    // plugin, so the bar appears instantly and needs neither an account nor a connection;
+    // the custom emoji packs come from the account and are cached between sessions.
     private openEmojiPicker(editor: Editor): void {
         // The command toggles: pressing the hotkey again while the bar is up closes it.
         if (EmojiPicker.closeCurrent()) return;
-        new EmojiPicker(editor, [...this.settings.recentEmoji], emoji => void this.rememberEmoji(emoji)).open();
+
+        const secrets = this.getAccountSecrets();
+        const hasAccount = isValidAccountSession(secrets.telegramSession);
+        const picker = new EmojiPicker(
+            editor,
+            [...this.settings.recentEmoji],
+            inserted => void this.rememberEmoji(inserted),
+            {
+                sets: hasAccount ? this.settings.customEmojiSets ?? [] : [],
+                thumbnails: hasAccount ? new CustomEmojiThumbnails(secrets) : null,
+            },
+        );
+        picker.open();
+
+        // Refresh the pack list in the background — on first use, and once a day after that.
+        const fetchedAt = this.settings.customEmojiFetchedAt ?? 0;
+        if (hasAccount && Date.now() - fetchedAt > CUSTOM_EMOJI_TTL) {
+            void this.refreshCustomEmojiSets(secrets, picker);
+        }
+    }
+
+    // Reloads the account's custom emoji packs into the cache, updating the open picker.
+    // Failures are silent: the picker keeps working with the standard set (and whatever
+    // packs were cached), which is not worth a notice.
+    private async refreshCustomEmojiSets(secrets: TelegramSecrets, picker: EmojiPicker): Promise<void> {
+        try {
+            const sets = await loadCustomEmojiSets(secrets);
+            this.settings.customEmojiSets = sets;
+            this.settings.customEmojiFetchedAt = Date.now();
+            await this.saveSettings();
+            if (picker.isOpen) picker.setCustomSets(sets);
+        } catch (err) {
+            console.error("Failed to load Telegram custom emoji:", errMessage(err));
+        }
     }
 
     // Feeds the picker's "Recent" section: newest first, deduplicated and capped.
@@ -207,13 +247,12 @@ export default class SendToTelegramPlugin extends Plugin {
             }
         });
 
-        // Mod+Shift+E is the suggested default (E for emoji; Obsidian leaves it free) and
-        // can be re-bound like any other command under Settings → Hotkeys.
+        // No default hotkey on purpose (it would risk overriding the user's own bindings);
+        // the guide suggests Ctrl/Cmd+Shift+E, to be set under Settings → Hotkeys.
         this.addCommand({
             id: "insert-emoji",
             name: t.COMMAND_INSERT_EMOJI,
             icon: "smile",
-            hotkeys: [{ modifiers: ["Mod", "Shift"], key: "E" }],
             editorCallback: (editor: Editor) => this.openEmojiPicker(editor),
         });
 
@@ -395,6 +434,11 @@ export default class SendToTelegramPlugin extends Plugin {
                 await this.writeSplitMarkerLinks(file, postLinksByPart);
             }
 
+            // Telegram answers with the same PREMIUM error whether the rich format or a
+            // custom emoji is what the account may not send, so the note decides which
+            // explanation is the useful one.
+            const noteHasCustomEmoji = hasCustomEmoji(await this.app.vault.cachedRead(file));
+
             for (const err of allErrors) {
                 const msg: string = (err.message ?? "").toUpperCase();
                 if (msg.includes("MESSAGE_NOT_MODIFIED")) {
@@ -411,8 +455,10 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_MIXED_MEDIA);
                 } else if (msg.includes("SPLIT_LINK_NOT_FOUND")) {
                     new Notice(t.NOTICE_ERR_SPLIT_LINK_NOT_FOUND);
+                } else if (msg.includes("EMOJI")) {
+                    new Notice(t.NOTICE_ERR_CUSTOM_EMOJI);
                 } else if (msg.includes("PREMIUM")) {
-                    new Notice(t.NOTICE_ERR_ACCOUNT_RICH_PREMIUM);
+                    new Notice(noteHasCustomEmoji ? t.NOTICE_ERR_CUSTOM_EMOJI_PREMIUM : t.NOTICE_ERR_ACCOUNT_RICH_PREMIUM);
                 } else {
                     new Notice(`${t.NOTICE_ERR_SEND}${err.message ?? ""}`);
                 }

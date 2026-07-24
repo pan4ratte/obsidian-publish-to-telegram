@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { emojiSections, searchEmoji } from '../src/emoji-search';
+import { emojiSections, searchEmoji, searchCustomEmoji, customEmojiRef, parseCustomEmojiRef } from '../src/emoji-search';
 import { EMOJI_SECTION_DATA } from '../src/emoji-data';
+import { mdToTelegramHtml, mdToBotApiHtml, obsidianToRichMarkdown, hasCustomEmoji } from '../src/markdown';
+import { CustomEmojiSet } from '../src/types';
 
 const sections = emojiSections();
 const all = sections.flatMap(section => section.entries);
@@ -63,4 +65,46 @@ test('an empty or whitespace query returns nothing, and results respect the limi
   assert.deepStrictEqual(searchEmoji(''), []);
   assert.deepStrictEqual(searchEmoji('   '), []);
   assert.equal(searchEmoji('a', 10).length, 10);
+});
+
+// ─── Custom emoji (Premium) ───────────────────────────────────────────────────
+
+const packs: CustomEmojiSet[] = [{
+  id: '1',
+  title: 'Cat pack',
+  entries: [{ id: '5368324170671202286', alt: '👍' }, { id: '5370870893004203424', alt: '🐱' }],
+}];
+
+test('writes and reads back the note syntax for a custom emoji', () => {
+  const ref = customEmojiRef('👍', '5368324170671202286');
+  assert.equal(ref, '[👍](tg://emoji?id=5368324170671202286)');
+  assert.deepStrictEqual(parseCustomEmojiRef(ref), { alt: '👍', id: '5368324170671202286' });
+  assert.equal(parseCustomEmojiRef('👍'), null);
+  assert.equal(parseCustomEmojiRef('[👍](https://example.com)'), null);
+  assert.equal(hasCustomEmoji(`text ${ref} more`), true);
+  assert.equal(hasCustomEmoji('text [link](https://example.com)'), false);
+});
+
+test('finds custom emoji through their fallback emoji, in both languages', () => {
+  assert.deepStrictEqual(searchCustomEmoji(packs, 'thumbs up').map(hit => hit.id), ['5368324170671202286']);
+  assert.deepStrictEqual(searchCustomEmoji(packs, 'палец').map(hit => hit.id), ['5368324170671202286']);
+  assert.deepStrictEqual(searchCustomEmoji(packs, 'cat').map(hit => hit.alt), ['👍', '🐱']); // pack name matches too
+  assert.deepStrictEqual(searchCustomEmoji(packs, 'zzzz'), []);
+  assert.deepStrictEqual(searchCustomEmoji([], 'cat'), []);
+});
+
+test('publishes a custom emoji as a <tg-emoji> entity through every method', () => {
+  const note = `Hi ${customEmojiRef('👍', '5368324170671202286')}!`;
+  const expected = 'Hi <tg-emoji emoji-id="5368324170671202286">👍</tg-emoji>!';
+  // Account (mtcute HTML), bot (Bot API HTML) and Rich Messages all take this tag.
+  assert.equal(mdToTelegramHtml(note), expected);
+  assert.equal(mdToBotApiHtml(note), expected);
+  assert.equal(obsidianToRichMarkdown(note), expected);
+});
+
+test('leaves ordinary links alone', () => {
+  assert.equal(
+    mdToTelegramHtml('[text](https://example.com)'),
+    '<a href="https://example.com">text</a>',
+  );
 });

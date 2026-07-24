@@ -82,6 +82,38 @@ export function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ─── Custom emoji ─────────────────────────────────────────────────────────────
+
+// A custom emoji as the picker writes it into a note: `[👍](tg://emoji?id=5368…)`, i.e. a
+// plain markdown link whose text is the fallback emoji (so the note still reads correctly
+// in Obsidian) and whose target carries the custom emoji's document id.
+const CUSTOM_EMOJI_REF = /\[([^\]]+)\]\(tg:\/\/emoji\?id=(\d+)\)/g;
+
+// Writes that reference (used by the emoji picker when inserting a custom emoji).
+export function customEmojiRef(alt: string, id: string): string {
+    return `[${alt}](tg://emoji?id=${id})`;
+}
+
+// Reads one back, for a string that is nothing but a reference — the form the picker
+// stores in its recents.
+export function parseCustomEmojiRef(text: string): { alt: string; id: string } | null {
+    const match = new RegExp(`^${CUSTOM_EMOJI_REF.source}$`).exec(text);
+    return match ? { alt: match[1], id: match[2] } : null;
+}
+
+// True when the note carries at least one custom emoji reference.
+export function hasCustomEmoji(body: string): boolean {
+    return new RegExp(CUSTOM_EMOJI_REF.source).test(body);
+}
+
+// Rewrites those references into Telegram's custom-emoji tag. One form serves every
+// publishing path: mtcute's HTML parser (account posts), the Bot API's HTML parse mode and
+// Rich Messages all understand `<tg-emoji emoji-id="…">fallback</tg-emoji>`.
+export function customEmojiToHtml(text: string): string {
+    return text.replace(CUSTOM_EMOJI_REF, (_, alt: string, id: string) =>
+        `<tg-emoji emoji-id="${id}">${escHtml(alt)}</tg-emoji>`);
+}
+
 // Converts Obsidian markdown to Telegram "Rich Markdown" (Bot API 10.1).
 //
 // Rich Markdown is GitHub-Flavored-Markdown-compatible, so unlike mdToTelegramHtml
@@ -105,6 +137,10 @@ export function obsidianToRichMarkdown(body: string): string {
         /\[\[([^[\]|#]+)(?:#[^[\]|]*)?(?:\|([^[\]]+))?\]\]/g,
         (_, target: string, alias?: string) => (alias ?? target).trim()
     );
+
+    // Custom emoji: Rich Messages take the same tag as the classic paths (it's one of the
+    // documented rich-text tags), so a picked custom emoji survives every method.
+    text = customEmojiToHtml(text);
 
     text = escapeRichHashtags(text);
 
@@ -236,6 +272,9 @@ export function mdToTelegramHtml(body: string): string {
     // NOTE: produces <spoiler> for GramJS HTMLParser; Bot API callers must use mdToBotApiHtml.
     text = text.replace(/\|\|([^\s|][\s\S]*?)\|\|/g, (_, content: string) =>
         content.split('\n').map((line: string) => `<spoiler>${line}</spoiler>`).join('\n'));
+
+    // Custom emoji, before the generic link rule so they don't become plain links.
+    text = customEmojiToHtml(text);
 
     // Links [text](url) — URL may contain balanced parentheses
     text = text.replace(/\[([^\]]+)\]\(((?:[^()]|\([^()]*\))+)\)/g, '<a href="$2">$1</a>');
