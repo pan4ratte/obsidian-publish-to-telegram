@@ -91,6 +91,7 @@ export default {
     MULTI_PRESET_SCHEDULE_NAME: "Schedule the post",
     MULTI_PRESET_SPLIT_SEND_TIP: "Publish this post",
     MULTI_PRESET_SPLIT_ONLINE_TIP: "Send when the recipient is online",
+    MULTI_PRESET_SPLIT_COMMENT_LABEL: "Comments",
     MULTI_PRESET_SPLIT_PREVIEW_DEFAULT: "Link preview: default",
     MULTI_PRESET_SPLIT_PREVIEW_TOP: "Link preview above the text",
     MULTI_PRESET_SPLIT_PREVIEW_OFF: "Link preview disabled",

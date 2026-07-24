@@ -915,6 +915,57 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     max-height: calc(13.5em * var(--line-height-normal, 1.5));
 }
 
+/* ── Pre-written comment previews ── */
+
+.telegram-split-comments-header {
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 10px 16px;
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--background-modifier-border);
+    margin-bottom: 16px;
+}
+
+/* Indented from the left so the comments read as attached to, not part of, the post. */
+/* position:relative anchors the same expand fade bar the post preview uses; the
+   bottom padding gives the fade room and shrinks when nothing is clipped (.no-expand). */
+.telegram-split-comment {
+    position: relative;
+    padding: 0 16px 24px 32px;
+    background-color: var(--background-primary);
+}
+
+.telegram-split-comment.no-expand {
+    padding-bottom: 12px;
+}
+
+.telegram-split-comment + .telegram-split-comment {
+    border-top: 1px solid var(--background-modifier-border);
+    padding-top: 12px;
+}
+
+.telegram-split-comment-content {
+    max-height: calc(4.5em * var(--line-height-normal, 1.5));
+    overflow: hidden;
+}
+
+/* Expanded: square scrollable box, matching the post preview's behaviour. */
+.telegram-split-comment.is-expanded .telegram-split-comment-content {
+    max-height: none;
+    aspect-ratio: 1 / 1;
+    overflow-y: auto;
+    padding-bottom: 40px;
+}
+
+.telegram-split-comment-content > :first-child {
+    margin-top: 0;
+}
+
+.telegram-split-comment-content > :last-child {
+    margin-bottom: 0;
+}
+
 /* ── In-preview link-preview card (imitates Telegram's webpage preview) ── */
 
 .telegram-split-linkpreview {

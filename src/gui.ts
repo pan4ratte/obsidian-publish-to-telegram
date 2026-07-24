@@ -7,6 +7,7 @@ import * as QRCode from "qrcode";
 import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions } from "./types";
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
 import { parseSplitPosts, type SplitPost } from "./split";
+import { stripComments } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
 import { errMessage, retry, withTimeout } from "./util";
 
@@ -780,6 +781,47 @@ export class MultiPresetModal extends Modal {
         return promise;
     }
 
+    // Splits a part's content into the post itself and its pre-written comments (embedded
+    // .md notes) when "Treat .md embeds as post comments" is on. Mirrors the send paths'
+    // collection (same three embed syntaxes, commented-out regions ignored, deduped by
+    // path, same order), so the previewed comments match what actually gets published.
+    // The embed markup is stripped from the returned post content — the comments are not
+    // part of the post message and render as their own preview blocks instead.
+    private collectCommentPreviews(content: string): { cleaned: string; files: TFile[] } {
+        const resolveMdEmbed = (rawPath: string): TFile | null => {
+            let cleanPath = rawPath.split(/\s+"/)[0].split(/[?#]/)[0].trim();
+            if (/^https?:\/\//i.test(cleanPath)) return null;
+            try { cleanPath = decodeURIComponent(cleanPath); } catch { /* keep raw path if not URI-encoded */ }
+            const resolved = this.app.metadataCache.getFirstLinkpathDest(cleanPath, this.file.path);
+            return resolved instanceof TFile && resolved.extension === "md" ? resolved : null;
+        };
+
+        const wikilinkRegex = () => /!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g;
+        const mdLinkRegex = () => /!\[[^\]]*\]\(([^)]+)\)/g;
+        const reverseMdLinkRegex = () => /!\(([^)]+)\)\[[^\]]*\]/g;
+
+        const seen = new Set<string>();
+        const files: TFile[] = [];
+        const scanBody = stripComments(content);
+        for (const regex of [wikilinkRegex(), mdLinkRegex(), reverseMdLinkRegex()]) {
+            let m: RegExpExecArray | null;
+            while ((m = regex.exec(scanBody)) !== null) {
+                const file = resolveMdEmbed(m[1]);
+                if (file && !seen.has(file.path)) {
+                    seen.add(file.path);
+                    files.push(file);
+                }
+            }
+        }
+
+        const stripIfComment = (match: string, rawPath: string) => resolveMdEmbed(rawPath) ? "" : match;
+        const cleaned = content
+            .replace(wikilinkRegex(), stripIfComment)
+            .replace(mdLinkRegex(), stripIfComment)
+            .replace(reverseMdLinkRegex(), stripIfComment);
+        return { cleaned, files };
+    }
+
     private renderSplitSection(container: HTMLElement): void {
         this.splitRenderComponent.load();
         // Obsidian's bundled lucide set lacks "link-2-off" — register it so setIcon renders it.
@@ -923,6 +965,13 @@ export class MultiPresetModal extends Modal {
             }
 
             // ── Preview ──
+            // Pre-written comments (embedded .md notes) publish as separate comment
+            // messages, so they're pulled out of the post preview and rendered as their
+            // own blocks below it, in publish order.
+            const { cleaned: postPreviewContent, files: commentFiles } = this.plugin.settings.treatMdEmbedsAsComments
+                ? this.collectCommentPreviews(post.content)
+                : { cleaned: post.content, files: [] as TFile[] };
+
             const previewEl = postEl.createDiv("telegram-split-preview");
             // markdown-rendered pulls in Obsidian's reading-view styling so the preview
             // looks exactly like the note's own preview.
@@ -1020,7 +1069,7 @@ export class MultiPresetModal extends Modal {
                 row.updateLinkPreviewCard();
             }, { capture: true });
 
-            void MarkdownRenderer.render(this.app, post.content, previewContentEl, this.file.path, this.splitRenderComponent)
+            void MarkdownRenderer.render(this.app, postPreviewContent, previewContentEl, this.file.path, this.splitRenderComponent)
                 .then(() => window.requestAnimationFrame(() => {
                     // Explain the click behaviour on every selectable web link.
                     previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
@@ -1031,11 +1080,48 @@ export class MultiPresetModal extends Modal {
                     refreshExpand();
                 }));
 
+            // ── Pre-written comment previews ──
+            // One shared "Comments" heading above the first comment; the blocks follow in
+            // publish order.
+            if (commentFiles.length > 0) {
+                postEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" });
+            }
+            for (const commentFile of commentFiles) {
+                const commentEl = postEl.createDiv("telegram-split-comment");
+                const commentContentEl = commentEl.createDiv("telegram-split-comment-content markdown-rendered");
+                // Same expand control as the post preview: clamped with a fade bar,
+                // expanding to a square scrollable box; hidden when nothing is clipped.
+                const commentExpandBtn = commentEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
+                setIcon(commentExpandBtn, "chevron-down");
+                setTooltip(commentExpandBtn, t.MULTI_PRESET_SPLIT_EXPAND);
+                let commentExpanded = false;
+                commentExpandBtn.addEventListener("click", () => {
+                    commentExpanded = !commentExpanded;
+                    commentEl.toggleClass("is-expanded", commentExpanded);
+                    setIcon(commentExpandBtn, commentExpanded ? "chevron-up" : "chevron-down");
+                    setTooltip(commentExpandBtn, commentExpanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
+                });
+                void this.app.vault.cachedRead(commentFile).then(raw => MarkdownRenderer.render(
+                    this.app,
+                    raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
+                    commentContentEl,
+                    commentFile.path,
+                    this.splitRenderComponent,
+                )).then(() => window.requestAnimationFrame(() => {
+                    if (commentContentEl.scrollHeight <= commentContentEl.clientHeight + 1) {
+                        commentExpandBtn.hide();
+                        commentEl.addClass("no-expand");
+                    }
+                }));
+            }
+
             // ── Overflow row ──
             // When the settings row can't fit everything, the date pill and the send toggle
             // relocate to their own row under the preview, and move back once space returns.
             // The width the full row needs is captured at the moment it first overflows.
             const bottomRowEl = postEl.createDiv("telegram-split-controls telegram-split-controls--bottom");
+            // Directly under the post preview, above any comment previews.
+            previewEl.insertAdjacentElement("afterend", bottomRowEl);
             let controlsNeededWidth = 0;
             const relayout = () => {
                 if (pillEl.parentElement === controlsEl) {
