@@ -243,6 +243,9 @@ export class MultiPresetModal extends Modal {
     private attachToggle: ToggleComponent;
     private attachOptionEl: HTMLElement | null = null;
     private scheduleInput: HTMLInputElement | null = null;
+    // Classic-layout counterpart of the split rows' link-preview cycle button.
+    private linkPreviewOptionEl: HTMLElement | null = null;
+    private linkPreviewDropdown: DropdownComponent | null = null;
     // Guards programmatic preset-toggle changes so radio-style selection (only one
     // preset at a time) doesn't re-enter the toggle's own onChange handler.
     private updatingPresets = false;
@@ -372,6 +375,12 @@ export class MultiPresetModal extends Modal {
         this.attachToggle.setDisabled(anyRich);
         if (anyRich) this.attachToggle.setValue(false);
         this.attachOptionEl.toggleClass("is-disabled", anyRich);
+        // The link-preview dropdown shares the rich-method restriction, and edits don't
+        // support link-preview options at all. Its value survives disabling — the publish
+        // handler ignores it while disabled.
+        const linkPreviewDisabled = anyRich || this.anyLinkSelected();
+        this.linkPreviewDropdown?.setDisabled(linkPreviewDisabled);
+        this.linkPreviewOptionEl?.toggleClass("is-disabled", linkPreviewDisabled);
         // Rich Messages support neither caption positioning nor a message-level link
         // preview. The buttons grey out but KEEP their state (still shown as active),
         // so switching back to a supported method restores the user's choices;
@@ -392,6 +401,7 @@ export class MultiPresetModal extends Modal {
         this.silentOptionEl?.toggleClass("is-hidden", !editing);
         this.attachOptionEl?.toggleClass("is-hidden", !editing);
         this.scheduleOptionEl?.toggleClass("is-hidden", !editing);
+        this.linkPreviewOptionEl?.toggleClass("is-hidden", !editing);
     }
 
     // Selects a single preset (or none), enforcing radio-style behaviour: turning one on
@@ -1011,10 +1021,13 @@ export class MultiPresetModal extends Modal {
         const { contentEl, titleEl } = this;
         titleEl.setText(t.MULTI_PRESET_TITLE);
 
-        // The split layout activates when the note body carries `%% \split %%` markers.
+        // The split layout activates when the note body carries `%% \split %%` markers —
+        // or for any note when "Always show post preview" is on (the whole body then
+        // renders as a single previewed post).
         const noteContent = await this.app.vault.cachedRead(this.file);
         const noteBody = noteContent.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-        this.splitPosts = hasSplitMarkers(noteBody) ? parseSplitPosts(noteBody) : [];
+        this.splitPosts = hasSplitMarkers(noteBody) || this.plugin.settings.alwaysShowPostPreview
+            ? parseSplitPosts(noteBody) : [];
 
         const hasPresets = this.plugin.settings.channels.length > 0;
         const hasAuthors = this.plugin.settings.accounts.length > 0 || this.plugin.settings.botTokens.length > 0;
@@ -1140,6 +1153,18 @@ export class MultiPresetModal extends Modal {
         scheduleTextEl.createDiv({ text: t.MULTI_PRESET_SCHEDULE_DESC, cls: "telegram-option-desc" });
         this.scheduleInput = scheduleOptionEl.createDiv("telegram-option-control").createEl("input", { cls: "telegram-schedule-input" });
         this.scheduleInput.type = "datetime-local";
+
+        // Link-preview placement as a dropdown — the classic counterpart of the split
+        // rows' cycle button (default / above the text / disabled).
+        this.linkPreviewOptionEl = contentEl.createDiv("telegram-option-item");
+        const linkPreviewTextEl = this.linkPreviewOptionEl.createDiv("telegram-option-text");
+        linkPreviewTextEl.createDiv({ text: t.MULTI_PRESET_LINK_PREVIEW_NAME, cls: "telegram-option-name" });
+        linkPreviewTextEl.createDiv({ text: t.MULTI_PRESET_LINK_PREVIEW_DESC, cls: "telegram-option-desc" });
+        this.linkPreviewDropdown = new DropdownComponent(this.linkPreviewOptionEl.createDiv("telegram-option-control"));
+        this.linkPreviewDropdown.addOption("default", t.MULTI_PRESET_LINK_PREVIEW_OPT_DEFAULT);
+        this.linkPreviewDropdown.addOption("top", t.MULTI_PRESET_LINK_PREVIEW_OPT_TOP);
+        this.linkPreviewDropdown.addOption("off", t.MULTI_PRESET_LINK_PREVIEW_OPT_OFF);
+        this.linkPreviewDropdown.setValue("default");
 
         // Initial state now that all option elements exist.
         this.updateScheduleState();
@@ -1283,6 +1308,19 @@ export class MultiPresetModal extends Modal {
                         new Notice(t.MULTI_PRESET_SPLIT_NONE_SELECTED);
                         return;
                     }
+                    // Classic layout: a non-default link-preview choice from the dropdown
+                    // rides in as a single-part options entry (a classic fresh publish is
+                    // always a single part — split notes use the split layout instead).
+                    if (!partOptions && this.linkPreviewDropdown && !this.linkPreviewDropdown.selectEl.disabled) {
+                        const linkPreviewValue = this.linkPreviewDropdown.getValue();
+                        if (linkPreviewValue !== "default") {
+                            partOptions = [{
+                                selected: true, silent, attachUnderText, scheduleDate,
+                                linkPreviewAboveText: linkPreviewValue === "top",
+                                linkPreviewDisabled: linkPreviewValue === "off",
+                            }];
+                        }
+                    }
                 }
 
                 this.close();
@@ -1416,6 +1454,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             aliases: [
                 t.SECTION_GENERAL, t.SECTION_PRESETS, t.SETTING_ADD_CHANNEL_NAME,
                 t.SETTING_SAVE_POST_LINKS_NAME, t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME,
+                t.SETTING_ALWAYS_PREVIEW_NAME,
                 t.SETTING_ADD_PRESET, t.SETTING_FORMATTING_HELP,
                 t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
                 t.AUTH_MANAGE_CREDENTIALS_BTN,
@@ -1567,6 +1606,11 @@ export class TelegramSettingTab extends PluginSettingTab {
         new Setting(containerEl).setName(t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME).setDesc(t.SETTING_MD_EMBEDS_AS_COMMENTS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.treatMdEmbedsAsComments)
                 .onChange(async (v) => { this.plugin.settings.treatMdEmbedsAsComments = v; await this.plugin.saveSettings(); }))
+            .settingEl.addClass("telegram-bordered-setting");
+
+        new Setting(containerEl).setName(t.SETTING_ALWAYS_PREVIEW_NAME).setDesc(t.SETTING_ALWAYS_PREVIEW_DESC)
+            .addToggle(toggle => toggle.setValue(this.plugin.settings.alwaysShowPostPreview)
+                .onChange(async (v) => { this.plugin.settings.alwaysShowPostPreview = v; await this.plugin.saveSettings(); }))
             .settingEl.addClass("telegram-bordered-setting");
 
         // ── Presets ──

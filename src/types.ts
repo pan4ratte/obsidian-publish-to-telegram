@@ -72,6 +72,7 @@ export interface TelegramSettings {
     accounts: TelegramAccount[];
     savePostLinks: boolean;
     treatMdEmbedsAsComments: boolean;
+    alwaysShowPostPreview: boolean;   // show the per-post preview layout even for notes without split markers
     telegramDisplayName: string;
     dismissedChangelogVersion?: string;
     pendingScheduledLinks: PendingScheduledLink[];
@@ -89,6 +90,7 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
     accounts: [],
     savePostLinks: false,
     treatMdEmbedsAsComments: false,
+    alwaysShowPostPreview: false,
     telegramDisplayName: "",
     pendingScheduledLinks: [],
 }
