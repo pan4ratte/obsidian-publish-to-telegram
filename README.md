@@ -32,6 +32,7 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
   	* Post without sound.
   	* Post with attached media under the text.
     * Schedule the publication.
+    * Send the post when the recipient comes online.
     * Set publishing options for each split post separately.
     * Choose the link preview source, move the preview above the text or disable it.
     * Edit already existing posts or pre-written comments.
@@ -451,6 +452,8 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 * Post with attached media under the text.
 
 * Schedule the publication.
+
+* Send the post when the recipient comes online (only for the "Account" publishing methods).
 
 * Move the link preview above the text or disable it.
 

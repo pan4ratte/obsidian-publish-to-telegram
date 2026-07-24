@@ -374,6 +374,8 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
 * Schedule the publication.
 
+* Send the post when the recipient comes online (only for the "Account" publishing methods).
+
 * Move the link preview above the text or disable it.
 
 * Preview the posts before publishing. A preview is shown for every post:

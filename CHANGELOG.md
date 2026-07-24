@@ -1,12 +1,16 @@
 # Changelog
 
-## 5.4.0
+## 6.0.0
 
-### New features
+### Major update: post previews and settings
 
-* **Post previews and per-post settings.** The advanced publishing settings now show a preview of every post — one for a regular note, several for a note split with `\split` commands. Post settings are now displayed in a more compact form, and the send button selects which posts to publish (when there are several).
-* **Link preview controls.** Click a link in the preview window to make it the source of Telegram's link preview (Ctrl+Click opens the link). The resulting link preview is also shown in the post's preview window. The link preview can also be moved above the text or disabled. This update closes a feature request by @MrEfrill.
-* **New option "Always publish silently".** The toggle was added to the general plugin settings and makes all posts publish with a soundless notification by default, unless set otherwise in the advanced publishing settings. This update closes a feature request by @MrEfrill.
+The advanced publishing settings menu was significantly reworked: post previews were added, along with several new post settings, such as choosing the link that generates the preview of the post in Telegram:
+
+* **Previews and separate settings for every post.** The advanced publishing settings now show a preview of every post — one for a regular note and several for a note split into several posts with `\split` commands. Post settings are now displayed in a more compact form, and the send button lets you choose which posts to publish (when there are several).
+* **Link preview controls.** Click a link in the preview window to make it the source of Telegram's link preview (and Ctrl+Click opens the link). The resulting link preview is also loaded in the post's window. The link preview can be moved above the text or disabled entirely. This update closes a feature request by @MrEfrill.
+* **Pre-written comments preview.** Pre-written comments are also shown in the preview under their post in the advanced publishing settings.
+* **New post setting "Send when the recipient is online".** Available only for publishing methods that post as an account.
+* **New option "Always publish silently".** Lets you enable in the general plugin settings the publication of all posts with a soundless notification by default, unless set otherwise in the advanced publishing settings. This update closes a feature request by @MrEfrill.
 
 ### UI/UX enhancements and bug fixes
 
