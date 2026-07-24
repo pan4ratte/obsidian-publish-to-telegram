@@ -269,9 +269,21 @@ export class MultiPresetModal extends Modal {
         previewModeBtn: HTMLElement;
         updateLinkPreviewCard: () => void;
         linkPreviewUrl: string | null;
+        onlineOn: boolean;
+        scheduleValue: string;
         scheduleInput: HTMLInputElement;
         schedulePillEl: HTMLElement;
+        // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no
+        // active state, empty date) so the user isn't misled, but the underlying state
+        // survives and reappears when a supported method is picked again.
+        richBlocked: boolean;
+        schedBlocked: boolean;
+        applyRichState: () => void;
+        applySchedState: () => void;
     }> = [];
+    // One observer per previewed post, moving the date pill + send toggle to the overflow
+    // row under the preview when the settings row runs out of space.
+    private splitResizeObservers: ResizeObserver[] = [];
     private splitSectionEl: HTMLElement | null = null;
     // Scoped to the modal lifecycle so the preview MarkdownRenderer children unload on close.
     private readonly splitRenderComponent = new Component();
@@ -325,17 +337,16 @@ export class MultiPresetModal extends Modal {
         return methods;
     }
 
-    // Scheduling isn't supported by the Bot API, and editing an existing post/comment
-    // can't be scheduled either. The pills grey out but keep their value — switching back
-    // to a supported method restores the schedule exactly as the user set it;
-    // collectSplitPartOptions() skips the value while the input is disabled.
+    // Scheduling and "send when online" aren't supported by the Bot API, and editing an
+    // existing post/comment can't use either. The controls grey out and visually reset,
+    // but the stored state survives — switching back to a supported method restores it.
     private updateScheduleState() {
         const methods = this.activeMethods();
         const allBot = methods.length > 0 && methods.every(m => !isAccountMethod(m));
         const disabled = allBot || this.anyLinkSelected();
         for (const row of this.splitRows) {
-            row.scheduleInput.disabled = disabled;
-            row.schedulePillEl.toggleClass("is-disabled", disabled);
+            row.schedBlocked = disabled;
+            row.applySchedState();
         }
     }
 
@@ -349,12 +360,11 @@ export class MultiPresetModal extends Modal {
         if (anyRich) this.attachToggle.setValue(false);
         this.attachOptionEl.toggleClass("is-disabled", anyRich);
         // Rich Messages support neither caption positioning nor a message-level link
-        // preview. The buttons grey out but KEEP their state (still shown as active),
-        // so switching back to a supported method restores the user's choices;
-        // collectSplitPartOptions() ignores them while disabled.
+        // preview. The buttons grey out and visually reset, but their state survives —
+        // switching back to a supported method restores the user's choices.
         for (const row of this.splitRows) {
-            row.attachBtn.toggleClass("is-disabled", anyRich);
-            row.previewModeBtn.toggleClass("is-disabled", anyRich);
+            row.richBlocked = anyRich;
+            row.applyRichState();
         }
     }
 
@@ -791,8 +801,14 @@ export class MultiPresetModal extends Modal {
                 previewModeBtn: null as unknown as HTMLElement,
                 updateLinkPreviewCard: () => {},
                 linkPreviewUrl: null as string | null,
+                onlineOn: false,
+                scheduleValue: "",
                 scheduleInput: null as unknown as HTMLInputElement,
                 schedulePillEl: null as unknown as HTMLElement,
+                richBlocked: false,
+                schedBlocked: false,
+                applyRichState: () => {},
+                applySchedState: () => {},
             };
 
             // ── Per-post settings row ──
@@ -813,21 +829,24 @@ export class MultiPresetModal extends Modal {
             const attachBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
             setIcon(attachBtn, "image-down");
             setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
+            const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked);
             attachBtn.addEventListener("click", () => {
                 row.attachOn = !row.attachOn;
-                attachBtn.toggleClass("is-active", row.attachOn);
+                applyAttach();
             });
             row.attachBtn = attachBtn;
 
             // Link-preview placement, cycling through three states: default (Telegram's
             // automatic placement) → preview above the text → preview disabled entirely.
+            // While a rich method blocks the option, the button shows the default state.
             const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
             const applyPreviewMode = () => {
-                setIcon(previewModeBtn, row.previewMode === "off" ? "link-2-off" : "panel-top-close");
-                setTooltip(previewModeBtn, row.previewMode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
-                    : row.previewMode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
+                const mode = row.richBlocked ? "default" : row.previewMode;
+                setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
+                setTooltip(previewModeBtn, mode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
+                    : mode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
                     : t.MULTI_PRESET_SPLIT_PREVIEW_DEFAULT);
-                previewModeBtn.toggleClass("is-active", row.previewMode !== "default");
+                previewModeBtn.toggleClass("is-active", mode !== "default");
                 // The in-preview card mirrors the mode (placement / hidden); late-bound —
                 // it's a noop until the preview block below is built.
                 row.updateLinkPreviewCard();
@@ -839,6 +858,14 @@ export class MultiPresetModal extends Modal {
             });
             row.previewModeBtn = previewModeBtn;
 
+            // "Send when online": Telegram delivers once the recipient comes online.
+            // Rides the same schedule slot as a date, so the two are mutually exclusive,
+            // and it shares scheduling's method restrictions (account methods only).
+            const onlineBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+            setIcon(onlineBtn, "wifi");
+            setTooltip(onlineBtn, t.MULTI_PRESET_SPLIT_ONLINE_TIP);
+            const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked);
+
             const pillEl = controlsEl.createDiv("telegram-split-schedule-pill");
             setTooltip(pillEl, t.MULTI_PRESET_SCHEDULE_NAME);
             const scheduleInput = pillEl.createEl("input", { cls: "telegram-split-schedule-input" });
@@ -846,17 +873,52 @@ export class MultiPresetModal extends Modal {
             row.scheduleInput = scheduleInput;
             row.schedulePillEl = pillEl;
 
+            // row.scheduleValue is authoritative; the input is just its view, so the value
+            // can be visually cleared while a conflicting method blocks scheduling and
+            // restored intact when a supported method returns.
+            scheduleInput.addEventListener("input", () => {
+                row.scheduleValue = scheduleInput.value;
+                if (scheduleInput.value && row.onlineOn) {
+                    row.onlineOn = false;
+                    applyOnline();
+                }
+            });
+            onlineBtn.addEventListener("click", () => {
+                row.onlineOn = !row.onlineOn;
+                // Choosing "when online" discards a picked date (and vice versa).
+                if (row.onlineOn) {
+                    row.scheduleValue = "";
+                    scheduleInput.value = "";
+                }
+                applyOnline();
+            });
+
+            row.applyRichState = () => {
+                attachBtn.toggleClass("is-disabled", row.richBlocked);
+                previewModeBtn.toggleClass("is-disabled", row.richBlocked);
+                applyAttach();
+                applyPreviewMode();
+            };
+            row.applySchedState = () => {
+                onlineBtn.toggleClass("is-disabled", row.schedBlocked);
+                pillEl.toggleClass("is-disabled", row.schedBlocked);
+                scheduleInput.disabled = row.schedBlocked;
+                scheduleInput.value = row.schedBlocked ? "" : row.scheduleValue;
+                applyOnline();
+            };
+
             // Send toggle, pinned to the right end of the row. Only offered when the note
             // splits into several posts — a single previewed post always publishes.
+            let sendBtn: HTMLElement | null = null;
             if (this.splitPosts.length > 1) {
-                const sendBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn telegram-split-send-btn", attr: { type: "button" } });
+                sendBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn telegram-split-send-btn", attr: { type: "button" } });
                 setIcon(sendBtn, "send-horizontal");
                 setTooltip(sendBtn, t.MULTI_PRESET_SPLIT_SEND_TIP);
                 // A marker that already records links means this part was published before.
                 sendBtn.toggleClass("is-active", row.selectedOn);
                 sendBtn.addEventListener("click", () => {
                     row.selectedOn = !row.selectedOn;
-                    sendBtn.toggleClass("is-active", row.selectedOn);
+                    sendBtn?.toggleClass("is-active", row.selectedOn);
                 });
             }
 
@@ -903,8 +965,11 @@ export class MultiPresetModal extends Modal {
                     }
                     return null;
                 };
+                // While a rich method blocks link-preview options the card shows the
+                // default behaviour, matching the visually reset mode button.
+                const mode = row.richBlocked ? "default" : row.previewMode;
                 const url = row.linkPreviewUrl ?? autoUrl();
-                if (!url || row.previewMode === "off") {
+                if (!url || mode === "off") {
                     linkCardEl.addClass("is-hidden");
                     window.requestAnimationFrame(refreshExpand);
                     return;
@@ -912,7 +977,7 @@ export class MultiPresetModal extends Modal {
                 linkCardEl.removeClass("is-hidden");
                 // In the text flow: first child of the content in "top" mode, last otherwise —
                 // so it scrolls (and clamps) together with the text.
-                if (row.previewMode === "top") previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
+                if (mode === "top") previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
                 else previewContentEl.appendChild(linkCardEl);
                 window.requestAnimationFrame(refreshExpand);
                 if (cardUrl === url) return;
@@ -966,6 +1031,29 @@ export class MultiPresetModal extends Modal {
                     refreshExpand();
                 }));
 
+            // ── Overflow row ──
+            // When the settings row can't fit everything, the date pill and the send toggle
+            // relocate to their own row under the preview, and move back once space returns.
+            // The width the full row needs is captured at the moment it first overflows.
+            const bottomRowEl = postEl.createDiv("telegram-split-controls telegram-split-controls--bottom");
+            let controlsNeededWidth = 0;
+            const relayout = () => {
+                if (pillEl.parentElement === controlsEl) {
+                    if (controlsEl.scrollWidth > controlsEl.clientWidth + 1) {
+                        controlsNeededWidth = controlsEl.scrollWidth;
+                        bottomRowEl.appendChild(pillEl);
+                        if (sendBtn) bottomRowEl.appendChild(sendBtn);
+                    }
+                } else if (controlsNeededWidth > 0 && controlsEl.clientWidth >= controlsNeededWidth) {
+                    controlsEl.appendChild(pillEl);
+                    if (sendBtn) controlsEl.appendChild(sendBtn);
+                }
+            };
+            window.requestAnimationFrame(relayout);
+            const resizeObserver = new ResizeObserver(() => relayout());
+            resizeObserver.observe(postEl);
+            this.splitResizeObservers.push(resizeObserver);
+
             this.splitRows.push(row);
         }
     }
@@ -973,22 +1061,19 @@ export class MultiPresetModal extends Modal {
     // The per-part options to publish with, or undefined when the split layout isn't active.
     private collectSplitPartOptions(): SplitPartOptions[] | undefined {
         if (this.splitRows.length === 0) return undefined;
-        // A control disabled by the chosen method keeps its stored state for the UI but must
+        // A control blocked by the chosen method keeps its stored state internally but must
         // not affect the publish — collect it as unset instead.
-        return this.splitRows.map(row => {
-            const attachUsable = !row.attachBtn.hasClass("is-disabled");
-            const previewUsable = !row.previewModeBtn.hasClass("is-disabled");
-            return {
-                selected: row.selectedOn,
-                silent: row.silentOn,
-                attachUnderText: attachUsable && row.attachOn,
-                scheduleDate: row.scheduleInput.value && !row.scheduleInput.disabled
-                    ? new Date(row.scheduleInput.value) : undefined,
-                linkPreviewUrl: previewUsable ? row.linkPreviewUrl ?? undefined : undefined,
-                linkPreviewAboveText: previewUsable && row.previewMode === "top",
-                linkPreviewDisabled: previewUsable && row.previewMode === "off",
-            };
-        });
+        return this.splitRows.map(row => ({
+            selected: row.selectedOn,
+            silent: row.silentOn,
+            attachUnderText: !row.richBlocked && row.attachOn,
+            scheduleDate: !row.schedBlocked && !row.onlineOn && row.scheduleValue
+                ? new Date(row.scheduleValue) : undefined,
+            sendWhenOnline: !row.schedBlocked && row.onlineOn,
+            linkPreviewUrl: !row.richBlocked ? row.linkPreviewUrl ?? undefined : undefined,
+            linkPreviewAboveText: !row.richBlocked && row.previewMode === "top",
+            linkPreviewDisabled: !row.richBlocked && row.previewMode === "off",
+        }));
     }
 
     async onOpen() {
@@ -1306,6 +1391,8 @@ export class MultiPresetModal extends Modal {
     }
 
     onClose() {
+        this.splitResizeObservers.forEach(observer => observer.disconnect());
+        this.splitResizeObservers = [];
         this.splitRenderComponent.unload();
         this.contentEl.empty();
     }

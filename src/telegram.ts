@@ -563,7 +563,7 @@ async function sendPartViaAccount(
     sourceFile: TFile,
     treatMdEmbedsAsComments: boolean,
     postAsRich: boolean,
-    scheduleDate?: Date,
+    scheduleDate?: Date | "online",
     onProgress?: () => void,
     linkPreviewUrl?: string,
     linkPreviewAboveText?: boolean,
@@ -679,8 +679,9 @@ async function sendPartViaAccount(
     }
 
     // For scheduled posts the link built above points at the scheduled-queue id, not the
-    // eventual published id. Record what we need to resolve it later.
-    if (scheduleDate && result && firstMsg) {
+    // eventual published id. Record what we need to resolve it later. A "send when online"
+    // post is excluded: its real send time is unknowable, so its link can't be resolved.
+    if (scheduleDate && scheduleDate !== "online" && result && firstMsg) {
         result.scheduled = {
             chatId: channel.chatId,
             topicId,
@@ -842,7 +843,10 @@ export async function sendNoteToTelegram(
             // let each part carry its own silent/attachments/schedule values.
             const opts = partOptions?.[i];
             if (opts && !opts.selected) continue;
-            const partSchedule = opts ? opts.scheduleDate : scheduleDate;
+            // "Send when online" rides the schedule slot (mtcute accepts the literal "online").
+            const partSchedule: Date | "online" | undefined = opts
+                ? (opts.sendWhenOnline ? "online" : opts.scheduleDate)
+                : scheduleDate;
             try {
                 const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled);
                 if (result) {

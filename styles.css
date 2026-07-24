@@ -798,12 +798,23 @@ body .telegram-auth-submit:disabled {
     overflow: hidden;
 }
 
+/* No wrapping: when the row overflows, the date pill and send toggle relocate to the
+   --bottom row under the preview instead (see the modal's per-post ResizeObserver). */
 .telegram-split-controls {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 12px 12px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow: hidden;
+}
+
+.telegram-split-controls--bottom {
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.telegram-split-controls--bottom:empty {
+    display: none;
 }
 
 body .telegram-split-send-btn {

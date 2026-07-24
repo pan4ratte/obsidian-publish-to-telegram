@@ -48,6 +48,7 @@ export interface SplitPartOptions {
     silent: boolean;
     attachUnderText: boolean;
     scheduleDate?: Date;            // account methods only; bot methods can't schedule
+    sendWhenOnline?: boolean;       // account methods only: deliver when the recipient comes online (wins over scheduleDate)
     linkPreviewUrl?: string;        // URL whose link preview the post should render (classic text-only posts)
     linkPreviewAboveText?: boolean; // render the link preview above the post text
     linkPreviewDisabled?: boolean;  // suppress the link preview entirely (wins over the two above)

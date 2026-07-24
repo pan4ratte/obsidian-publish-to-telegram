@@ -90,6 +90,7 @@ export default {
     MULTI_PRESET_ATTACHMENTS_DESC: "Отображать текст сообщения над прикреплёнными медиафайлами",
     MULTI_PRESET_SCHEDULE_NAME: "Запланировать публикацию",
     MULTI_PRESET_SPLIT_SEND_TIP: "Опубликовать этот пост",
+    MULTI_PRESET_SPLIT_ONLINE_TIP: "Отправить, когда получатель появится в сети",
     MULTI_PRESET_SPLIT_PREVIEW_DEFAULT: "Предпросмотр ссылки: по умолчанию",
     MULTI_PRESET_SPLIT_PREVIEW_TOP: "Предпросмотр ссылки над текстом",
     MULTI_PRESET_SPLIT_PREVIEW_OFF: "Предпросмотр ссылки отключён",
