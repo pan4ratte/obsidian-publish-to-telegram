@@ -897,7 +897,7 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     position: relative;
     min-width: 0;
     border-top: 1px solid var(--background-modifier-border);
-    padding: 6px 12px 24px;
+    padding: 16px 16px 0px 16px;
     background-color: var(--background-primary);
 }
 
@@ -906,7 +906,7 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
 }
 
 .telegram-split-preview-content {
-    max-height: calc(3em * var(--line-height-normal, 1.5));
+    max-height: calc(4.5em * var(--line-height-normal, 1.5));
     overflow: hidden;
 }
 
