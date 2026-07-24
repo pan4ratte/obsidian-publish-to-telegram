@@ -5,7 +5,7 @@
 Данный плагин позволяет публиковать ваши заметки напрямую в каналы, группы и личные сообщения в Telegram c разными пресетами. Поддерживается стандартное форматирование Telegram, rich-text форматирование, а также вложения медиа и документов. Расширенные настройки публикации позволяют делать запланированные посты, редактировать посты и комментарии, и не только.
 
 <div align="center">
-  <img src="media/1-cover.png"width="100%" /> <img src="media/2-general.png"width="32%" /> <img src="media/3-presets.png"width="32%" /> <img src="media/4-advanced.png"width="32%" />
+  <img src="media/1-cover.png"width="100%" />
 </div>
 
 <div align="center">
