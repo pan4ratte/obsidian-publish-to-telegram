@@ -272,7 +272,6 @@ export class MultiPresetModal extends Modal {
         attachBtn: HTMLElement;
         previewMode: "default" | "top" | "off";
         previewModeBtn: HTMLElement;
-        applyPreviewMode: () => void;
         updateLinkPreviewCard: () => void;
         linkPreviewUrl: string | null;
         scheduleInput: HTMLInputElement;
@@ -343,9 +342,12 @@ export class MultiPresetModal extends Modal {
         this.scheduleInput.disabled = disabled;
         if (disabled) this.scheduleInput.value = "";
         this.scheduleOptionEl.toggleClass("is-disabled", disabled);
+        // Split rows keep their value while disabled (unlike the classic row above): picking
+        // an unsupported method greys the pill out, but switching back to a supported one
+        // restores the schedule exactly as the user set it. collectSplitPartOptions() skips
+        // the value while the input is disabled.
         for (const row of this.splitRows) {
             row.scheduleInput.disabled = disabled;
-            if (disabled) row.scheduleInput.value = "";
             row.schedulePillEl.toggleClass("is-disabled", disabled);
         }
     }
@@ -370,17 +372,13 @@ export class MultiPresetModal extends Modal {
         this.attachToggle.setDisabled(anyRich);
         if (anyRich) this.attachToggle.setValue(false);
         this.attachOptionEl.toggleClass("is-disabled", anyRich);
+        // Rich Messages support neither caption positioning nor a message-level link
+        // preview. The buttons grey out but KEEP their state (still shown as active),
+        // so switching back to a supported method restores the user's choices;
+        // collectSplitPartOptions() ignores them while disabled.
         for (const row of this.splitRows) {
             row.attachBtn.toggleClass("is-disabled", anyRich);
-            // Link-preview placement doesn't apply to Rich Messages either — their web
-            // embeds live inside the markdown, not as a message-level preview.
             row.previewModeBtn.toggleClass("is-disabled", anyRich);
-            if (anyRich) {
-                row.attachOn = false;
-                row.attachBtn.removeClass("is-active");
-                row.previewMode = "default";
-                row.applyPreviewMode();
-            }
         }
     }
 
@@ -813,7 +811,6 @@ export class MultiPresetModal extends Modal {
                 attachBtn: null as unknown as HTMLElement,
                 previewMode: "default" as "default" | "top" | "off",
                 previewModeBtn: null as unknown as HTMLElement,
-                applyPreviewMode: () => {},
                 updateLinkPreviewCard: () => {},
                 linkPreviewUrl: null as string | null,
                 scheduleInput: null as unknown as HTMLInputElement,
@@ -860,7 +857,6 @@ export class MultiPresetModal extends Modal {
                 applyPreviewMode();
             });
             row.previewModeBtn = previewModeBtn;
-            row.applyPreviewMode = applyPreviewMode;
 
             const pillEl = controlsEl.createDiv("telegram-split-schedule-pill");
             setTooltip(pillEl, t.MULTI_PRESET_SCHEDULE_NAME);
@@ -993,16 +989,22 @@ export class MultiPresetModal extends Modal {
     // The per-part options to publish with, or undefined when the split layout isn't active.
     private collectSplitPartOptions(): SplitPartOptions[] | undefined {
         if (this.splitRows.length === 0) return undefined;
-        return this.splitRows.map(row => ({
-            selected: row.selectedOn,
-            silent: row.silentOn,
-            attachUnderText: row.attachOn,
-            scheduleDate: row.scheduleInput.value && !row.scheduleInput.disabled
-                ? new Date(row.scheduleInput.value) : undefined,
-            linkPreviewUrl: row.linkPreviewUrl ?? undefined,
-            linkPreviewAboveText: row.previewMode === "top",
-            linkPreviewDisabled: row.previewMode === "off",
-        }));
+        // A control disabled by the chosen method keeps its stored state for the UI but must
+        // not affect the publish — collect it as unset instead.
+        return this.splitRows.map(row => {
+            const attachUsable = !row.attachBtn.hasClass("is-disabled");
+            const previewUsable = !row.previewModeBtn.hasClass("is-disabled");
+            return {
+                selected: row.selectedOn,
+                silent: row.silentOn,
+                attachUnderText: attachUsable && row.attachOn,
+                scheduleDate: row.scheduleInput.value && !row.scheduleInput.disabled
+                    ? new Date(row.scheduleInput.value) : undefined,
+                linkPreviewUrl: previewUsable ? row.linkPreviewUrl ?? undefined : undefined,
+                linkPreviewAboveText: previewUsable && row.previewMode === "top",
+                linkPreviewDisabled: previewUsable && row.previewMode === "off",
+            };
+        });
     }
 
     async onOpen() {
