@@ -170,7 +170,8 @@ export class EmojiPicker {
         // Custom emoji previews are fetched only for the tiles in (or near) view — a pack
         // can hold hundreds, and each preview is a round trip.
         if (this.thumbnails) {
-            this.thumbnails.onUpdate = ids => this.applyPreviews(ids);
+            // Previews arriving late (or loaded by the editor) fill the tiles in.
+            this.detach.push(this.thumbnails.subscribe(ids => this.applyPreviews(ids)));
             this.thumbObserver = new IntersectionObserver(entries => {
                 const ids: string[] = [];
                 for (const entry of entries) {
@@ -236,8 +237,8 @@ export class EmojiPicker {
         this.detach = [];
         this.thumbObserver?.disconnect();
         this.thumbObserver = null;
-        // Closes the custom-emoji connection; the previews already downloaded stay cached.
-        this.thumbnails?.dispose();
+        // The preview loader is shared with the inline renderers and outlives the panel; it
+        // drops its own connection once it goes idle.
         this.panelEl.remove();
         if (refocus) this.editor.focus();
     }

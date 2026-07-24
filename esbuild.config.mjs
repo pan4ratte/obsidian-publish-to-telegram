@@ -25,7 +25,15 @@ const nodeStubPlugin = {
 const context = await esbuild.context({
     entryPoints: ["main.ts"],
     bundle: true,
-    external: ["obsidian"],
+    // Obsidian provides these at runtime. CodeMirror in particular MUST stay external:
+    // bundling a second copy would give the editor extension its own state/view classes,
+    // which the running editor doesn't recognise.
+    external: [
+        "obsidian", "electron",
+        "@codemirror/state", "@codemirror/view", "@codemirror/language",
+        "@codemirror/commands", "@codemirror/search", "@codemirror/autocomplete",
+        "@lezer/common", "@lezer/highlight", "@lezer/lr",
+    ],
     format: "cjs",
     platform: "browser",
     // mtcute's crypto wasm is embedded via the ".wasm" binary loader (below). Without an

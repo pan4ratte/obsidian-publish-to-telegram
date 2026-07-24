@@ -14,6 +14,9 @@
   "license": "AGPL-3.0",
   "type": "commonjs",
   "devDependencies": {
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.38.6",
     "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.4.1",

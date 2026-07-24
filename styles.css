@@ -1455,3 +1455,24 @@ body .telegram-changelog-close:hover {
     font-size: var(--font-ui-small);
     color: var(--text-muted);
 }
+
+/* Custom emoji drawn inline in the editor and in rendered notes, in place of the
+   `[👍](tg://emoji?id=…)` reference. Sized to the surrounding text so a line of them keeps
+   its normal height. */
+.telegram-inline-emoji {
+    display: inline-block;
+    vertical-align: text-bottom;
+    line-height: 1;
+}
+
+.telegram-inline-emoji img,
+.telegram-inline-emoji video {
+    width: 1.25em;
+    height: 1.25em;
+    object-fit: contain;
+    vertical-align: text-bottom;
+}
+
+.telegram-inline-emoji.is-placeholder img {
+    opacity: 0.75;
+}

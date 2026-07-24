@@ -99,11 +99,11 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<v
 export class CustomEmojiThumbnails {
     private static previews = new Map<string, CustomEmojiPreview>();
 
-    // Set by the picker: called whenever previews for these ids become available, so tiles
-    // fill in as they arrive (outlines first, artwork as each download lands).
-    onUpdate: (ids: string[]) => void = () => {};
+    // Notified whenever previews for these ids become available, so everything showing them
+    // (picker tiles, editor decorations) fills in as they arrive.
+    private readonly listeners = new Set<(ids: string[]) => void>();
 
-    private readonly secrets: TelegramSecrets;
+    private readonly secrets: TelegramSecrets | null;
     private readonly store: PreviewStore | null;
     private client: Promise<TelegramClient> | null = null;
     // Downloads are bursty (a screenful at a time) and Telegram drops an idle connection
@@ -115,9 +115,21 @@ export class CustomEmojiThumbnails {
     private pending = new Map<string, Promise<void>>();
     private disposed = false;
 
-    constructor(secrets: TelegramSecrets, store: PreviewStore | null = null) {
+    // `secrets` is null when no account is authorized: previews then come from the on-disk
+    // cache only, and nothing is downloaded.
+    constructor(secrets: TelegramSecrets | null, store: PreviewStore | null = null) {
         this.secrets = secrets;
         this.store = store;
+    }
+
+    // Registers a listener; the returned function removes it again.
+    subscribe(listener: (ids: string[]) => void): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    private onUpdate(ids: string[]): void {
+        for (const listener of this.listeners) listener(ids);
     }
 
     // The preview already downloaded for this emoji, if any.
@@ -155,7 +167,9 @@ export class CustomEmojiThumbnails {
             if (restored.length > 0) this.onUpdate(restored);
         } else wanted.push(...missing);
 
-        if (wanted.length > 0) {
+        // Downloading needs an authorized account; without one the on-disk cache is all
+        // there is, and the rest keep their fallback emoji.
+        if (wanted.length > 0 && this.secrets) {
             const batch = this.fetchBatch(wanted);
             for (const id of wanted) this.pending.set(id, batch);
         }
@@ -270,7 +284,9 @@ export class CustomEmojiThumbnails {
 
     private getClient(): Promise<TelegramClient> {
         if (!this.client) {
-            this.client = createClient(this.secrets.telegramSession, this.secrets.telegramApiId, this.secrets.telegramApiHash);
+            const secrets = this.secrets;
+            if (!secrets) return Promise.reject(new Error("No authorized account"));
+            this.client = createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
         }
         return this.client;
     }

@@ -89,6 +89,12 @@ export function escHtml(s: string): string {
 // in Obsidian) and whose target carries the custom emoji's document id.
 const CUSTOM_EMOJI_REF = /\[([^\]]+)\]\(tg:\/\/emoji\?id=(\d+)\)/g;
 
+// A fresh matcher for callers that scan text themselves (the editor renderers), so nobody
+// shares this module's `lastIndex`.
+export function customEmojiRefRegex(): RegExp {
+    return new RegExp(CUSTOM_EMOJI_REF.source, "g");
+}
+
 // Writes that reference (used by the emoji picker when inserting a custom emoji).
 export function customEmojiRef(alt: string, id: string): string {
     return `[${alt}](tg://emoji?id=${id})`;

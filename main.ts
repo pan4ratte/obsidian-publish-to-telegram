@@ -5,6 +5,7 @@ import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, r
 import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
 import { CustomEmojiThumbnails, PreviewStore, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
 import { hasCustomEmoji } from "./src/markdown";
+import { customEmojiEditorExtension, customEmojiPostProcessor, refreshInlineEmoji } from "./src/emoji-inline";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
@@ -88,6 +89,11 @@ export default class SendToTelegramPlugin extends Plugin {
         );
 
         this.registerEditorMenu();
+
+        // Custom emoji picked from the bar are stored as `[👍](tg://emoji?id=…)`; draw them
+        // as the real artwork in the editor and in rendered notes.
+        this.registerEditorExtension(customEmojiEditorExtension(() => this.customEmojiPreviews()));
+        this.registerMarkdownPostProcessor(customEmojiPostProcessor(() => this.customEmojiPreviews()));
 
         // The emoji bar lives on document.body, outside any leaf — make sure it goes away
         // with the plugin (disable / reload) instead of being orphaned there, and release
@@ -189,7 +195,7 @@ export default class SendToTelegramPlugin extends Plugin {
             inserted => void this.rememberEmoji(inserted),
             {
                 sets: hasAccount ? this.settings.customEmojiSets ?? [] : [],
-                thumbnails: hasAccount ? new CustomEmojiThumbnails(secrets, this.emojiPreviewStore()) : null,
+                thumbnails: this.customEmojiPreviews(),
             },
         );
         picker.open();
@@ -199,6 +205,24 @@ export default class SendToTelegramPlugin extends Plugin {
         if (hasAccount && Date.now() - fetchedAt > CUSTOM_EMOJI_TTL) {
             void this.refreshCustomEmojiSets(secrets, picker);
         }
+    }
+
+    // One preview loader for the whole plugin: the picker's tiles and the custom emoji
+    // rendered inline in notes share its cache, its disk store and its single connection.
+    private previews: CustomEmojiThumbnails | null = null;
+    private customEmojiPreviews(): CustomEmojiThumbnails {
+        if (!this.previews) {
+            const secrets = this.getAccountSecrets();
+            const loader = new CustomEmojiThumbnails(
+                isValidAccountSession(secrets.telegramSession) ? secrets : null,
+                this.emojiPreviewStore(),
+            );
+            // Artwork that arrives late is drawn into whatever is already on screen.
+            this.register(loader.subscribe(ids => refreshInlineEmoji(ids, loader)));
+            this.register(() => loader.dispose());
+            this.previews = loader;
+        }
+        return this.previews;
     }
 
     // Downloaded custom emoji previews live in the plugin's own folder, so a pack only ever
