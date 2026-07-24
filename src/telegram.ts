@@ -565,6 +565,9 @@ async function sendPartViaAccount(
     postAsRich: boolean,
     scheduleDate?: Date,
     onProgress?: () => void,
+    linkPreviewUrl?: string,
+    linkPreviewAboveText?: boolean,
+    linkPreviewDisabled?: boolean,
 ): Promise<SendResult | null> {
     const text = mdToTelegramHtml(body);
     const { attachments, mdEmbeds } = collectMediaFiles(app, body, sourceFile);
@@ -661,7 +664,15 @@ async function sendPartViaAccount(
 
         // ── Text-only (no media consumed the caption) ─────────────────────────
         if (!captionConsumed && text.length > 0) {
-            const msg = await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId });
+            // A chosen link-preview source is sent as webpage media carrying the text as its
+            // caption — that's how MTProto pins the preview to a specific URL. Otherwise plain
+            // text goes out with invertMedia optionally lifting the auto preview above it.
+            // Disabling the preview wins over both.
+            const msg = linkPreviewDisabled
+                ? await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId, disableWebPreview: true })
+                : linkPreviewUrl
+                    ? await client.sendMedia(peer, InputMedia.webpage(linkPreviewUrl, { caption: htmlText(text) }), { invert: linkPreviewAboveText, silent, schedule: scheduleDate, threadId })
+                    : await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId, invertMedia: linkPreviewAboveText });
             result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
             if (!firstMsg) firstMsg = msg;
         }
@@ -833,7 +844,7 @@ export async function sendNoteToTelegram(
             if (opts && !opts.selected) continue;
             const partSchedule = opts ? opts.scheduleDate : scheduleDate;
             try {
-                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress);
+                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled);
                 if (result) {
                     // A scheduled part's link points at the scheduled queue, not a real post —
                     // it's resolved later via the scheduled task instead of being recorded now.

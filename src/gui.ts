@@ -266,6 +266,10 @@ export class MultiPresetModal extends Modal {
         silentOn: boolean;
         attachOn: boolean;
         attachBtn: HTMLElement;
+        previewMode: "default" | "top" | "off";
+        previewModeBtn: HTMLElement;
+        applyPreviewMode: () => void;
+        linkPreviewUrl: string | null;
         scheduleInput: HTMLInputElement;
         schedulePillEl: HTMLElement;
     }> = [];
@@ -361,9 +365,14 @@ export class MultiPresetModal extends Modal {
         this.attachOptionEl.toggleClass("is-disabled", anyRich);
         for (const row of this.splitRows) {
             row.attachBtn.toggleClass("is-disabled", anyRich);
+            // Link-preview placement doesn't apply to Rich Messages either — their web
+            // embeds live inside the markdown, not as a message-level preview.
+            row.previewModeBtn.toggleClass("is-disabled", anyRich);
             if (anyRich) {
                 row.attachOn = false;
                 row.attachBtn.removeClass("is-active");
+                row.previewMode = "default";
+                row.applyPreviewMode();
             }
         }
     }
@@ -767,6 +776,10 @@ export class MultiPresetModal extends Modal {
                 silentOn: false,
                 attachOn: false,
                 attachBtn: null as unknown as HTMLElement,
+                previewMode: "default" as "default" | "top" | "off",
+                previewModeBtn: null as unknown as HTMLElement,
+                applyPreviewMode: () => {},
+                linkPreviewUrl: null as string | null,
                 scheduleInput: null as unknown as HTMLInputElement,
                 schedulePillEl: null as unknown as HTMLElement,
             };
@@ -791,6 +804,24 @@ export class MultiPresetModal extends Modal {
                 attachBtn.toggleClass("is-active", row.attachOn);
             });
             row.attachBtn = attachBtn;
+
+            // Link-preview placement, cycling through three states: default (Telegram's
+            // automatic placement) → preview above the text → preview disabled entirely.
+            const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+            const applyPreviewMode = () => {
+                setIcon(previewModeBtn, row.previewMode === "off" ? "unlink" : "panel-top-close");
+                setTooltip(previewModeBtn, row.previewMode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
+                    : row.previewMode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
+                    : t.MULTI_PRESET_SPLIT_PREVIEW_DEFAULT);
+                previewModeBtn.toggleClass("is-active", row.previewMode !== "default");
+            };
+            applyPreviewMode();
+            previewModeBtn.addEventListener("click", () => {
+                row.previewMode = row.previewMode === "default" ? "top" : row.previewMode === "top" ? "off" : "default";
+                applyPreviewMode();
+            });
+            row.previewModeBtn = previewModeBtn;
+            row.applyPreviewMode = applyPreviewMode;
 
             const pillEl = controlsEl.createDiv("telegram-split-schedule-pill");
             setTooltip(pillEl, t.MULTI_PRESET_SCHEDULE_NAME);
@@ -825,8 +856,31 @@ export class MultiPresetModal extends Modal {
                 setIcon(expandBtn, expanded ? "chevron-up" : "chevron-down");
                 setTooltip(expandBtn, expanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
             });
+            // Clicking a web link chooses it as the post's link-preview source (clicking the
+            // chosen one again clears the choice); Ctrl/Cmd+Click keeps the normal behaviour
+            // of opening the link. Capture phase so the anchor's own handlers never fire.
+            previewContentEl.addEventListener("click", (e: MouseEvent) => {
+                const anchor = (e.target as HTMLElement).closest("a");
+                if (!anchor || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
+                if (e.ctrlKey || e.metaKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const current = previewContentEl.querySelector("a.is-preview-source");
+                current?.removeClass("is-preview-source");
+                if (current === anchor) {
+                    row.linkPreviewUrl = null;
+                } else {
+                    anchor.addClass("is-preview-source");
+                    row.linkPreviewUrl = anchor.getAttribute("href");
+                }
+            }, { capture: true });
+
             void MarkdownRenderer.render(this.app, post.content, previewContentEl, this.file.path, this.splitRenderComponent)
                 .then(() => window.requestAnimationFrame(() => {
+                    // Explain the click behaviour on every selectable web link.
+                    previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
+                        if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.MULTI_PRESET_SPLIT_LINK_TIP);
+                    });
                     // Nothing clipped by the three-line clamp — the expand control is pointless.
                     if (previewContentEl.scrollHeight <= previewContentEl.clientHeight + 1) {
                         expandBtn.hide();
@@ -847,6 +901,9 @@ export class MultiPresetModal extends Modal {
             attachUnderText: row.attachOn,
             scheduleDate: row.scheduleInput.value && !row.scheduleInput.disabled
                 ? new Date(row.scheduleInput.value) : undefined,
+            linkPreviewUrl: row.linkPreviewUrl ?? undefined,
+            linkPreviewAboveText: row.previewMode === "top",
+            linkPreviewDisabled: row.previewMode === "off",
         }));
     }
 

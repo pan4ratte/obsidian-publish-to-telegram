@@ -910,6 +910,13 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     overflow: hidden;
 }
 
+/* The link chosen as the post's link-preview source. */
+body .telegram-split-preview-content a.is-preview-source {
+    background-color: var(--text-highlight-bg);
+    border-radius: var(--radius-s);
+    padding: 0 2px;
+}
+
 .telegram-split-preview-content > :first-child {
     margin-top: 0;
 }

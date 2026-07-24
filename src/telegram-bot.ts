@@ -203,11 +203,21 @@ function baseBody(chatId: string, silent: boolean, topicId?: number): Record<str
     return body;
 }
 
-async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number): Promise<SendResult> {
+async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<SendResult> {
+    // link_preview_options pins the preview to a chosen URL, lifts it above the text,
+    // or suppresses it entirely (disabling wins over the other two).
+    const linkPreview: Record<string, unknown> = {};
+    if (linkPreviewDisabled) {
+        linkPreview.is_disabled = true;
+    } else {
+        if (linkPreviewUrl) linkPreview.url = linkPreviewUrl;
+        if (linkPreviewAboveText) linkPreview.show_above_text = true;
+    }
     const result = await callBotJson(token, "sendMessage", {
         ...baseBody(chatId, silent, topicId),
         text,
         parse_mode: "HTML",
+        ...(Object.keys(linkPreview).length > 0 ? { link_preview_options: linkPreview } : {}),
     }) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
@@ -226,11 +236,11 @@ async function sendRichTextBot(token: string, chatId: string, markdown: string, 
 // Sends as a Rich Message when markdown is provided (the "bot + rich" method), or as a
 // classic HTML message otherwise (the plain "bot" method). A failed Rich Message is NOT
 // downgraded to HTML — the error propagates so the post isn't silently sent unformatted.
-async function sendRichOrClassicText(token: string, chatId: string, markdown: string, html: string, silent: boolean, topicId?: number): Promise<SendResult> {
+async function sendRichOrClassicText(token: string, chatId: string, markdown: string, html: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<SendResult> {
     if (markdown.length > 0) {
         return await sendRichTextBot(token, chatId, markdown, silent, topicId);
     }
-    return await sendTextBot(token, chatId, html, silent, topicId);
+    return await sendTextBot(token, chatId, html, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
 }
 
 // Appends a single-media field to a Bot API form. Remote media is passed as its URL so
@@ -379,6 +389,9 @@ async function sendPartViaBotApi(
     topicId?: number,
     postAsRich = false,
     commentsAsRich = false,
+    linkPreviewUrl?: string,
+    linkPreviewAboveText?: boolean,
+    linkPreviewDisabled?: boolean,
 ): Promise<SendResult | null> {
     const richMarkdown = obsidianToRichMarkdown(body);
     const htmlFallback = mdToBotApiHtml(body);
@@ -489,7 +502,7 @@ async function sendPartViaBotApi(
         // All attachments carry the post text as the caption of the first message; a
         // caption over the Bot API limit is refused rather than truncated or split off.
         if (!hasUploadMedia) {
-            if (hasPostText) result = await sendRichOrClassicText(token, chatId, "", htmlFallback, silent, topicId);
+            if (hasPostText) result = await sendRichOrClassicText(token, chatId, "", htmlFallback, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
         } else {
             if (hasPostText && captionPlainLength > BOT_CAPTION_LIMIT) throw new Error("MEDIA_CAPTION_TOO_LONG");
             result = await sendUploadMedia(hasPostText ? htmlFallback : "");
@@ -756,6 +769,7 @@ export async function sendNoteViaBotApi(
                 const result = await sendPartViaBotApi(
                     app, effectiveParts[i], token, chatId, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText,
                     treatMdEmbedsAsComments, file, topicId, postAsRich, commentsAsRich,
+                    opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled,
                 );
                 if (result) {
                     links.push(result.link);

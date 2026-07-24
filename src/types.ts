@@ -47,7 +47,10 @@ export interface SplitPartOptions {
     selected: boolean;
     silent: boolean;
     attachUnderText: boolean;
-    scheduleDate?: Date;   // account methods only; bot methods can't schedule
+    scheduleDate?: Date;            // account methods only; bot methods can't schedule
+    linkPreviewUrl?: string;        // URL whose link preview the post should render (classic text-only posts)
+    linkPreviewAboveText?: boolean; // render the link preview above the post text
+    linkPreviewDisabled?: boolean;  // suppress the link preview entirely (wins over the two above)
 }
 
 export interface PendingScheduledLink {
