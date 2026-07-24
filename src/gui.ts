@@ -6,7 +6,7 @@ import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
 import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions } from "./types";
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
-import { parseSplitPosts, type SplitPost } from "./split";
+import { parseSplitPosts, linksMatch, type SplitPost } from "./split";
 import { stripComments } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
 import { errMessage, retry, withTimeout } from "./util";
@@ -239,8 +239,6 @@ export class MultiPresetModal extends Modal {
     file: TFile;
     private initialChannelId?: string;
 
-    private attachToggle: ToggleComponent;
-    private attachOptionEl: HTMLElement | null = null;
     // Guards programmatic preset-toggle changes so radio-style selection (only one
     // preset at a time) doesn't re-enter the toggle's own onChange handler.
     private updatingPresets = false;
@@ -279,8 +277,10 @@ export class MultiPresetModal extends Modal {
         // survives and reappears when a supported method is picked again.
         richBlocked: boolean;
         schedBlocked: boolean;
+        editBlocked: boolean;
         applyRichState: () => void;
         applySchedState: () => void;
+        applyEditState: () => void;
     }> = [];
     // One observer per previewed post, moving the date pill + send toggle to the overflow
     // row under the preview when the settings row runs out of space.
@@ -351,33 +351,27 @@ export class MultiPresetModal extends Modal {
         }
     }
 
-    // "Attachments below the text" only positions a caption above uploaded media. Rich
-    // Messages embed media inside the markdown and can't carry local uploads at all, so
-    // the option is meaningless there — disable it when a selected preset is a rich method.
+    // Rich Messages support neither caption positioning nor a message-level link
+    // preview. The buttons grey out and visually reset, but their state survives —
+    // switching back to a supported method restores the user's choices.
     private updateAttachState() {
-        if (!this.attachOptionEl) return;
         const anyRich = this.activeMethods().some(isRichMethod);
-        this.attachToggle.setDisabled(anyRich);
-        if (anyRich) this.attachToggle.setValue(false);
-        this.attachOptionEl.toggleClass("is-disabled", anyRich);
-        // Rich Messages support neither caption positioning nor a message-level link
-        // preview. The buttons grey out and visually reset, but their state survives —
-        // switching back to a supported method restores the user's choices.
         for (const row of this.splitRows) {
             row.richBlocked = anyRich;
             row.applyRichState();
         }
     }
 
-    // The previews and the classic attachments row swap places depending on whether a link
-    // is selected for editing: an edit applies to one already-published message, so the
-    // preview (new-post) layout hides and the attachments toggle (which edits do support)
-    // takes over.
-    private updateSplitVisibility() {
-        if (!this.splitSectionEl) return;
+    // The previews stay visible while a link is selected for editing; the options an edit
+    // can't use (silent, send selection, link-preview mode — scheduling is covered by
+    // updateScheduleState) grey out and visually reset, state preserved. Attachments
+    // positioning stays enabled: it's the one option edits support.
+    private updateEditState() {
         const editing = this.anyLinkSelected();
-        this.splitSectionEl.toggleClass("is-hidden", editing);
-        this.attachOptionEl?.toggleClass("is-hidden", !editing);
+        for (const row of this.splitRows) {
+            row.editBlocked = editing;
+            row.applyEditState();
+        }
     }
 
     // Selects a single preset (or none), enforcing radio-style behaviour: turning one on
@@ -444,10 +438,10 @@ export class MultiPresetModal extends Modal {
             });
         }
         // Refresh the option states on every link change (both when a link is picked and when
-        // it's cleared): scheduling doesn't apply to edits.
+        // it's cleared): most per-post options don't apply to edits.
         this.updateScheduleState();
         this.updateAttachState();
-        this.updateSplitVisibility();
+        this.updateEditState();
     }
 
     // The first selected preset whose chat targets include the given chat, with the
@@ -849,8 +843,10 @@ export class MultiPresetModal extends Modal {
                 schedulePillEl: null as unknown as HTMLElement,
                 richBlocked: false,
                 schedBlocked: false,
+                editBlocked: false,
                 applyRichState: () => {},
                 applySchedState: () => {},
+                applyEditState: () => {},
             };
 
             // ── Per-post settings row ──
@@ -858,8 +854,9 @@ export class MultiPresetModal extends Modal {
 
             const silentBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
             const applySilent = () => {
-                setIcon(silentBtn, row.silentOn ? "bell-off" : "bell");
-                silentBtn.toggleClass("is-active", row.silentOn);
+                const effective = row.silentOn && !row.editBlocked;
+                setIcon(silentBtn, effective ? "bell-off" : "bell");
+                silentBtn.toggleClass("is-active", effective);
             };
             applySilent(); // reflects the "Always publish silently" default
             setTooltip(silentBtn, t.MULTI_PRESET_SILENT_POST_NAME);
@@ -883,7 +880,7 @@ export class MultiPresetModal extends Modal {
             // While a rich method blocks the option, the button shows the default state.
             const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
             const applyPreviewMode = () => {
-                const mode = row.richBlocked ? "default" : row.previewMode;
+                const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
                 setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
                 setTooltip(previewModeBtn, mode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
                     : mode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
@@ -937,7 +934,7 @@ export class MultiPresetModal extends Modal {
 
             row.applyRichState = () => {
                 attachBtn.toggleClass("is-disabled", row.richBlocked);
-                previewModeBtn.toggleClass("is-disabled", row.richBlocked);
+                previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked);
                 applyAttach();
                 applyPreviewMode();
             };
@@ -963,6 +960,20 @@ export class MultiPresetModal extends Modal {
                     sendBtn?.toggleClass("is-active", row.selectedOn);
                 });
             }
+
+            // Edits keep the previews visible but grey out (and visually reset) the
+            // options that don't apply to an edit; attachments positioning stays usable.
+            row.applyEditState = () => {
+                silentBtn.toggleClass("is-disabled", row.editBlocked);
+                applySilent();
+                if (sendBtn) {
+                    sendBtn.toggleClass("is-disabled", row.editBlocked);
+                    sendBtn.toggleClass("is-active", row.selectedOn && !row.editBlocked);
+                }
+                // Re-applies the preview-mode button too — its disabled state mixes in
+                // editBlocked, which may have just changed.
+                row.applyRichState();
+            };
 
             // ── Preview ──
             // Pre-written comments (embedded .md notes) publish as separate comment
@@ -1014,9 +1025,9 @@ export class MultiPresetModal extends Modal {
                     }
                     return null;
                 };
-                // While a rich method blocks link-preview options the card shows the
-                // default behaviour, matching the visually reset mode button.
-                const mode = row.richBlocked ? "default" : row.previewMode;
+                // While a rich method (or an edit selection) blocks link-preview options
+                // the card shows the default behaviour, matching the reset mode button.
+                const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
                 const url = row.linkPreviewUrl ?? autoUrl();
                 if (!url || mode === "off") {
                     linkCardEl.addClass("is-hidden");
@@ -1142,6 +1153,16 @@ export class MultiPresetModal extends Modal {
 
             this.splitRows.push(row);
         }
+    }
+
+    // Attachment positioning for an edit comes from the row of the part the chosen link
+    // belongs to (matched via its split marker); a single-post note falls back to its
+    // only row. Positioning is the one per-post option that applies to edits.
+    private attachForLink(link: string): boolean {
+        let idx = this.splitPosts.findIndex(p => p.links.some(l => linksMatch(l, link)));
+        if (idx < 0 && this.splitRows.length === 1) idx = 0;
+        const row = this.splitRows[idx];
+        return row ? row.attachOn && !row.richBlocked : false;
     }
 
     // The per-part options to publish with, or undefined when the split layout isn't active.
@@ -1270,22 +1291,14 @@ export class MultiPresetModal extends Modal {
             cls: "telegram-modal-heading"
         });
 
-        // Post previews (per-post settings rows). The attachments row below is still
-        // built — it takes over when a link is selected for editing, since positioning
-        // is the one option that applies to edits.
+        // Post previews (per-post settings rows). They stay visible during edits too —
+        // options an edit can't use are disabled per row instead.
         if (this.splitPosts.length > 0) this.renderSplitSection(contentEl);
-
-        this.attachOptionEl = contentEl.createDiv("telegram-option-item");
-        const attachTextEl = this.attachOptionEl.createDiv("telegram-option-text");
-        attachTextEl.createDiv({ text: t.MULTI_PRESET_ATTACHMENTS_NAME, cls: "telegram-option-name" });
-        attachTextEl.createDiv({ text: t.MULTI_PRESET_ATTACHMENTS_DESC, cls: "telegram-option-desc" });
-        this.attachToggle = new ToggleComponent(this.attachOptionEl.createDiv("telegram-option-control"))
-            .setValue(false);
 
         // Initial state now that all option elements exist.
         this.updateScheduleState();
         this.updateAttachState();
-        this.updateSplitVisibility();
+        this.updateEditState();
 
         // ─── Edit Post & Comments Section ─────────────────────────────────────────────
 
@@ -1406,10 +1419,10 @@ export class MultiPresetModal extends Modal {
                 }
 
                 // Fresh publishes carry all their options per post (the preview rows); the
-                // publish-wide values below only serve the edit paths, where silent and
-                // scheduling don't apply anyway.
+                // publish-wide silent below only serves the edit paths, where it doesn't
+                // apply anyway. An edit's attachment positioning comes from the edited
+                // part's own row (attachForLink).
                 const silent = this.plugin.settings.alwaysSilent;
-                const attachUnderText = this.attachToggle?.getValue() ?? false;
 
                 let partOptions: SplitPartOptions[] | undefined;
                 if (!isUpdatingPost && !isEditingComments) {
@@ -1427,10 +1440,10 @@ export class MultiPresetModal extends Modal {
                         for (const link of allStoredPostLinks) {
                             const info = this.resolvedLinks.get(link);
                             if (!info?.title) continue;
-                            await this.editPost(link, info.title, silent, attachUnderText);
+                            await this.editPost(link, info.title, silent, this.attachForLink(link));
                         }
                     } else {
-                        await this.editPost(updateLinkRaw, this.resolvedLinks.get(updateLinkRaw)?.title ?? null, silent, attachUnderText);
+                        await this.editPost(updateLinkRaw, this.resolvedLinks.get(updateLinkRaw)?.title ?? null, silent, this.attachForLink(updateLinkRaw));
                     }
                 }
                 if (isEditingComments) {
@@ -1466,11 +1479,11 @@ export class MultiPresetModal extends Modal {
                     for (const channelId of this.selectedChannels) {
                         const channel = this.plugin.settings.channels.find(c => c.id === channelId);
                         const method = this.channelRows.find(r => r.id === channelId)?.method;
-                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, undefined, undefined, method, partOptions);
+                        if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, false, undefined, undefined, method, partOptions);
                     }
                     // Preset-less publish: post to the ad-hoc targets with the chosen author + method.
                     if (adhocChannel) {
-                        await this.plugin.sendNoteToTelegram(this.file, adhocChannel, silent, attachUnderText, undefined, undefined, adhocChannel.defaultMethod, partOptions);
+                        await this.plugin.sendNoteToTelegram(this.file, adhocChannel, silent, false, undefined, undefined, adhocChannel.defaultMethod, partOptions);
                     }
                 }
             });

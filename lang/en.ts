@@ -87,7 +87,6 @@ export default {
     MULTI_PRESET_ADVANCED_FORMATTING: "Advanced post settings",
     MULTI_PRESET_SILENT_POST_NAME: "Publish silently",
     MULTI_PRESET_ATTACHMENTS_NAME: "Attachments below the text",
-    MULTI_PRESET_ATTACHMENTS_DESC: "Display post text above the attached media files",
     MULTI_PRESET_SCHEDULE_NAME: "Schedule the post",
     MULTI_PRESET_SPLIT_SEND_TIP: "Publish this post",
     MULTI_PRESET_SPLIT_ONLINE_TIP: "Send when the recipient is online",

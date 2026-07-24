@@ -87,7 +87,6 @@ export default {
     MULTI_PRESET_ADVANCED_FORMATTING: "Настройки поста",
     MULTI_PRESET_SILENT_POST_NAME: "Опубликовать без звука",
     MULTI_PRESET_ATTACHMENTS_NAME: "Вложения под текстом",
-    MULTI_PRESET_ATTACHMENTS_DESC: "Отображать текст сообщения над прикреплёнными медиафайлами",
     MULTI_PRESET_SCHEDULE_NAME: "Запланировать публикацию",
     MULTI_PRESET_SPLIT_SEND_TIP: "Опубликовать этот пост",
     MULTI_PRESET_SPLIT_ONLINE_TIP: "Отправить, когда получатель появится в сети",
