@@ -72,7 +72,6 @@ export interface TelegramSettings {
     accounts: TelegramAccount[];
     savePostLinks: boolean;
     treatMdEmbedsAsComments: boolean;
-    alwaysShowPostPreview: boolean;   // show the per-post preview layout even for notes without split markers
     alwaysSilent: boolean;            // publish with a soundless notification by default (overridable per publish)
     telegramDisplayName: string;
     dismissedChangelogVersion?: string;
@@ -91,7 +90,6 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
     accounts: [],
     savePostLinks: false,
     treatMdEmbedsAsComments: false,
-    alwaysShowPostPreview: false,
     alwaysSilent: false,
     telegramDisplayName: "",
     pendingScheduledLinks: [],

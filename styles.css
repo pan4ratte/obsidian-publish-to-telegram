@@ -781,18 +781,6 @@ body .telegram-auth-submit:disabled {
     margin-top: 4px;
 }
 
-input.telegram-schedule-input {
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--input-radius);
-    background-color: var(--background-primary);
-    color: var(--text-normal);
-    padding: 4px 8px;
-    font-size: var(--font-ui-smaller);
-    height: 32px;
-    cursor: pointer;
-    box-sizing: border-box;
-}
-
 /* ── Split post layout ── */
 
 .telegram-split-section.is-hidden,
