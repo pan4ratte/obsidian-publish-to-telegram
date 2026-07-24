@@ -4,6 +4,8 @@ import { emojiSections, searchEmoji, searchCustomEmoji, customEmojiRef, parseCus
 import { EMOJI_SECTION_DATA } from '../src/emoji-data';
 import { mdToTelegramHtml, mdToBotApiHtml, obsidianToRichMarkdown, hasCustomEmoji } from '../src/markdown';
 import { CustomEmojiSet } from '../src/types';
+import { PreviewStore } from '../src/emoji-cache';
+import type { DataAdapter } from 'obsidian';
 
 const sections = emojiSections();
 const all = sections.flatMap(section => section.entries);
@@ -108,3 +110,87 @@ test('leaves ordinary links alone', () => {
     '<a href="https://example.com">text</a>',
   );
 });
+
+// ─── Preview cache expiry ─────────────────────────────────────────────────────
+
+// Minimal in-memory stand-in for Obsidian's vault adapter: enough of the surface for the
+// store, with mtimes we control so expiry can be exercised without waiting.
+function stubAdapter(now = Date.now()) {
+  const files = new Map<string, { bytes: Uint8Array; mtime: number }>();
+  const dirs = new Set<string>();
+  const adapter = {
+    exists: (path: string) => Promise.resolve(dirs.has(path) || files.has(path)),
+    mkdir: (path: string) => { dirs.add(path); return Promise.resolve(); },
+    list: (path: string) => Promise.resolve({
+      files: [...files.keys()].filter(name => name.startsWith(`${path}/`)),
+      folders: [] as string[],
+    }),
+    stat: (path: string) => Promise.resolve(files.has(path) ? { type: 'file', mtime: files.get(path)!.mtime, ctime: 0, size: 0 } : null),
+    readBinary: (path: string) => {
+      const file = files.get(path);
+      if (!file) return Promise.reject(new Error('ENOENT'));
+      return Promise.resolve(file.bytes.buffer.slice(0) as ArrayBuffer);
+    },
+    writeBinary: (path: string, data: ArrayBuffer) => {
+      files.set(path, { bytes: new Uint8Array(data), mtime: now });
+      return Promise.resolve();
+    },
+    remove: (path: string) => { files.delete(path); return Promise.resolve(); },
+  };
+  return { adapter: adapter as unknown as DataAdapter, files };
+}
+
+// The store hands back blob: URLs, which node has no implementation for.
+const withBlobUrls = <T>(run: () => Promise<T>): Promise<T> => {
+  const g = globalThis as Record<string, unknown>;
+  g.URL = Object.assign(URL, { createObjectURL: () => 'blob:stub', revokeObjectURL: () => {} });
+  return run();
+};
+
+const DAY = 24 * 60 * 60 * 1000;
+const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4]);
+
+test('reads back a preview it just cached', () => withBlobUrls(async () => {
+  const { adapter } = stubAdapter();
+  const store = new PreviewStore(adapter, 'cache', 30 * DAY);
+  assert.equal(await store.read('123'), null, 'nothing cached yet');
+  await store.write('123', webp, 'image');
+  assert.deepStrictEqual(await store.read('123'), { url: 'blob:stub', kind: 'image' });
+}));
+
+test('ignores a preview once it is older than the ttl', () => withBlobUrls(async () => {
+  const { adapter, files } = stubAdapter();
+  const store = new PreviewStore(adapter, 'cache', 7 * DAY);
+  await store.write('123', webp, 'video');
+  assert.equal((await store.read('123'))?.kind, 'video');
+
+  // Age it past the deadline; the entry stays on disk but is no longer served.
+  files.get('cache/123.webm')!.mtime = Date.now() - 8 * DAY;
+  assert.equal(await store.read('123'), null);
+  assert.equal(files.has('cache/123.webm'), true);
+}));
+
+test('prune deletes only the expired previews', () => withBlobUrls(async () => {
+  const { adapter, files } = stubAdapter();
+  const store = new PreviewStore(adapter, 'cache', 7 * DAY);
+  await store.write('fresh', webp, 'image');
+  await store.write('stale', webp, 'image');
+  files.get('cache/stale.webp')!.mtime = Date.now() - 30 * DAY;
+
+  assert.equal(await store.prune(), 1);
+  assert.deepStrictEqual([...files.keys()], ['cache/fresh.webp']);
+  // The index is updated too, so the pruned entry isn't served from memory afterwards.
+  assert.equal(await store.read('stale'), null);
+  assert.equal((await store.read('fresh'))?.kind, 'image');
+}));
+
+test('re-downloading an expired preview refreshes its expiry', () => withBlobUrls(async () => {
+  const { adapter, files } = stubAdapter();
+  const store = new PreviewStore(adapter, 'cache', 7 * DAY);
+  await store.write('123', webp, 'image');
+  files.get('cache/123.webp')!.mtime = Date.now() - 8 * DAY;
+  assert.equal(await store.read('123'), null);
+
+  await store.write('123', webp, 'image');
+  assert.equal((await store.read('123'))?.kind, 'image');
+}));

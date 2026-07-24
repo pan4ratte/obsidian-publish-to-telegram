@@ -204,9 +204,18 @@ export default class SendToTelegramPlugin extends Plugin {
     // Downloaded custom emoji previews live in the plugin's own folder, so a pack only ever
     // has to be fetched once. Without a plugin directory (never, in practice) previews are
     // simply re-downloaded each session.
+    private emojiPreviewsPruned = false;
     private emojiPreviewStore(): PreviewStore | null {
         const dir = this.manifest.dir;
-        return dir ? new PreviewStore(this.app.vault.adapter, `${dir}/emoji-previews`) : null;
+        if (!dir) return null;
+        const store = new PreviewStore(this.app.vault.adapter, `${dir}/emoji-previews`);
+        // Expired previews (packs removed, artwork replaced, emoji long unused) are swept
+        // once per session, in the background — the bar doesn't wait for it.
+        if (!this.emojiPreviewsPruned) {
+            this.emojiPreviewsPruned = true;
+            void store.prune();
+        }
+        return store;
     }
 
     // Reloads the account's custom emoji packs into the cache, updating the open picker.
