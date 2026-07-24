@@ -263,11 +263,15 @@ export class MultiPresetModal extends Modal {
     private adhocMethodDropdown: DropdownComponent | null = null;
     private adhocPickerFieldEl: HTMLElement | null = null;
     private adhocActiveSuggest: ChatSuggest | null = null;
-    // Obsidian autofocuses the first focusable element when the modal opens. We don't want the
-    // ad-hoc search field grabbing focus (and eagerly loading chats / opening suggestions), so
-    // the first focus that arrives while this flag is set is swallowed. Cleared on the next tick
-    // so any genuine, user-initiated focus afterwards behaves normally.
-    private adhocSuppressAutofocus = false;
+    // Creates the chat suggest on first use and opens the list. Set by renderAdhocPickerField
+    // (null when there's no account to suggest from). Called only from real user gestures —
+    // see the lazy-creation note there.
+    private adhocActivatePicker: (() => void) | null = null;
+    // Set by the first pointer/key event inside the modal. Obsidian focuses the modal's first
+    // focusable element on open — the ad-hoc search field — and a caret blinking there is
+    // confusing, so a focus that arrives before any user gesture is bounced. Gesture-based
+    // rather than time-based so it holds whenever Obsidian's autofocus happens to run.
+    private adhocUserInteracted = false;
     // One dialog fetch per account for the modal's lifetime (chat-picker suggestions).
     private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
 
@@ -479,6 +483,11 @@ export class MultiPresetModal extends Modal {
     // Builds the "Post without a preset" section: a chat-target picker plus author/method
     // dropdowns, letting the user publish once without a saved preset.
     private renderAdhocSection(container: HTMLElement): void {
+        // A real user gesture anywhere in the modal releases the open-time focus guard.
+        const markInteraction = () => { this.adhocUserInteracted = true; };
+        this.contentEl.addEventListener("pointerdown", markInteraction, { capture: true });
+        this.contentEl.addEventListener("keydown", markInteraction, { capture: true });
+
         container.createDiv({ text: t.MULTI_PRESET_ADHOC_HEADING, cls: "telegram-modal-heading" });
         // Bordered box matching the other sections in this modal.
         const boxEl = container.createDiv("telegram-adhoc-box");
@@ -488,9 +497,10 @@ export class MultiPresetModal extends Modal {
         const fieldEl = pickerEl.createDiv("telegram-chat-picker-field");
         this.adhocPickerFieldEl = fieldEl;
         fieldEl.addEventListener("click", (e: MouseEvent) => {
-            if (!(e.target as HTMLElement).closest(".telegram-chat-chip-remove")) {
-                fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
-            }
+            if ((e.target as HTMLElement).closest(".telegram-chat-chip-remove")) return;
+            fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+            // Clicking the field is the gesture that loads chats and opens the suggestion list.
+            this.adhocActivatePicker?.();
         });
         this.renderAdhocPickerField();
 
@@ -581,6 +591,12 @@ export class MultiPresetModal extends Modal {
         const hasChips = this.adhocTargets.length > 0;
         fieldEl.classList.toggle("has-chips", hasChips);
 
+        // Bounce Obsidian's open-time autofocus so the modal opens with no caret in the field.
+        // A click or Tab always fires its pointerdown/keydown first, so real focus gets through.
+        input.addEventListener("focus", () => {
+            if (!this.adhocUserInteracted) input.blur();
+        });
+
         // Suggestions load from the chosen account. When no account author is picked, fall back
         // to the sole authorized account (if there's exactly one) purely to load chats — this
         // does NOT select it as the post author. With several accounts and no author chosen,
@@ -588,7 +604,7 @@ export class MultiPresetModal extends Modal {
         const soleAccountId = this.plugin.settings.accounts.length === 1
             ? this.plugin.settings.accounts[0].id : undefined;
         const suggestAccountId = this.adhocAuthor?.type === "account" ? this.adhocAuthor.id : soleAccountId;
-        // Peek the cache without starting a fetch — chats load lazily on focus, not on render.
+        // Peek the cache without starting a fetch — chats load on the first click in the field.
         const cached = suggestAccountId ? this.dialogsByAccount.get(suggestAccountId) : undefined;
         input.placeholder = hasChips ? "" : (
             suggestAccountId
@@ -596,43 +612,42 @@ export class MultiPresetModal extends Modal {
                 : t.SETTING_PLACEHOLDER_CHAT
         );
 
+        // The suggest is created lazily, on the first real user gesture in the field. Merely
+        // constructing it wires Obsidian's own focus→getSuggestions handler, which would fetch
+        // the chat list and pop the suggestions open as soon as the modal autofocuses this
+        // input on open. Until then the field is a plain @username/ID entry box.
         let suggest: ChatSuggest | null = null;
+        this.adhocActivatePicker = null;
         if (suggestAccountId) {
             const accountId = suggestAccountId;
-            suggest = new ChatSuggest(
-                this.app, input,
-                () => this.dialogsFor(accountId).fetch,
-                () => this.adhocTargets,
-            );
-            this.adhocActiveSuggest = suggest;
-            suggest.onPick = async (dialog: DialogData) => {
-                const isDupe = this.adhocTargets.some(x => x.id === dialog.id && x.topicId === dialog.topicId);
-                if (!isDupe) this.adhocTargets.push({ id: dialog.id, title: dialog.title, topicId: dialog.topicId });
-                this.renderAdhocPickerField();
+            this.adhocActivatePicker = () => {
+                if (!suggest) {
+                    // Kick off the (cached, once-per-account) dialog fetch only now; show the
+                    // loading placeholder until it resolves (dialogsFor clears it).
+                    if (this.dialogsFor(accountId).loading && !hasChips) {
+                        input.placeholder = t.SETTING_CHAT_PICKER_LOADING;
+                    }
+                    suggest = new ChatSuggest(
+                        this.app, input,
+                        () => this.dialogsFor(accountId).fetch,
+                        () => this.adhocTargets,
+                    );
+                    this.adhocActiveSuggest = suggest;
+                    suggest.onPick = async (dialog: DialogData) => {
+                        const isDupe = this.adhocTargets.some(x => x.id === dialog.id && x.topicId === dialog.topicId);
+                        if (!isDupe) this.adhocTargets.push({ id: dialog.id, title: dialog.title, topicId: dialog.topicId });
+                        this.renderAdhocPickerField();
+                    };
+                }
+                // The input is already focused here, so the suggest's own focus handler won't
+                // fire — nudge it with an input event so it runs its first query (async: it
+                // opens once the dialogs resolve).
+                input.dispatchEvent(new Event("input"));
             };
         }
 
-        input.addEventListener("focus", () => {
-            // Swallow the modal's open-time autofocus: no load, no suggestion popover.
-            if (this.adhocSuppressAutofocus) {
-                this.adhocSuppressAutofocus = false;
-                input.blur();
-                return;
-            }
-            if (!suggestAccountId || !suggest) return; // manual-entry only — nothing to load/open
-            // Kick off the (cached, once-per-account) dialog fetch only now that the field is
-            // focused; show the loading placeholder until it resolves, then open the picker.
-            const activeSuggest = suggest;
-            const entry = this.dialogsFor(suggestAccountId);
-            if (entry.loading) {
-                if (!hasChips) input.placeholder = t.SETTING_CHAT_PICKER_LOADING;
-                void entry.fetch.then(() => {
-                    if (activeDocument.activeElement === input) activeSuggest.open();
-                });
-            } else {
-                activeSuggest.open();
-            }
-        });
+        // Keyboard-only path: tabbing in and typing arms the picker too.
+        input.addEventListener("input", () => { if (!suggest) this.adhocActivatePicker?.(); });
 
         // Manual entry: Enter adds an @username/ID chip. Registered after the suggest's own
         // keydown so it fires second (if the suggest picked an item, input.value is empty).
@@ -1002,12 +1017,6 @@ export class MultiPresetModal extends Modal {
                     }
                 }
             });
-
-        // Arm the autofocus guard: Obsidian focuses the first focusable element right after
-        // onOpen returns (the ad-hoc search field), which the focus handler swallows. Disarm on
-        // the next tick so a real user focus after that opens the picker normally.
-        this.adhocSuppressAutofocus = true;
-        window.setTimeout(() => { this.adhocSuppressAutofocus = false; }, 0);
     }
 
     onClose() {
