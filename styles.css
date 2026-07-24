@@ -783,7 +783,12 @@ body .telegram-auth-submit:disabled {
 
 /* ── Split post layout ── */
 
+/* Editing narrows the previews to the parts (and comments) the edit touches — the rest
+   are hidden rather than rebuilt, so their settings survive a change of selection. */
 .telegram-split-section.is-hidden,
+.telegram-split-post.is-hidden,
+.telegram-split-comments-header.is-hidden,
+.telegram-split-comment.is-hidden,
 .telegram-option-item.is-hidden {
     display: none;
 }
@@ -919,7 +924,7 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
 
 .telegram-split-comments-header {
     border-top: 1px solid var(--background-modifier-border);
-    padding: 10px 16px;
+    padding: 12px 16px;
     font-size: var(--font-ui-smaller);
     font-weight: var(--font-semibold);
     color: var(--text-muted);

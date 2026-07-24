@@ -260,6 +260,10 @@ export class MultiPresetModal extends Modal {
     // rendered preview. One entry per part, index-aligned to parseSplitPosts order.
     private splitPosts: SplitPost[] = [];
     private splitRows: Array<{
+        // The part's card and its pre-written comment blocks (heading included), kept so an
+        // edit selection can narrow the previews down to what's actually being edited.
+        postEl: HTMLElement;
+        commentEls: HTMLElement[];
         selectedOn: boolean;
         silentOn: boolean;
         attachOn: boolean;
@@ -374,6 +378,32 @@ export class MultiPresetModal extends Modal {
         }
     }
 
+    // Narrows the previews down to what an edit selection actually touches: picking one
+    // stored post link leaves only the part that link belongs to (found via its split
+    // marker), hiding every other part. Comment previews follow the comment dropdown —
+    // they show only while a comment source is being edited, so a post-only edit hides
+    // them. Both "all" options (and no selection at all) bring everything back.
+    private updatePreviewVisibility() {
+        if (this.splitRows.length === 0) return;
+        const post = this.updateLinkDropdown?.getValue() ?? "none";
+        const comment = this.commentLinkDropdown?.getValue() ?? "none";
+        const editing = post !== "none" || comment !== "none";
+        // -1 keeps every part visible: no single link chosen, or a link whose part can't be
+        // identified (no matching marker), where hiding would leave an empty section.
+        const onlyIdx = post !== "none" && post !== "all" ? this.partIndexForLink(post) : -1;
+
+        let visibleCount = 0;
+        this.splitRows.forEach((row, i) => {
+            const visible = onlyIdx < 0 || i === onlyIdx;
+            if (visible) visibleCount++;
+            row.postEl.toggleClass("is-hidden", !visible);
+            const commentsVisible = visible && (!editing || comment !== "none");
+            row.commentEls.forEach(el => el.toggleClass("is-hidden", !commentsVisible));
+        });
+        // A lone visible preview gets the taller collapsed clamp, however it became lone.
+        this.splitSectionEl?.toggleClass("telegram-split-section--single", visibleCount === 1);
+    }
+
     // Selects a single preset (or none), enforcing radio-style behaviour: turning one on
     // turns every other one off. Updates each row's toggle and method-picker visibility,
     // then refreshes the option states that depend on the chosen method.
@@ -442,6 +472,7 @@ export class MultiPresetModal extends Modal {
         this.updateScheduleState();
         this.updateAttachState();
         this.updateEditState();
+        this.updatePreviewVisibility();
     }
 
     // The first selected preset whose chat targets include the given chat, with the
@@ -827,6 +858,8 @@ export class MultiPresetModal extends Modal {
         for (const post of this.splitPosts) {
             const postEl = this.splitSectionEl.createDiv("telegram-split-post");
             const row = {
+                postEl,
+                commentEls: [] as HTMLElement[],
                 // With a single previewed post there's nothing to choose between — it always
                 // publishes, and the send toggle isn't rendered at all.
                 selectedOn: this.splitPosts.length === 1 || post.links.length === 0,
@@ -1095,10 +1128,11 @@ export class MultiPresetModal extends Modal {
             // One shared "Comments" heading above the first comment; the blocks follow in
             // publish order.
             if (commentFiles.length > 0) {
-                postEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" });
+                row.commentEls.push(postEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" }));
             }
             for (const commentFile of commentFiles) {
                 const commentEl = postEl.createDiv("telegram-split-comment");
+                row.commentEls.push(commentEl);
                 const commentContentEl = commentEl.createDiv("telegram-split-comment-content markdown-rendered");
                 // Same expand control as the post preview: clamped with a fade bar,
                 // expanding to a square scrollable box; hidden when nothing is clipped.
@@ -1155,13 +1189,18 @@ export class MultiPresetModal extends Modal {
         }
     }
 
+    // The previewed part a stored link belongs to, matched via its split marker; a
+    // single-post note falls back to its only row (its link lives in the frontmatter,
+    // not in a marker). -1 when no part can be identified.
+    private partIndexForLink(link: string): number {
+        const idx = this.splitPosts.findIndex(p => p.links.some(l => linksMatch(l, link)));
+        return idx < 0 && this.splitRows.length === 1 ? 0 : idx;
+    }
+
     // Attachment positioning for an edit comes from the row of the part the chosen link
-    // belongs to (matched via its split marker); a single-post note falls back to its
-    // only row. Positioning is the one per-post option that applies to edits.
+    // belongs to. Positioning is the one per-post option that applies to edits.
     private attachForLink(link: string): boolean {
-        let idx = this.splitPosts.findIndex(p => p.links.some(l => linksMatch(l, link)));
-        if (idx < 0 && this.splitRows.length === 1) idx = 0;
-        const row = this.splitRows[idx];
+        const row = this.splitRows[this.partIndexForLink(link)];
         return row ? row.attachOn && !row.richBlocked : false;
     }
 
