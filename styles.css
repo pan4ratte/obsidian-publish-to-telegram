@@ -1332,6 +1332,17 @@ body .telegram-changelog-close:hover {
     box-shadow: none;
 }
 
+/* Obsidian's default input styling adds a focus ring (box-shadow) and shifts the field's
+   background/border on hover; the borderless search box wants neither, so it stays flat. */
+.telegram-emoji-panel .telegram-emoji-search-input:hover,
+.telegram-emoji-panel .telegram-emoji-search-input:focus,
+.telegram-emoji-panel .telegram-emoji-search-input:focus-visible,
+.telegram-emoji-panel .telegram-emoji-search-input:active {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}
+
 .telegram-emoji-panel .telegram-emoji-search-input::placeholder {
     color: var(--text-faint);
 }
@@ -1393,7 +1404,10 @@ body .telegram-changelog-close:hover {
 /* Sticky heading, as in Telegram: the current category stays visible while its rows scroll. */
 .telegram-emoji-section-title {
     position: sticky;
-    top: 0;
+    /* -1px, not 0: sub-pixel rounding of the sticky header otherwise leaves a hairline of the
+       scrolling grid showing between it and the tabs' bottom border. The overlap is swallowed
+       by the title's own top padding, so nothing visible is clipped. */
+    top: -1px;
     z-index: 1;
     padding: 8px 4px 4px;
     font-size: var(--font-ui-smaller);
@@ -1404,7 +1418,11 @@ body .telegram-changelog-close:hover {
 
 .telegram-emoji-grid {
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
+    /* minmax(0, 1fr) rather than 1fr: a plain 1fr is minmax(auto, 1fr), whose auto floor is
+       the tile's min-content — and a wide emoji glyph then stretches its column past an even
+       eighth, so on a narrow (mobile) panel the eight columns no longer add up to the width.
+       That's what turned the grid into a non-square matrix with a horizontal scrollbar. */
+    grid-template-columns: repeat(8, minmax(0, 1fr));
 }
 
 .telegram-emoji-panel .telegram-emoji-btn {
@@ -1413,9 +1431,11 @@ body .telegram-changelog-close:hover {
     justify-content: center;
     aspect-ratio: 1 / 1;
     width: 100%;
+    min-width: 0;
     padding: 0;
     font-size: 22px;
     line-height: 1;
+    overflow: hidden;
     background-color: transparent;
     border: none;
     border-radius: var(--radius-s);
@@ -1425,6 +1445,18 @@ body .telegram-changelog-close:hover {
 
 .telegram-emoji-panel .telegram-emoji-btn:hover {
     background-color: var(--background-modifier-hover);
+}
+
+/* Some emoji are built from legacy text-default symbols (☺️ U+263A, ☹️, ✌️, ☝️, ✍️ …): even
+   with their U+FE0F selector, Chromium can pick the interface font's monochrome glyph over
+   the colour-emoji one, so a tile like ☺️ shows as a black outline among the colour emoji —
+   looking, misleadingly, like a Lucide icon. Forcing emoji presentation and putting a
+   colour-emoji font first makes every tile (and the emoji-glyph tabs) render in colour. */
+.telegram-emoji-panel .telegram-emoji-btn,
+.telegram-emoji-panel .telegram-emoji-tab,
+.telegram-inline-emoji {
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", var(--font-interface, sans-serif);
+    font-variant-emoji: emoji;
 }
 
 /* Custom emoji (Premium) tiles: the pack's own artwork once its preview has been
