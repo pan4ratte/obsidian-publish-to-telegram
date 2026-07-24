@@ -827,9 +827,15 @@ body .telegram-split-send-btn {
 }
 
 body .telegram-split-circle-btn {
+    /* flex: 0 0 auto + a hard width clamp: Obsidian's mobile (phone + tablet) base styles
+       give plain <button>s flex-grow / full width for touch, which on the wide tablet row
+       stretched these fixed icon buttons into empty horizontal pills. flex-shrink alone
+       doesn't stop growth, so the box is pinned here. */
+    flex: 0 0 auto;
     width: 32px;
+    min-width: 32px;
+    max-width: 32px;
     height: 32px;
-    flex-shrink: 0;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -840,6 +846,12 @@ body .telegram-split-circle-btn {
     color: var(--icon-color);
     cursor: pointer;
     box-shadow: none;
+}
+
+/* Pin the icon size too, so it never depends on Obsidian's platform-varying --icon-size. */
+body .telegram-split-circle-btn .svg-icon {
+    width: 18px;
+    height: 18px;
 }
 
 body .telegram-split-circle-btn:hover {
