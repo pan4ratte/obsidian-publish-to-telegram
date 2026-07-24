@@ -77,6 +77,7 @@ export interface TelegramSettings {
     telegramDisplayName: string;
     dismissedChangelogVersion?: string;
     pendingScheduledLinks: PendingScheduledLink[];
+    recentEmoji: string[];            // most recently picked emoji, newest first (emoji picker)
 }
 
 export interface TelegramSecrets {
@@ -94,4 +95,5 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
     alwaysSilent: false,
     telegramDisplayName: "",
     pendingScheduledLinks: [],
+    recentEmoji: [],
 }

@@ -120,6 +120,19 @@ export default {
     COMMAND_SHOW_FORMATTING_HELP: "Open user guide",
     COMMAND_SHOW_CHANGELOG: "View changelog",
     COMMAND_SEND_TO_PRESET: "Publish to",
+    COMMAND_INSERT_EMOJI: "Insert emoji",
+
+    // ─── Emoji picker ─────────────────────────────────────────────────────────────
+    EMOJI_SEARCH_PLACEHOLDER: "Search emoji…",
+    EMOJI_NO_RESULTS: "Nothing found",
+    EMOJI_RECENT: "Recent",
+    EMOJI_SECTION_PEOPLE: "Smileys & people",
+    EMOJI_SECTION_NATURE: "Animals & nature",
+    EMOJI_SECTION_FOOD: "Food & drink",
+    EMOJI_SECTION_ACTIVITY: "Activity",
+    EMOJI_SECTION_TRAVEL: "Travel & places",
+    EMOJI_SECTION_OBJECTS: "Objects",
+    EMOJI_SECTION_SYMBOLS: "Symbols & flags",
 
     // ─── Notifications ────────────────────────────────────────────────────────────
     NOTICE_PUBLISHING: "Publishing the post…",

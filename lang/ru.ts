@@ -120,6 +120,19 @@ export default {
     COMMAND_SHOW_FORMATTING_HELP: "Открыть руководство пользователя",
     COMMAND_SHOW_CHANGELOG: "Показать список изменений",
     COMMAND_SEND_TO_PRESET: "Опубликовать в",
+    COMMAND_INSERT_EMOJI: "Вставить эмодзи",
+
+    // ─── Панель эмодзи ────────────────────────────────────────────────────────────
+    EMOJI_SEARCH_PLACEHOLDER: "Поиск эмодзи…",
+    EMOJI_NO_RESULTS: "Ничего не найдено",
+    EMOJI_RECENT: "Недавние",
+    EMOJI_SECTION_PEOPLE: "Смайлы и люди",
+    EMOJI_SECTION_NATURE: "Животные и природа",
+    EMOJI_SECTION_FOOD: "Еда и напитки",
+    EMOJI_SECTION_ACTIVITY: "Активность",
+    EMOJI_SECTION_TRAVEL: "Путешествия и места",
+    EMOJI_SECTION_OBJECTS: "Предметы",
+    EMOJI_SECTION_SYMBOLS: "Символы и флаги",
 
     // ─── Notifications ────────────────────────────────────────────────────────────
     NOTICE_PUBLISHING: "Публикуем пост…",

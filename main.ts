@@ -2,6 +2,7 @@ import { Plugin, Notice, TFile, TFolder, Menu, Editor } from "obsidian";
 import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink, SplitPartOptions } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
+import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
@@ -85,6 +86,10 @@ export default class SendToTelegramPlugin extends Plugin {
         );
 
         this.registerEditorMenu();
+
+        // The emoji bar lives on document.body, outside any leaf — make sure it goes away
+        // with the plugin (disable / reload) instead of being orphaned there.
+        this.register(() => EmojiPicker.closeCurrent());
     }
 
     // Adds the in-note context-menu group: a "Insert post split marker" command and a
@@ -161,6 +166,23 @@ export default class SendToTelegramPlugin extends Plugin {
         editor.focus();
     }
 
+    // ── Emoji picker ──────────────────────────────────────────────────────────────
+
+    // Opens the emoji bar under the cursor's line. The emoji set ships with the plugin, so
+    // the bar appears instantly and needs neither an account nor a connection.
+    private openEmojiPicker(editor: Editor): void {
+        // The command toggles: pressing the hotkey again while the bar is up closes it.
+        if (EmojiPicker.closeCurrent()) return;
+        new EmojiPicker(editor, [...this.settings.recentEmoji], emoji => void this.rememberEmoji(emoji)).open();
+    }
+
+    // Feeds the picker's "Recent" section: newest first, deduplicated and capped.
+    private async rememberEmoji(emoji: string): Promise<void> {
+        this.settings.recentEmoji = [emoji, ...this.settings.recentEmoji.filter(e => e !== emoji)]
+            .slice(0, RECENT_EMOJI_LIMIT);
+        await this.saveSettings();
+    }
+
     private registerStaticCommands() {
         this.addCommand({
             id: "send-default",
@@ -183,6 +205,16 @@ export default class SendToTelegramPlugin extends Plugin {
                 if (this.settings.channels.length === 0) { new Notice(t.NOTICE_ERR_CONFIG); return; }
                 new MultiPresetModal(this.app, this, file).open();
             }
+        });
+
+        // Mod+Shift+E is the suggested default (E for emoji; Obsidian leaves it free) and
+        // can be re-bound like any other command under Settings → Hotkeys.
+        this.addCommand({
+            id: "insert-emoji",
+            name: t.COMMAND_INSERT_EMOJI,
+            icon: "smile",
+            hotkeys: [{ modifiers: ["Mod", "Shift"], key: "E" }],
+            editorCallback: (editor: Editor) => this.openEmojiPicker(editor),
         });
 
         this.addCommand({
@@ -566,6 +598,13 @@ export default class SendToTelegramPlugin extends Plugin {
             }
         }
         if (migrated) await this.saveData(this.settings);
+        // The emoji picker briefly cached Telegram's emoji-category API response here. The
+        // emoji set ships with the plugin now, so drop the leftover from data.json.
+        const withLegacyEmoji = this.settings as TelegramSettings & { emojiCache?: unknown };
+        if (withLegacyEmoji.emojiCache !== undefined) {
+            delete withLegacyEmoji.emojiCache;
+            await this.saveData(this.settings);
+        }
         // Named bot tokens supersede per-preset tokens. Clear any legacy per-preset
         // token (stored either in data.json or under `bot-token-${ch.id}`) — presets
         // now reference a shared BotToken via botTokenId. Start fresh, no migration.

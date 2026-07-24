@@ -33,6 +33,9 @@ const context = await esbuild.context({
     // Chromium (older than 133) lacks; pinning a Chromium target makes esbuild emit its own
     // base64 decoder instead. It also downlevels mtcute's modern syntax for the renderer.
     target: ["chrome110"],
+    // Emit non-ASCII literally instead of as \uXXXX escapes. The bundled emoji set and the
+    // localized strings are mostly non-ASCII, and escaping them triples their size.
+    charset: "utf8",
     outfile: "main.js",
     minify: prod,
     define: {

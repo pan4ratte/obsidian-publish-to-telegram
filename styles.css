@@ -1279,3 +1279,158 @@ body .telegram-changelog-close:hover {
     border-radius: 3px;
     font-size: var(--font-smaller);
 }
+
+/* ─── Emoji picker ─────────────────────────────────────────────────────────────── */
+
+/* Floating bar anchored under the editor's current line: a row of category tabs above a
+   scrollable emoji grid, laid out like Telegram's own emoji panel. Positioned in viewport
+   coordinates (position: fixed), so it follows the cursor as the note scrolls. */
+.telegram-emoji-panel {
+    position: fixed;
+    z-index: var(--layer-popover);
+    display: flex;
+    flex-direction: column;
+    width: 336px;
+    max-width: calc(100vw - 16px);
+    overflow: hidden;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    box-shadow: var(--shadow-s);
+}
+
+/* Search row on top of the bar, as in Telegram's panel: a magnifier and a borderless
+   field that filters the whole set (English names and Russian keywords). */
+.telegram-emoji-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.telegram-emoji-search-icon {
+    display: flex;
+    flex: 0 0 auto;
+    color: var(--text-faint);
+}
+
+.telegram-emoji-search-icon svg {
+    width: 15px;
+    height: 15px;
+}
+
+.telegram-emoji-panel .telegram-emoji-search-input {
+    flex: 1;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.telegram-emoji-panel .telegram-emoji-search-input::placeholder {
+    color: var(--text-faint);
+}
+
+.telegram-emoji-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.telegram-emoji-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+/* Tabs carry either the category's first emoji or (for "Recent") a lucide clock icon,
+   so both variants are centred in the same square. */
+.telegram-emoji-panel .telegram-emoji-tab {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    font-size: 17px;
+    line-height: 1;
+    color: var(--text-muted);
+    background-color: transparent;
+    border: none;
+    border-radius: var(--radius-s);
+    box-shadow: none;
+    cursor: pointer;
+}
+
+.telegram-emoji-panel .telegram-emoji-tab:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.telegram-emoji-panel .telegram-emoji-tab.is-active {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-active-hover, var(--background-modifier-hover));
+}
+
+.telegram-emoji-panel .telegram-emoji-tab svg {
+    width: 16px;
+    height: 16px;
+}
+
+.telegram-emoji-scroll {
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 0 6px 8px;
+    overscroll-behavior: contain;
+}
+
+/* Sticky heading, as in Telegram: the current category stays visible while its rows scroll. */
+.telegram-emoji-section-title {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 8px 4px 4px;
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+    color: var(--text-muted);
+    background-color: var(--background-primary);
+}
+
+.telegram-emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+}
+
+.telegram-emoji-panel .telegram-emoji-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    padding: 0;
+    font-size: 22px;
+    line-height: 1;
+    background-color: transparent;
+    border: none;
+    border-radius: var(--radius-s);
+    box-shadow: none;
+    cursor: pointer;
+}
+
+.telegram-emoji-panel .telegram-emoji-btn:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+/* Loading / error / empty state, shown in place of the tabs and the grid. */
+.telegram-emoji-message {
+    padding: 16px;
+    text-align: center;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
