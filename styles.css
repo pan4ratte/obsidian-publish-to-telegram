@@ -887,43 +887,37 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
 
 /* ── Per-post mode toggle ── */
 
-/* Sits directly under the post preview, above any comment previews. A column so the toggle
-   itself can span the full width of the card, with the edit target reading underneath it. */
+/* The card's footer: a full-bleed bar of mode buttons closing off the message block, with the
+   edit target reading just above it. Its outer corners are clipped by the card's own
+   overflow:hidden, so nothing here needs a radius. */
 .telegram-split-mode-row {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
-    padding: 12px;
     border-top: 1px solid var(--background-modifier-border);
 }
 
-/* Segmented control spanning the whole card: the segments share the width evenly and the
-   chosen one is outlined in the accent colour. */
+/* The buttons divide the bar evenly and are set apart by hairlines rather than by borders of
+   their own — align-items:stretch so those separators run the bar's full height. */
 .telegram-split-mode-toggle {
     display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 999px;
+    align-items: stretch;
 }
 
 body .telegram-split-mode-option {
-    /* An explicit flex so the segments split the row evenly — and so Obsidian's mobile base
+    /* An explicit flex so the buttons split the bar evenly — and so Obsidian's mobile base
        styles for plain <button>s can't impose their own growth. min-width:0 lets a long label
-       ellipsize instead of forcing the row wider. */
+       ellipsize instead of forcing the bar wider. */
     flex: 1 1 0;
     min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    height: 28px;
+    height: 36px;
     padding: 0 12px;
-    /* Transparent border on every segment: the selected one turns it accent-coloured, and
-       reserving the space here keeps the others from shifting when the choice moves. */
-    border: 1px solid transparent;
-    border-radius: 999px;
+    border: none;
+    border-radius: 0;
     background-color: transparent;
     box-shadow: none;
     color: var(--text-muted);
@@ -931,13 +925,23 @@ body .telegram-split-mode-option {
     cursor: pointer;
 }
 
-body .telegram-split-mode-option:hover {
-    background-color: var(--background-modifier-hover);
+/* One hairline between neighbours — never on the outer edges, which the card supplies. */
+body .telegram-split-mode-option + .telegram-split-mode-option {
+    border-left: 1px solid var(--background-modifier-border);
 }
 
+body .telegram-split-mode-option:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+/* With the outlines gone the choice is carried by the accent colour and weight, plus a bar
+   along the footer's bottom edge — readable even where the hover tint happens to match. */
 body .telegram-split-mode-option.is-selected {
     color: var(--interactive-accent-hover);
-    border: 1px solid var(--interactive-accent-hover);
+    font-weight: var(--font-semibold);
+    background-color: var(--background-modifier-hover);
+    box-shadow: inset 0 -2px 0 0 var(--interactive-accent);
 }
 
 /* Labels ellipsize rather than widen the row; the icon beside them never shrinks. */
@@ -968,10 +972,14 @@ body .telegram-split-mode-option .svg-icon {
     stroke-width: 2px;
 }
 
-/* Which message the "Edit" mode targets. Empty (and hidden) until one is chosen — a missing
-   choice is reported as a notice when publishing is attempted, not as inline red text. */
+/* Which message the "Edit" mode targets, sitting just above the footer bar. Empty (and hidden)
+   until one is chosen — a missing choice is reported as a notice when publishing is attempted,
+   not as inline red text. Its bottom border is what separates it from the bar, so hiding it
+   leaves the bar sitting directly under the row's own top border with no double line. */
 .telegram-split-mode-hint {
     min-width: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     overflow-wrap: anywhere;

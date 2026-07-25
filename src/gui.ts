@@ -1318,15 +1318,17 @@ export class MultiPresetModal extends Modal {
                 refreshExpand();
             }));
 
-        // ── Mode toggle ──
-        // Segmented control choosing what happens to this message: ignore / publish / edit.
-        // Only the applicable modes are offered (modeSetupFor), and a message with nothing
-        // to decide gets no toggle at all. When several published links exist, the "Edit"
-        // segment opens a menu to pick which message the edit rewrites.
+        // ── Mode footer ──
+        // The bar of buttons closing the card, choosing what happens to this message:
+        // ignore / publish / edit. Only the applicable modes are offered (modeSetupFor), and a
+        // message with nothing to decide gets no footer at all. When several published links
+        // exist, the "Edit" button opens a menu to pick which message the edit rewrites.
         if (setup.modes.length > 0) {
             const modeRowEl = parent.createDiv("telegram-split-mode-row");
-            const toggleEl = modeRowEl.createDiv("telegram-split-mode-toggle");
+            // The hint goes in first: it reads above the bar, which stays flush with the
+            // bottom edge of the block.
             const hintEl = modeRowEl.createDiv("telegram-split-mode-hint");
+            const toggleEl = modeRowEl.createDiv("telegram-split-mode-toggle");
             // Several links to choose from: the edit segment becomes a dropdown, and
             // publishing is blocked until one of them is picked.
             const needsPick = links.length > 1;
