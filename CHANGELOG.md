@@ -2,19 +2,21 @@
 
 ## 6.0.0
 
-### Major update: post previews and settings
+### Major update: Custom emoji, post previews and settings
 
-The advanced publishing settings menu was significantly reworked: post previews were added, along with several new post settings, such as choosing the link that generates the preview of the post in Telegram:
+This update brings two major changes. The advanced publishing menu was significantly reworked, adding post previews as well as several new post settings. In addition, an emoji bar with no equivalent in Obsidian was added, with support for custom emoji packs and search:
 
-* **Previews and separate settings for every post.** The advanced publishing settings now show a preview of every post — one for a regular note and several for a note split into several posts with `\split` commands. Post settings are now displayed in a more compact form, and the send button lets you choose which posts to publish (when there are several).
-* **Link preview controls.** Click a link in the preview window to make it the source of Telegram's link preview (and Ctrl+Click opens the link). The resulting link preview is also loaded in the post's window. The link preview can be moved above the text or disabled entirely. This update closes a feature request by @MrEfrill.
-* **Pre-written comments preview.** Pre-written comments are also shown in the preview under their post in the advanced publishing settings.
+* **Post previews.** The advanced publishing settings now show a preview — for notes with a single post as well as notes split into several posts with `\split` commands. Post settings are now displayed in a more compact form, and the send button lets you choose which of them to publish (when there are several).
+* **Pre-written comments preview.** Pre-written comments are also shown in the preview under their post.
+* **Link preview controls.** Click a link in the preview window to make it the source of Telegram's link preview (and Ctrl+Click opens the link). The resulting link preview is also loaded in the post's window, and it can be moved above the text or disabled entirely. This update closes a feature request by @MrEfrill.
 * **New post setting "Send when the recipient is online".** Available only for publishing methods that post as an account.
-* **New option "Always publish silently".** Lets you enable in the general plugin settings the publication of all posts with a soundless notification by default, unless set otherwise in the advanced publishing settings. This update closes a feature request by @MrEfrill.
+* **New option "Always publish silently".** Located in the general plugin settings, it lets you enable publishing all posts with a soundless notification by default, unless set otherwise in the advanced publishing settings. This update closes a feature request by @MrEfrill.
+* **Emoji bar with search.** In the Obsidian editor you can open the emoji bar with the "Insert emoji" command from the palette or with a hotkey. The bar fully mirrors Telegram's emoji categories and set, and also offers search by English and Russian keywords, category tabs and a recently used section.
+* **Custom emoji support.** Custom emoji packs installed on an authorized account are loaded into the emoji bar. Animated emoji are drawn as still images but published as native Telegram custom emoji. Using them requires Telegram Premium on the publishing account.
 
 ### UI/UX enhancements and bug fixes
 
-* The "Insert post split marker" command no longer adds an empty line after the marker.
+* The "Insert post split marker" command no longer adds an extra empty line after the marker.
 * Fixed a bug where the loaded chat list opened automatically without clicking the search field.
 
 
