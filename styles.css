@@ -843,7 +843,7 @@ body .telegram-split-circle-btn {
     padding: 0;
     border: 1px solid var(--background-modifier-border);
     background-color: transparent;
-    color: var(--icon-color);
+    color: var(--icon-color, var(--text-muted));
     cursor: pointer;
     box-shadow: none;
 }
@@ -852,6 +852,21 @@ body .telegram-split-circle-btn {
 body .telegram-split-circle-btn .svg-icon {
     width: 18px;
     height: 18px;
+}
+
+/* These setIcon() lucide icons sit inside flex containers (the round buttons, the emoji
+   tabs). On the tablet layout they get flex-shrunk to width:0 on the main axis — the computed
+   height stays right but the width collapses, so the icon is present yet invisible (phone and
+   desktop leave the container enough room, so it never shrinks there). flex-shrink:0 keeps
+   each icon at its set size; the stroke/colour pins guard against Obsidian leaving --icon-*
+   unset in these detached containers. */
+body .telegram-split-circle-btn .svg-icon,
+body .telegram-split-expand .svg-icon,
+.telegram-emoji-panel .telegram-emoji-tab svg,
+.telegram-emoji-panel .telegram-emoji-search-icon svg {
+    flex-shrink: 0;
+    stroke: currentColor;
+    stroke-width: 2px;
 }
 
 body .telegram-split-circle-btn:hover {
@@ -1519,4 +1534,15 @@ body .telegram-changelog-close:hover {
 
 .telegram-inline-emoji.is-placeholder img {
     opacity: 0.75;
+}
+
+/* Obsidian's Live Preview marks the reference's URL (`tg://emoji?id=…`) as an external link
+   and paints its external-link icon on an empty formatting span left sitting right after our
+   emoji widget. The widget already stands in for the whole reference, so hide that leftover
+   icon — but only when it directly follows our emoji (across CodeMirror's widget-buffer
+   <img>s), so external-link icons on ordinary links elsewhere are untouched. */
+.telegram-inline-emoji + .cm-url.external-link,
+.telegram-inline-emoji + img + .cm-url.external-link,
+.telegram-inline-emoji + img + img + .cm-url.external-link {
+    display: none;
 }

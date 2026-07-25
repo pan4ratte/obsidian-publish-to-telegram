@@ -150,8 +150,15 @@ export class CustomEmojiThumbnails {
     // Ids that only hold a placeholder are tried again, in case the artwork is reachable now.
     async load(ids: string[]): Promise<void> {
         if (this.disposed) return;
-        const missing = ids.filter(id =>
-            (CustomEmojiThumbnails.previews.get(id)?.placeholder ?? true) && !this.pending.has(id));
+        const missing = ids.filter(id => {
+            const preview = CustomEmojiThumbnails.previews.get(id);
+            // Only a genuinely absent preview or the vector-outline placeholder is worth
+            // (re)loading. A fully-downloaded preview carries no `placeholder` flag, so it
+            // must NOT count as missing — otherwise every already-loaded emoji is re-read and
+            // re-rendered on every load() call (which the editor makes on each keystroke,
+            // making inline emoji blink as you type).
+            return (!preview || preview.placeholder === true) && !this.pending.has(id);
+        });
 
         // Anything downloaded in an earlier session is on disk — no connection needed.
         const wanted: string[] = [];

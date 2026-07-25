@@ -9,7 +9,7 @@
 // the on-disk cache is available, and anything missing keeps its fallback emoji.
 import { MarkdownPostProcessor } from "obsidian";
 import { syntaxTree } from "@codemirror/language";
-import { Prec, RangeSetBuilder, type EditorState, type Extension } from "@codemirror/state";
+import { RangeSetBuilder, type EditorState, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { CustomEmojiThumbnails } from "./custom-emoji";
 import { customEmojiRefRegex } from "./markdown";
@@ -117,9 +117,7 @@ function selectionTouches(state: EditorState, from: number, to: number): boolean
 }
 
 export function customEmojiEditorExtension(previews: () => CustomEmojiThumbnails | null): Extension {
-    // Highest precedence so our replacement wins over Obsidian's built-in link decoration for
-    // the same range — otherwise its rendering (label + external-link icon) shows through.
-    return Prec.highest(ViewPlugin.fromClass(
+    return ViewPlugin.fromClass(
         class {
             decorations: DecorationSet;
 
@@ -146,12 +144,10 @@ export function customEmojiEditorExtension(previews: () => CustomEmojiThumbnails
                         if (selectionTouches(view.state, start, end) || insideCode(view.state, start)) continue;
                         builder.add(start, end, Decoration.replace({
                             widget: new CustomEmojiWidget(match[1], match[2], previews),
-                            // The reference is a link, so Obsidian's own Live Preview draws an
-                            // external-link icon anchored just past it; inclusiveEnd folds that
-                            // boundary widget into our replacement, so the emoji stands alone.
-                            inclusiveEnd: true,
                         }));
-                        wanted.push(match[2]);
+                        // Only ask for emoji we have no preview for yet; re-requesting ones
+                        // already drawn would reload them on every keystroke.
+                        if (!CustomEmojiThumbnails.cached(match[2])) wanted.push(match[2]);
                     }
                 }
                 // One request per render pass rather than one per emoji.
@@ -160,5 +156,5 @@ export function customEmojiEditorExtension(previews: () => CustomEmojiThumbnails
             }
         },
         { decorations: plugin => plugin.decorations },
-    ));
+    );
 }
