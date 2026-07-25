@@ -344,7 +344,20 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram's 
 
 You don't have to add this formatting by hand. Right-click in the note editor to open the "Rich-text formatting" submenu and choose an element to insert it into the text or to wrap the selected text.
 
-## 5. Pre-written comments
+## 5. The emoji bar
+
+You can insert emoji, including emoji from custom Telegram packs using the emoji bar: 
+
+* To call the bar, run the "Publish to Telegram: Insert emoji" command from the command palette, or bind it to a hotkey such as `Ctrl/Cmd + Shift + E`.
+* The search field at the top allows you to filter emoji by keywords in English and Russian.
+* Category tabs — Recent, Smileys & people, Animals & nature, etc. — fully repeats native Telegram emoji bar.
+* If your account has custom emoji packs saved, they will also load and you can insert them too. Animated emoji will be displayed as static, but will be sent correctly. To publish custom emoji you must have Telegram Premium.
+
+### Custom emoji
+
+When an account is connected, the custom emoji packs installed on it appear in the bar after the standard sections, each with its own tab. A picked custom emoji is stored in the note as `[fallback](tg://emoji?id=…)` and drawn as its real artwork inline — both in Live Preview and in reading view. It is published as a native Telegram custom emoji by every method — account, bot and rich-text alike — turning into a `<tg-emoji>` entity (see 4.2). Posting custom emoji requires Telegram Premium on the publishing account; browsing and inserting them does not.
+
+## 6. Pre-written comments
 
 You can pre-write one or more comments for your post that will appear in its discussion right after the publication. To use that feature:
 
@@ -362,7 +375,7 @@ A couple of notes:
 
 * For now, it is not possible to schedule pre-written comments.
 
-## 6. Advanced publishing settings
+## 7. Advanced publishing settings
 
 You can open an advanced publishing settings window with command palette (`Ctrl + P`) by typing "Publish to Telegram: Publish with advanced settings". In that settings window you can choose to:
 
@@ -392,7 +405,7 @@ You can open an advanced publishing settings window with command palette (`Ctrl 
 
     * Editing a **rich-text** post can add *local* media as well — photos, videos, GIFs and audio are uploaded and appear inline, exactly as when publishing, even if the post was originally text-only. Local *documents* still can't be embedded in a rich message (see the rich-text formatting section above).
 
-## 7. Limits
+## 8. Limits
 
 Standard Telegram posting limits apply to limits apply to posts, send via "Account" and "Bot" methods. A rich-text message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns.of characters per post, limits of attached media size per post, etc. More about limits: [https://limits.tginfo.me/](https://limits.tginfo.me/)
 
