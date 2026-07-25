@@ -40,6 +40,18 @@ export interface TelegramChannel {
     topicId?: number;
 }
 
+// Per-comment publish options for the pre-written comments (embedded .md notes) that ride
+// along with a part, index-aligned to that part's md embeds. A comment is a text reply in the
+// discussion, so only what a reply can carry is here: an unselected comment is skipped, and
+// each sent comment uses its own silent / link-preview values instead of the part's.
+export interface CommentOptions {
+    selected: boolean;
+    silent: boolean;
+    linkPreviewUrl?: string;        // URL whose link preview the comment should render
+    linkPreviewAboveText?: boolean; // render the link preview above the comment text
+    linkPreviewDisabled?: boolean;  // suppress the link preview entirely (wins over the two above)
+}
+
 // Per-part publish options chosen in the advanced modal's split layout, index-aligned to
 // parseSplitPosts order. When provided to a send path, unselected parts are skipped and each
 // sent part uses its own silent/attachments/schedule values instead of the publish-wide ones.
@@ -52,6 +64,7 @@ export interface SplitPartOptions {
     linkPreviewUrl?: string;        // URL whose link preview the post should render (classic text-only posts)
     linkPreviewAboveText?: boolean; // render the link preview above the post text
     linkPreviewDisabled?: boolean;  // suppress the link preview entirely (wins over the two above)
+    comments?: CommentOptions[];    // per-comment options, aligned to this part's md embeds
 }
 
 export interface PendingScheduledLink {

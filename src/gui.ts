@@ -1,4 +1,4 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest } from "obsidian";
+import { App, Modal, Component, ButtonComponent, ToggleComponent, Menu, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
@@ -23,6 +23,77 @@ const IDENTITY_RETRY_DELAY_MS = 1000;
 // Official lucide "link-2-off" path data (24×24, scaled to Obsidian's 100×100 icon
 // viewBox). Registered on demand because Obsidian's bundled lucide set lacks this icon.
 const LINK_2_OFF_ICON = `<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="scale(4.1667)"><path d="M9 17H7A5 5 0 0 1 7 7"/><path d="M15 7h2a5 5 0 0 1 4 8"/><line x1="8" y1="12" x2="12" y2="12"/><line x1="2" y1="2" x2="22" y2="22"/></g>`;
+
+// Official lucide "ban" path data, same 24×24 → 100×100 scaling. Registered on demand
+// for the same reason as link-2-off: it may be missing from Obsidian's bundled set.
+const BAN_ICON = `<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="scale(4.1667)"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></g>`;
+
+// ─── Long-press tooltips (touch) ──────────────────────────────────────────────
+
+// How long a touch has to be held before the control explains itself.
+const LONG_PRESS_MS = 450;
+
+// Obsidian shows tooltips on hover, which a touch screen never produces — so on a phone or
+// tablet the icon-only controls in the advanced modal have no way to say what they do. This
+// shows the element's tooltip after a long press instead, and swallows the tap that ends the
+// press so reading a control doesn't also toggle it.
+//
+// The text is read from `aria-label` at press time (that's where setTooltip puts it), so a
+// control whose tooltip changes with its state always shows its current one. The popup carries
+// its own class instead of Obsidian's `.tooltip` — the mobile app suppresses those, hover being
+// impossible there — and styles.css gives it the same look.
+//
+// Must be called BEFORE the element's own click listener: at the target, listeners run in the
+// order they were added regardless of the capture flag, and the guard below has to run first
+// to be able to stop the rest.
+function enableLongPressTooltip(el: HTMLElement): void {
+    let timer: number | null = null;
+    let fired = false;
+    let tooltipEl: HTMLElement | null = null;
+
+    const cancel = () => {
+        if (timer !== null) window.clearTimeout(timer);
+        timer = null;
+        tooltipEl?.remove();
+        tooltipEl = null;
+    };
+
+    const show = () => {
+        const text = el.getAttribute("aria-label");
+        if (!text) return;
+        fired = true;
+        const rect = el.getBoundingClientRect();
+        tooltipEl = document.body.createDiv({ cls: "telegram-touch-tooltip", text });
+        // Centred above the control and clamped to the viewport, so a control at either edge
+        // of the row still shows its tooltip in full.
+        const centered = rect.left + rect.width / 2 - tooltipEl.offsetWidth / 2;
+        const left = Math.min(Math.max(centered, 8), window.innerWidth - tooltipEl.offsetWidth - 8);
+        tooltipEl.style.left = `${Math.max(left, 8)}px`;
+        tooltipEl.style.top = `${Math.max(rect.top - tooltipEl.offsetHeight - 8, 8)}px`;
+    };
+
+    // The tap that ends a long press is cancelled twice over: preventDefault on touchend stops
+    // the synthetic click on platforms that derive it from the touch sequence, and the guard
+    // below stops it everywhere else. stopImmediatePropagation is what keeps the element's own
+    // click handler from running — stopPropagation alone wouldn't.
+    el.addEventListener("click", (evt: MouseEvent) => {
+        if (!fired) return;
+        fired = false;
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+    }, { capture: true });
+    el.addEventListener("touchstart", () => {
+        fired = false;
+        cancel();
+        timer = window.setTimeout(show, LONG_PRESS_MS);
+    }, { passive: true });
+    el.addEventListener("touchmove", cancel, { passive: true });
+    el.addEventListener("touchend", (evt: TouchEvent) => {
+        if (fired) evt.preventDefault();
+        cancel();
+    }, { passive: false });
+    el.addEventListener("touchcancel", cancel, { passive: true });
+}
 
 // Wraps an async handler so it can be used where a void-returning callback is
 // expected (e.g. addEventListener); the returned promise is explicitly discarded.
@@ -94,6 +165,55 @@ function isAccountMethod(method: PostMethod): boolean {
 // account (needs Telegram Premium), "bot-rich" from a bot.
 function isRichMethod(method: PostMethod): boolean {
     return method === "account-rich" || method === "bot-rich";
+}
+
+// What a previewed message does on publish, picked with the mode toggle under its preview.
+type SplitMode = "ignore" | "publish" | "edit";
+
+// One previewed message in the advanced modal: a post part, or one of the pre-written comments
+// (embedded .md notes) that ride along with it. Both get the same settings row and mode toggle;
+// a comment publishes as a text reply, so the options a reply can't carry (attachment
+// positioning, scheduling) are permanently blocked on comment cards.
+interface CardRow {
+    kind: "post" | "comment";
+    // What this message does on publish: "ignore" skips it, "publish" sends it as a new
+    // message, "edit" rewrites an already-published one (editLink, chosen from editLinks —
+    // "all" edits every link at once, null means the user still has to choose).
+    mode: SplitMode;
+    editLinks: string[];
+    editLink: string | null;
+    applyMode: () => void;
+    silentOn: boolean;
+    attachOn: boolean;
+    previewMode: "default" | "top" | "off";
+    linkPreviewUrl: string | null;
+    updateLinkPreviewCard: () => void;
+    onlineOn: boolean;
+    scheduleValue: string;
+    // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no active
+    // state, empty date) so the user isn't misled, but the underlying state survives and
+    // reappears when a supported method is picked again.
+    richBlocked: boolean;
+    schedBlocked: boolean;
+    editBlocked: boolean;
+    applyRichState: () => void;
+    applySchedState: () => void;
+    applyEditState: () => void;
+    // Comment cards: the comment's position among the whole note's comment notes, which is how
+    // an edit targets exactly this comment (editNoteComments' embedOffset). -1 on post cards.
+    embedIndex: number;
+    // Post cards: the comment cards nested under this part, in publish order.
+    comments: CardRow[];
+}
+
+// The mode toggle's segments, in display order, with their lucide icon and label. Only the
+// modes a given post actually offers are rendered (see modeOptionsFor).
+function splitModeSegments(): Array<[SplitMode, string, string]> {
+    return [
+        ["ignore", "ban", t.MULTI_PRESET_SPLIT_MODE_IGNORE],
+        ["publish", "send", t.MULTI_PRESET_SPLIT_MODE_PUBLISH],
+        ["edit", "pencil", t.MULTI_PRESET_SPLIT_MODE_EDIT],
+    ];
 }
 
 // The posting methods a preset offers in the advanced modal: its primary method's
@@ -243,53 +363,30 @@ export class MultiPresetModal extends Modal {
     // preset at a time) doesn't re-enter the toggle's own onChange handler.
     private updatingPresets = false;
 
-    private updateLinkDropdown: DropdownComponent | null = null;
-    private updateHintEl: HTMLElement | null = null;
-    private updateDescEl: HTMLElement | null = null;
-    private builtUpdateChannel: TelegramChannel | null = null;
-
-    private commentLinkDropdown: DropdownComponent | null = null;
-
     private publishBtn: ButtonComponent | null = null;
     private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod, methodsEl: HTMLElement }> = [];
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
+    // Post links recorded in the note's `tg_posts` property; they're what a single-post note
+    // offers for editing (a split note edits through its own per-part markers instead).
+    private storedPostLinks: string[] = [];
+    // Comment links recorded in `tg_comments`. Each comment card takes its own link(s) from
+    // here by position — see commentEditLinks.
+    private storedCommentLinks: string[] = [];
+    // Paths of the note's pre-written comment notes in whole-note collection order. A comment's
+    // position here is the `embedOffset` that targets exactly that comment on an edit.
+    private commentEmbedOrder: string[] = [];
+    // Resolves every stored link's chat title once per modal. The edit pickers are usable
+    // before it settles, so the publish handler awaits it before editing anything.
+    private linkResolution: Promise<void> = Promise.resolve();
 
-    // ── Post previews ────────────────────────────────────────────────────────────
-    // Every fresh publish shows the note as previewed posts: each part (one for a plain
-    // note, several for a `%% \split %%` note) gets its own settings button row and a
-    // rendered preview. One entry per part, index-aligned to parseSplitPosts order.
+    // ── Message previews ─────────────────────────────────────────────────────────
+    // Every publish shows the note as the messages it will produce: each part (one for a
+    // plain note, several for a `%% \split %%` note) and each of its pre-written comments
+    // gets its own settings button row, rendered preview and mode toggle.
     private splitPosts: SplitPost[] = [];
-    private splitRows: Array<{
-        // The part's card and its pre-written comment blocks (heading included), kept so an
-        // edit selection can narrow the previews down to what's actually being edited.
-        postEl: HTMLElement;
-        commentEls: HTMLElement[];
-        selectedOn: boolean;
-        silentOn: boolean;
-        attachOn: boolean;
-        attachBtn: HTMLElement;
-        previewMode: "default" | "top" | "off";
-        previewModeBtn: HTMLElement;
-        updateLinkPreviewCard: () => void;
-        linkPreviewUrl: string | null;
-        onlineOn: boolean;
-        scheduleValue: string;
-        scheduleInput: HTMLInputElement;
-        schedulePillEl: HTMLElement;
-        // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no
-        // active state, empty date) so the user isn't misled, but the underlying state
-        // survives and reappears when a supported method is picked again.
-        richBlocked: boolean;
-        schedBlocked: boolean;
-        editBlocked: boolean;
-        applyRichState: () => void;
-        applySchedState: () => void;
-        applyEditState: () => void;
-    }> = [];
-    // One observer per previewed post, moving the date pill + send toggle to the overflow
-    // row under the preview when the settings row runs out of space.
-    private splitResizeObservers: ResizeObserver[] = [];
-    private splitSectionEl: HTMLElement | null = null;
+    // One card per part, index-aligned to parseSplitPosts order; each carries its comment
+    // cards in publish order.
+    private splitRows: CardRow[] = [];
     // Scoped to the modal lifecycle so the preview MarkdownRenderer children unload on close.
     private readonly splitRenderComponent = new Component();
     // OpenGraph data for chosen link-preview sources, fetched once per URL per modal.
@@ -324,14 +421,22 @@ export class MultiPresetModal extends Modal {
         this.initialChannelId = initialChannelId;
     }
 
-    private anyLinkSelected(): boolean {
-        const post = this.updateLinkDropdown?.getValue() ?? "none";
-        const comment = this.commentLinkDropdown?.getValue() ?? "none";
-        return post !== "none" || comment !== "none";
+    // Every previewed message — post parts and their comments alike. All the option-state
+    // updaters work on this flat view; publishing walks the parts and their comments instead.
+    private allCards(): CardRow[] {
+        return this.splitRows.flatMap(row => [row, ...row.comments]);
     }
 
+    // The messages set to edit an already-published message, and the ones set to publish as a
+    // new message. Both come from the per-message mode toggles.
+    private editingRows(): CardRow[] { return this.allCards().filter(row => row.mode === "edit"); }
+    private publishingRows(): CardRow[] { return this.allCards().filter(row => row.mode === "publish"); }
+
+    // An action that only edits keeps the "Edit" button label; as soon as any message is set to
+    // publish, the action publishes (possibly alongside edits) and the label says so.
     private updatePublishBtn() {
-        this.publishBtn?.setButtonText(this.anyLinkSelected() ? t.MULTI_PRESET_EDIT_BTN : t.MULTI_PRESET_POST_BTN);
+        const editingOnly = this.publishingRows().length === 0 && this.editingRows().length > 0;
+        this.publishBtn?.setButtonText(editingOnly ? t.MULTI_PRESET_EDIT_BTN : t.MULTI_PRESET_POST_BTN);
     }
 
     // The methods that would actually be used on publish: one per selected preset plus the
@@ -343,14 +448,13 @@ export class MultiPresetModal extends Modal {
     }
 
     // Scheduling and "send when online" aren't supported by the Bot API, and editing an
-    // existing post/comment can't use either. The controls grey out and visually reset,
-    // but the stored state survives — switching back to a supported method restores it.
+    // existing post can't use either. The controls grey out and visually reset, but the
+    // stored state survives — switching back to a supported method restores it.
     private updateScheduleState() {
         const methods = this.activeMethods();
         const allBot = methods.length > 0 && methods.every(m => !isAccountMethod(m));
-        const disabled = allBot || this.anyLinkSelected();
-        for (const row of this.splitRows) {
-            row.schedBlocked = disabled;
+        for (const row of this.allCards()) {
+            row.schedBlocked = allBot || row.mode === "edit";
             row.applySchedState();
         }
     }
@@ -360,48 +464,21 @@ export class MultiPresetModal extends Modal {
     // switching back to a supported method restores the user's choices.
     private updateAttachState() {
         const anyRich = this.activeMethods().some(isRichMethod);
-        for (const row of this.splitRows) {
+        for (const row of this.allCards()) {
             row.richBlocked = anyRich;
             row.applyRichState();
         }
     }
 
-    // The previews stay visible while a link is selected for editing; the options an edit
-    // can't use (silent, send selection, link-preview mode — scheduling is covered by
-    // updateScheduleState) grey out and visually reset, state preserved. Attachments
-    // positioning stays enabled: it's the one option edits support.
+    // Per message: the options an edit can't use (silent, link-preview mode — scheduling is
+    // covered by updateScheduleState) grey out and visually reset on the cards set to
+    // "edit", state preserved. Attachments positioning stays enabled: it's the one option
+    // edits support.
     private updateEditState() {
-        const editing = this.anyLinkSelected();
-        for (const row of this.splitRows) {
-            row.editBlocked = editing;
+        for (const row of this.allCards()) {
+            row.editBlocked = row.mode === "edit";
             row.applyEditState();
         }
-    }
-
-    // Narrows the previews down to what an edit selection actually touches: picking one
-    // stored post link leaves only the part that link belongs to (found via its split
-    // marker), hiding every other part. Comment previews follow the comment dropdown —
-    // they show only while a comment source is being edited, so a post-only edit hides
-    // them. Both "all" options (and no selection at all) bring everything back.
-    private updatePreviewVisibility() {
-        if (this.splitRows.length === 0) return;
-        const post = this.updateLinkDropdown?.getValue() ?? "none";
-        const comment = this.commentLinkDropdown?.getValue() ?? "none";
-        const editing = post !== "none" || comment !== "none";
-        // -1 keeps every part visible: no single link chosen, or a link whose part can't be
-        // identified (no matching marker), where hiding would leave an empty section.
-        const onlyIdx = post !== "none" && post !== "all" ? this.partIndexForLink(post) : -1;
-
-        let visibleCount = 0;
-        this.splitRows.forEach((row, i) => {
-            const visible = onlyIdx < 0 || i === onlyIdx;
-            if (visible) visibleCount++;
-            row.postEl.toggleClass("is-hidden", !visible);
-            const commentsVisible = visible && (!editing || comment !== "none");
-            row.commentEls.forEach(el => el.toggleClass("is-hidden", !commentsVisible));
-        });
-        // A lone visible preview gets the taller collapsed clamp, however it became lone.
-        this.splitSectionEl?.toggleClass("telegram-split-section--single", visibleCount === 1);
     }
 
     // Selects a single preset (or none), enforcing radio-style behaviour: turning one on
@@ -425,24 +502,21 @@ export class MultiPresetModal extends Modal {
     // Returns null when an "all" bulk option is chosen (no single chat to match against).
     private editingChatIds(): Set<string> | null {
         const ids = new Set<string>();
-        const post = this.updateLinkDropdown?.getValue() ?? "none";
-        if (post === "all") return null;
-        if (post !== "none") {
-            const parsed = parseLinkComponents(post);
+        for (const row of this.editingRows()) {
+            if (row.editLink === null || row.editLink === "all") return null;
+            const parsed = parseLinkComponents(row.editLink);
             if (parsed) ids.add(normChatId(parsed.chatId));
         }
-        const comment = this.commentLinkDropdown?.getValue() ?? "none";
-        if (comment === "all") return null;
-        if (comment !== "none") ids.add(normChatId(comment)); // comment option value is the chat id
         return ids;
     }
 
-    // Reflects the current edit-link selection on the preset rows: enables only the
-    // presets whose chat targets match the chosen link's chat (all disabled for the
-    // "all" bulk option). The matching preset the user toggles on supplies the method
-    // and token used to perform the edit. With no link selected every preset is re-enabled.
+    // Reflects the current edit selection on the preset rows: for an edit-only action, only
+    // the presets whose chat targets match an edited link's chat stay enabled (all disabled
+    // for an "all" bulk option), since the preset the user toggles on supplies the method and
+    // token used to perform the edit. As soon as a message is set to publish the filter lifts —
+    // that publish needs its own preset, and edits fall back to resolving their link's chat.
     private applyEditLinkFilter() {
-        const editing = this.anyLinkSelected();
+        const editing = this.editingRows().length > 0 && this.publishingRows().length === 0;
 
         if (!editing) {
             this.channelRows.forEach(row => row.container.removeClass("is-disabled"));
@@ -467,12 +541,11 @@ export class MultiPresetModal extends Modal {
                 }
             });
         }
-        // Refresh the option states on every link change (both when a link is picked and when
-        // it's cleared): most per-post options don't apply to edits.
+        // Refresh the option states on every mode change: most per-message options don't
+        // apply to edits.
         this.updateScheduleState();
         this.updateAttachState();
         this.updateEditState();
-        this.updatePreviewVisibility();
     }
 
     // The first selected preset whose chat targets include the given chat, with the
@@ -492,7 +565,7 @@ export class MultiPresetModal extends Modal {
     // Edits a single stored post link, routing by the matched preset's method so the edit
     // preserves it: bot / bot-rich edit via the bot, account / account-rich via the user
     // account (keeping rich formatting for the "-rich" variants). With no matching preset
-    // it falls back to the account path (channelFromLink).
+    // it falls back to the account path (channelFromLink), which needs the chat resolved.
     private async editPost(link: string, title: string | null, silent: boolean, attachUnderText: boolean): Promise<void> {
         const parsed = parseLinkComponents(link);
         const route = parsed ? this.editRouteFor(parsed.chatId) : null;
@@ -503,49 +576,48 @@ export class MultiPresetModal extends Modal {
                 chatTargets: [{ id: parsed.chatId, title: title ?? parsed.chatId }],
             };
             await this.plugin.sendNoteToTelegram(this.file, editChannel, silent, attachUnderText, link, undefined, route.method);
-        } else if (title) {
-            const channel = channelFromLink(link, title);
-            if (channel) await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, link, undefined);
-        }
-    }
-
-    private showHint(el: HTMLElement | null, descEl: HTMLElement | null, text: string, isError: boolean) {
-        if (!el) return;
-        el.setText(text);
-        el.show();
-        descEl?.hide();
-        if (isError) el.addClass("is-error");
-        else el.removeClass("is-error");
-    }
-
-    private hideHint(el: HTMLElement | null, descEl: HTMLElement | null) {
-        el?.hide();
-        descEl?.show();
-    }
-
-    private handleLinkSelection(value: string) {
-        this.updatePublishBtn();
-        this.applyEditLinkFilter();
-        if (value === "none") {
-            this.builtUpdateChannel = null;
-            this.hideHint(this.updateHintEl, this.updateDescEl);
             return;
         }
-
-        if (value === "all") {
-            this.builtUpdateChannel = null;
-            this.hideHint(this.updateHintEl, this.updateDescEl);
+        const channel = title ? channelFromLink(link, title) : null;
+        if (channel) {
+            await this.plugin.sendNoteToTelegram(this.file, channel, silent, attachUnderText, link, undefined);
             return;
         }
+        // Neither a selected preset nor an authorized account can reach this chat — say so
+        // rather than finishing quietly with nothing edited.
+        new Notice(t.MULTI_PRESET_UPDATE_NO_MATCH);
+    }
 
-        const info = this.resolvedLinks.get(value);
-        if (info?.title) {
-            this.builtUpdateChannel = channelFromLink(value, info.title);
-            this.showHint(this.updateHintEl, this.updateDescEl, t.MULTI_PRESET_UPDATE_WILL_USE.replace("{name}", info.title), false);
-        } else {
-            this.builtUpdateChannel = null;
-            this.showHint(this.updateHintEl, this.updateDescEl, t.MULTI_PRESET_UPDATE_NO_MATCH, true);
+    // Edits one pre-written comment in place. `embedIndex` is the comment's position among the
+    // note's comment notes, which is how the send paths line a stored link up with the note
+    // whose content it holds. Routes like a post edit: the selected preset's method and token
+    // when one covers the comment's chat, else the account path.
+    private async editComment(link: string, embedIndex: number, silent: boolean): Promise<void> {
+        const parsed = parseLinkComponents(link);
+        if (!parsed) return;
+        const route = this.editRouteFor(parsed.chatId);
+        await this.plugin.editNoteComments(this.file, [link], silent, route?.method ?? "account", route?.channel.botToken, embedIndex);
+    }
+
+    // The stored links that a comment card can edit: `tg_comments` holds every comment link of
+    // the note, so they're grouped by chat and ordered within each chat, and the comment at
+    // position `embedIndex` takes that position from each chat's group — one link per chat the
+    // note was published to.
+    private commentEditLinks(embedIndex: number): string[] {
+        const groups = new Map<string, string[]>();
+        for (const link of this.storedCommentLinks) {
+            const parsed = parseLinkComponents(link);
+            if (!parsed) continue;
+            const group = groups.get(normChatId(parsed.chatId)) ?? [];
+            group.push(link);
+            groups.set(normChatId(parsed.chatId), group);
         }
+        const links: string[] = [];
+        for (const group of groups.values()) {
+            group.sort((a, b) => (parseLinkComponents(a)?.messageId ?? 0) - (parseLinkComponents(b)?.messageId ?? 0));
+            if (group[embedIndex]) links.push(group[embedIndex]);
+        }
+        return links;
     }
 
     // Builds the "Post without a preset" section: a chat-target picker plus author/method
@@ -847,370 +919,453 @@ export class MultiPresetModal extends Modal {
         return { cleaned, files };
     }
 
+    // The modes a previewed message offers and the one it starts in, from the links already
+    // recorded for it.
+    //
+    // A message with no recorded link has nothing to edit and defaults to "publish"; a lone
+    // post in that state has no decision left to make at all (empty `modes` ⇒ no toggle is
+    // rendered). Everything else can at least be skipped.
+    //
+    // A message that already went out defaults to being left alone ("ignore"), since
+    // re-sending it would duplicate it — except on a single-post note, where the one post
+    // (and its comments) is almost certainly being updated, so "edit" is the default.
+    private modeSetupFor(links: string[], kind: CardRow["kind"]): { modes: SplitMode[]; mode: SplitMode } {
+        const lonePost = this.splitPosts.length === 1 && kind === "post";
+        if (links.length === 0) return lonePost
+            ? { modes: [], mode: "publish" }
+            : { modes: ["ignore", "publish"], mode: "publish" };
+        return {
+            modes: lonePost ? ["publish", "edit"] : ["ignore", "publish", "edit"],
+            mode: this.splitPosts.length === 1 ? "edit" : "ignore",
+        };
+    }
+
+    // Applies a mode picked on a card's toggle and refreshes everything that depends on the
+    // publish/edit split: the button label, the preset filter and the per-message option states.
+    private setSplitMode(row: CardRow, mode: SplitMode) {
+        row.mode = mode;
+        row.applyMode();
+        this.updatePublishBtn();
+        this.applyEditLinkFilter();
+    }
+
+    // Chat info for a link whichever spelling it's recorded in: the note's properties keep
+    // the full `https://t.me/…` form, split markers the compact `t.me/…` one, and the same
+    // message can be reached through either.
+    private resolvedInfoFor(link: string): { title: string | null; isChannel: boolean } | undefined {
+        const exact = this.resolvedLinks.get(link);
+        if (exact) return exact;
+        for (const [key, info] of this.resolvedLinks) {
+            if (linksMatch(key, link)) return info;
+        }
+        return undefined;
+    }
+
+    // The dropdown behind the "Edit" segment when a message has several published links: pick
+    // which one the edit rewrites, or all of them at once.
+    private openEditLinkMenu(evt: MouseEvent, row: CardRow) {
+        const menu = new Menu();
+        menu.addItem(item => item
+            .setTitle(t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS)
+            .setChecked(row.editLink === "all")
+            .onClick(() => { row.editLink = "all"; this.setSplitMode(row, "edit"); }));
+        for (const link of row.editLinks) {
+            const title = this.resolvedInfoFor(link)?.title;
+            menu.addItem(item => item
+                .setTitle(title ? `${title} — ${link}` : link)
+                .setChecked(row.editLink === link)
+                .onClick(() => { row.editLink = link; this.setSplitMode(row, "edit"); }));
+        }
+        menu.showAtMouseEvent(evt);
+    }
+
+    // Builds the previews: one card per split part, each followed by a card for every
+    // pre-written comment that rides along with it. Cards are identical in structure — a
+    // settings row, a clamped preview and a mode toggle — so the whole layout is one
+    // renderCard call per message.
     private renderSplitSection(container: HTMLElement): void {
         this.splitRenderComponent.load();
-        // Obsidian's bundled lucide set lacks "link-2-off" — register it so setIcon renders it.
+        // Obsidian's bundled lucide set lacks these two — register them so setIcon renders them.
         if (!getIcon("link-2-off")) addIcon("link-2-off", LINK_2_OFF_ICON);
-        this.splitSectionEl = container.createDiv("telegram-split-section");
+        if (!getIcon("ban")) addIcon("ban", BAN_ICON);
+        const sectionEl = container.createDiv("telegram-split-section");
         // A lone previewed post gets a taller collapsed clamp than a multi-post split.
-        if (this.splitPosts.length === 1) this.splitSectionEl.addClass("telegram-split-section--single");
+        if (this.splitPosts.length === 1) sectionEl.addClass("telegram-split-section--single");
 
         for (const post of this.splitPosts) {
-            const postEl = this.splitSectionEl.createDiv("telegram-split-post");
-            const row = {
-                postEl,
-                commentEls: [] as HTMLElement[],
-                // With a single previewed post there's nothing to choose between — it always
-                // publishes, and the send toggle isn't rendered at all.
-                selectedOn: this.splitPosts.length === 1 || post.links.length === 0,
-                silentOn: this.plugin.settings.alwaysSilent,
-                attachOn: false,
-                attachBtn: null as unknown as HTMLElement,
-                previewMode: "default" as "default" | "top" | "off",
-                previewModeBtn: null as unknown as HTMLElement,
-                updateLinkPreviewCard: () => {},
-                linkPreviewUrl: null as string | null,
-                onlineOn: false,
-                scheduleValue: "",
-                scheduleInput: null as unknown as HTMLInputElement,
-                schedulePillEl: null as unknown as HTMLElement,
-                richBlocked: false,
-                schedBlocked: false,
-                editBlocked: false,
-                applyRichState: () => {},
-                applySchedState: () => {},
-                applyEditState: () => {},
-            };
-
-            // ── Per-post settings row ──
-            const controlsEl = postEl.createDiv("telegram-split-controls");
-
-            const silentBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
-            const applySilent = () => {
-                const effective = row.silentOn && !row.editBlocked;
-                setIcon(silentBtn, effective ? "bell-off" : "bell");
-                silentBtn.toggleClass("is-active", effective);
-            };
-            applySilent(); // reflects the "Always publish silently" default
-            setTooltip(silentBtn, t.MULTI_PRESET_SILENT_POST_NAME);
-            silentBtn.addEventListener("click", () => {
-                row.silentOn = !row.silentOn;
-                applySilent();
-            });
-
-            const attachBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
-            setIcon(attachBtn, "image-down");
-            setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
-            const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked);
-            attachBtn.addEventListener("click", () => {
-                row.attachOn = !row.attachOn;
-                applyAttach();
-            });
-            row.attachBtn = attachBtn;
-
-            // Link-preview placement, cycling through three states: default (Telegram's
-            // automatic placement) → preview above the text → preview disabled entirely.
-            // While a rich method blocks the option, the button shows the default state.
-            const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
-            const applyPreviewMode = () => {
-                const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
-                setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
-                setTooltip(previewModeBtn, mode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
-                    : mode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
-                    : t.MULTI_PRESET_SPLIT_PREVIEW_DEFAULT);
-                previewModeBtn.toggleClass("is-active", mode !== "default");
-                // The in-preview card mirrors the mode (placement / hidden); late-bound —
-                // it's a noop until the preview block below is built.
-                row.updateLinkPreviewCard();
-            };
-            applyPreviewMode();
-            previewModeBtn.addEventListener("click", () => {
-                row.previewMode = row.previewMode === "default" ? "top" : row.previewMode === "top" ? "off" : "default";
-                applyPreviewMode();
-            });
-            row.previewModeBtn = previewModeBtn;
-
-            // "Send when online": Telegram delivers once the recipient comes online.
-            // Rides the same schedule slot as a date, so the two are mutually exclusive,
-            // and it shares scheduling's method restrictions (account methods only).
-            const onlineBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
-            setIcon(onlineBtn, "wifi");
-            setTooltip(onlineBtn, t.MULTI_PRESET_SPLIT_ONLINE_TIP);
-            const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked);
-
-            const pillEl = controlsEl.createDiv("telegram-split-schedule-pill");
-            setTooltip(pillEl, t.MULTI_PRESET_SCHEDULE_NAME);
-            const scheduleInput = pillEl.createEl("input", { cls: "telegram-split-schedule-input" });
-            scheduleInput.type = "datetime-local";
-            row.scheduleInput = scheduleInput;
-            row.schedulePillEl = pillEl;
-
-            // row.scheduleValue is authoritative; the input is just its view, so the value
-            // can be visually cleared while a conflicting method blocks scheduling and
-            // restored intact when a supported method returns.
-            scheduleInput.addEventListener("input", () => {
-                row.scheduleValue = scheduleInput.value;
-                if (scheduleInput.value && row.onlineOn) {
-                    row.onlineOn = false;
-                    applyOnline();
-                }
-            });
-            onlineBtn.addEventListener("click", () => {
-                row.onlineOn = !row.onlineOn;
-                // Choosing "when online" discards a picked date (and vice versa).
-                if (row.onlineOn) {
-                    row.scheduleValue = "";
-                    scheduleInput.value = "";
-                }
-                applyOnline();
-            });
-
-            row.applyRichState = () => {
-                attachBtn.toggleClass("is-disabled", row.richBlocked);
-                previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked);
-                applyAttach();
-                applyPreviewMode();
-            };
-            row.applySchedState = () => {
-                onlineBtn.toggleClass("is-disabled", row.schedBlocked);
-                pillEl.toggleClass("is-disabled", row.schedBlocked);
-                scheduleInput.disabled = row.schedBlocked;
-                scheduleInput.value = row.schedBlocked ? "" : row.scheduleValue;
-                applyOnline();
-            };
-
-            // Send toggle, pinned to the right end of the row. Only offered when the note
-            // splits into several posts — a single previewed post always publishes.
-            let sendBtn: HTMLElement | null = null;
-            if (this.splitPosts.length > 1) {
-                sendBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn telegram-split-send-btn", attr: { type: "button" } });
-                setIcon(sendBtn, "send-horizontal");
-                setTooltip(sendBtn, t.MULTI_PRESET_SPLIT_SEND_TIP);
-                // A marker that already records links means this part was published before.
-                sendBtn.toggleClass("is-active", row.selectedOn);
-                sendBtn.addEventListener("click", () => {
-                    row.selectedOn = !row.selectedOn;
-                    sendBtn?.toggleClass("is-active", row.selectedOn);
-                });
-            }
-
-            // Edits keep the previews visible but grey out (and visually reset) the
-            // options that don't apply to an edit; attachments positioning stays usable.
-            row.applyEditState = () => {
-                silentBtn.toggleClass("is-disabled", row.editBlocked);
-                applySilent();
-                if (sendBtn) {
-                    sendBtn.toggleClass("is-disabled", row.editBlocked);
-                    sendBtn.toggleClass("is-active", row.selectedOn && !row.editBlocked);
-                }
-                // Re-applies the preview-mode button too — its disabled state mixes in
-                // editBlocked, which may have just changed.
-                row.applyRichState();
-            };
-
-            // ── Preview ──
-            // Pre-written comments (embedded .md notes) publish as separate comment
-            // messages, so they're pulled out of the post preview and rendered as their
-            // own blocks below it, in publish order.
-            const { cleaned: postPreviewContent, files: commentFiles } = this.plugin.settings.treatMdEmbedsAsComments
+            const postEl = sectionEl.createDiv("telegram-split-post");
+            // Pre-written comments publish as separate messages, so their embed markup is
+            // pulled out of the post's own preview and each becomes its own card below it.
+            const { cleaned, files: commentFiles } = this.plugin.settings.treatMdEmbedsAsComments
                 ? this.collectCommentPreviews(post.content)
                 : { cleaned: post.content, files: [] as TFile[] };
 
-            const previewEl = postEl.createDiv("telegram-split-preview");
-            // markdown-rendered pulls in Obsidian's reading-view styling so the preview
-            // looks exactly like the note's own preview.
-            const previewContentEl = previewEl.createDiv("telegram-split-preview-content markdown-rendered");
-            // Telegram-style card showing what the chosen link's preview will look like.
-            // It lives INSIDE the text flow (previewContentEl) so it clamps and scrolls with
-            // the content; hidden until a link is selected, moved above/below the text by mode.
-            const linkCardEl = previewContentEl.createDiv("telegram-split-linkpreview is-hidden");
-            const expandBtn = previewEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
-            setIcon(expandBtn, "chevron-down");
-            setTooltip(expandBtn, t.MULTI_PRESET_SPLIT_EXPAND);
-            let expanded = false;
-            expandBtn.addEventListener("click", () => {
-                expanded = !expanded;
-                previewEl.toggleClass("is-expanded", expanded);
-                setIcon(expandBtn, expanded ? "chevron-up" : "chevron-down");
-                setTooltip(expandBtn, expanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
+            const row = this.renderCard({
+                parent: postEl,
+                kind: "post",
+                // A split note edits through its own markers; a single-post note has none, so
+                // its links come from the `tg_posts` property instead.
+                links: this.splitPosts.length === 1 ? this.storedPostLinks : post.links,
+                previewCls: "telegram-split-preview",
+                contentCls: "telegram-split-preview-content",
+                render: contentEl => MarkdownRenderer.render(this.app, cleaned, contentEl, this.file.path, this.splitRenderComponent),
             });
-            // Shows the expand control only while the collapsed clamp actually clips content.
-            // Re-run whenever the content height changes — the link-preview card appearing,
-            // growing (OpenGraph data arriving) or disappearing can flip the answer.
-            const refreshExpand = () => {
-                if (expanded) return;
-                const clipped = previewContentEl.scrollHeight > previewContentEl.clientHeight + 1;
-                expandBtn.toggle(clipped);
-                previewEl.toggleClass("no-expand", !clipped);
-            };
-            // Renders / repositions the card imitating the chosen link's Telegram preview:
-            // hidden with no link chosen (or previews disabled), placed above or below the
-            // text to mirror where Telegram will put it. Content is rebuilt only when the
-            // URL changes; OpenGraph data fills in asynchronously over the URL skeleton.
-            let cardUrl: string | null = null;
-            row.updateLinkPreviewCard = () => {
-                // Telegram renders a preview by default — for the first web link in the
-                // text — so with no explicit selection the card falls back to that link.
-                const autoUrl = (): string | null => {
-                    for (const a of Array.from(previewContentEl.querySelectorAll("a"))) {
-                        const href = a.getAttribute("href") ?? "";
-                        if (/^https?:\/\//i.test(href)) return href;
-                    }
-                    return null;
-                };
-                // While a rich method (or an edit selection) blocks link-preview options
-                // the card shows the default behaviour, matching the reset mode button.
-                const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
-                const url = row.linkPreviewUrl ?? autoUrl();
-                if (!url || mode === "off") {
-                    linkCardEl.addClass("is-hidden");
-                    window.requestAnimationFrame(refreshExpand);
-                    return;
-                }
-                linkCardEl.removeClass("is-hidden");
-                // In the text flow: first child of the content in "top" mode, last otherwise —
-                // so it scrolls (and clamps) together with the text.
-                if (mode === "top") previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
-                else previewContentEl.appendChild(linkCardEl);
-                window.requestAnimationFrame(refreshExpand);
-                if (cardUrl === url) return;
-                cardUrl = url;
-                linkCardEl.empty();
-                const textEl = linkCardEl.createDiv("telegram-split-linkpreview-text");
-                const siteEl = textEl.createDiv({ cls: "telegram-split-linkpreview-site", text: new URL(url).hostname.replace(/^www\./, "") });
-                const titleEl = textEl.createDiv({ cls: "telegram-split-linkpreview-title", text: url });
-                void this.fetchLinkPreview(url).then(data => {
-                    if (cardUrl !== url || !linkCardEl.isConnected) return;
-                    siteEl.setText(data.siteName);
-                    if (data.title) titleEl.setText(data.title);
-                    if (data.description) textEl.createDiv({ cls: "telegram-split-linkpreview-desc", text: data.description });
-                    if (data.image) {
-                        const img = linkCardEl.createEl("img", { cls: "telegram-split-linkpreview-image" });
-                        img.src = data.image;
-                        img.addEventListener("error", () => img.remove());
-                    }
-                    window.requestAnimationFrame(refreshExpand);
-                });
-            };
 
-            // Clicking a web link chooses it as the post's link-preview source (clicking the
-            // chosen one again clears the choice); Ctrl/Cmd+Click keeps the normal behaviour
-            // of opening the link. Capture phase so the anchor's own handlers never fire.
-            previewContentEl.addEventListener("click", (e: MouseEvent) => {
-                const anchor = (e.target as HTMLElement).closest("a");
-                if (!anchor || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
-                if (e.ctrlKey || e.metaKey) return;
-                e.preventDefault();
-                e.stopPropagation();
-                const current = previewContentEl.querySelector("a.is-preview-source");
-                current?.removeClass("is-preview-source");
-                if (current === anchor) {
-                    row.linkPreviewUrl = null;
-                } else {
-                    anchor.addClass("is-preview-source");
-                    row.linkPreviewUrl = anchor.getAttribute("href");
-                }
-                row.updateLinkPreviewCard();
-            }, { capture: true });
-
-            void MarkdownRenderer.render(this.app, postPreviewContent, previewContentEl, this.file.path, this.splitRenderComponent)
-                .then(() => window.requestAnimationFrame(() => {
-                    // Explain the click behaviour on every selectable web link.
-                    previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
-                        if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.MULTI_PRESET_SPLIT_LINK_TIP);
-                    });
-                    // Now that the links exist, show Telegram's default preview (first link).
-                    row.updateLinkPreviewCard();
-                    refreshExpand();
-                }));
-
-            // ── Pre-written comment previews ──
-            // One shared "Comments" heading above the first comment; the blocks follow in
-            // publish order.
+            // One shared "Comments" heading above the first comment card.
             if (commentFiles.length > 0) {
-                row.commentEls.push(postEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" }));
+                postEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" });
             }
             for (const commentFile of commentFiles) {
-                const commentEl = postEl.createDiv("telegram-split-comment");
-                row.commentEls.push(commentEl);
-                const commentContentEl = commentEl.createDiv("telegram-split-comment-content markdown-rendered");
-                // Same expand control as the post preview: clamped with a fade bar,
-                // expanding to a square scrollable box; hidden when nothing is clipped.
-                const commentExpandBtn = commentEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
-                setIcon(commentExpandBtn, "chevron-down");
-                setTooltip(commentExpandBtn, t.MULTI_PRESET_SPLIT_EXPAND);
-                let commentExpanded = false;
-                commentExpandBtn.addEventListener("click", () => {
-                    commentExpanded = !commentExpanded;
-                    commentEl.toggleClass("is-expanded", commentExpanded);
-                    setIcon(commentExpandBtn, commentExpanded ? "chevron-up" : "chevron-down");
-                    setTooltip(commentExpandBtn, commentExpanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
-                });
-                void this.app.vault.cachedRead(commentFile).then(raw => MarkdownRenderer.render(
-                    this.app,
-                    raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
-                    commentContentEl,
-                    commentFile.path,
-                    this.splitRenderComponent,
-                )).then(() => window.requestAnimationFrame(() => {
-                    if (commentContentEl.scrollHeight <= commentContentEl.clientHeight + 1) {
-                        commentExpandBtn.hide();
-                        commentEl.addClass("no-expand");
-                    }
+                // The comment's position among the note's comment notes: both its stored links
+                // and the offset an edit needs are looked up by it.
+                const embedIndex = this.commentEmbedOrder.indexOf(commentFile.path);
+                row.comments.push(this.renderCard({
+                    parent: postEl.createDiv("telegram-split-comment"),
+                    kind: "comment",
+                    links: embedIndex < 0 ? [] : this.commentEditLinks(embedIndex),
+                    embedIndex,
+                    previewCls: "telegram-split-comment-preview",
+                    contentCls: "telegram-split-comment-content",
+                    render: async contentEl => {
+                        const raw = await this.app.vault.cachedRead(commentFile);
+                        await MarkdownRenderer.render(
+                            this.app,
+                            raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
+                            contentEl,
+                            commentFile.path,
+                            this.splitRenderComponent,
+                        );
+                    },
                 }));
             }
-
-            // ── Overflow row ──
-            // When the settings row can't fit everything, the date pill and the send toggle
-            // relocate to their own row under the preview, and move back once space returns.
-            // The width the full row needs is captured at the moment it first overflows.
-            const bottomRowEl = postEl.createDiv("telegram-split-controls telegram-split-controls--bottom");
-            // Directly under the post preview, above any comment previews.
-            previewEl.insertAdjacentElement("afterend", bottomRowEl);
-            let controlsNeededWidth = 0;
-            const relayout = () => {
-                if (pillEl.parentElement === controlsEl) {
-                    if (controlsEl.scrollWidth > controlsEl.clientWidth + 1) {
-                        controlsNeededWidth = controlsEl.scrollWidth;
-                        bottomRowEl.appendChild(pillEl);
-                        if (sendBtn) bottomRowEl.appendChild(sendBtn);
-                    }
-                } else if (controlsNeededWidth > 0 && controlsEl.clientWidth >= controlsNeededWidth) {
-                    controlsEl.appendChild(pillEl);
-                    if (sendBtn) controlsEl.appendChild(sendBtn);
-                }
-            };
-            window.requestAnimationFrame(relayout);
-            const resizeObserver = new ResizeObserver(() => relayout());
-            resizeObserver.observe(postEl);
-            this.splitResizeObservers.push(resizeObserver);
 
             this.splitRows.push(row);
         }
     }
 
-    // The previewed part a stored link belongs to, matched via its split marker; a
-    // single-post note falls back to its only row (its link lives in the frontmatter,
-    // not in a marker). -1 when no part can be identified.
-    private partIndexForLink(link: string): number {
-        const idx = this.splitPosts.findIndex(p => p.links.some(l => linksMatch(l, link)));
-        return idx < 0 && this.splitRows.length === 1 ? 0 : idx;
+    // Builds one previewed message: its settings row of circle buttons, the rendered preview
+    // with its expand control, and the mode toggle underneath. Post and comment cards differ
+    // only in the classes their preview uses (a comment's clamp is shorter) and in which
+    // options apply — a comment goes out as a text reply, so attachment positioning and
+    // scheduling are permanently blocked on it.
+    private renderCard(params: {
+        parent: HTMLElement;
+        kind: CardRow["kind"];
+        links: string[];
+        previewCls: string;
+        contentCls: string;
+        embedIndex?: number;
+        render: (contentEl: HTMLElement) => Promise<void>;
+    }): CardRow {
+        const { parent, kind, links } = params;
+        const isPost = kind === "post";
+        const setup = this.modeSetupFor(links, kind);
+        const row: CardRow = {
+            kind,
+            mode: setup.mode,
+            editLinks: links,
+            // With several links to choose from the user has to pick one before publishing;
+            // a lone link needs no choice.
+            editLink: links.length === 1 ? links[0] : null,
+            applyMode: () => {},
+            silentOn: this.plugin.settings.alwaysSilent,
+            attachOn: false,
+            previewMode: "default",
+            updateLinkPreviewCard: () => {},
+            linkPreviewUrl: null,
+            onlineOn: false,
+            scheduleValue: "",
+            richBlocked: false,
+            schedBlocked: false,
+            editBlocked: false,
+            applyRichState: () => {},
+            applySchedState: () => {},
+            applyEditState: () => {},
+            embedIndex: params.embedIndex ?? -1,
+            comments: [],
+        };
+        // ── Settings row ──
+        const controlsEl = parent.createDiv("telegram-split-controls");
+
+        const silentBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+        enableLongPressTooltip(silentBtn);
+        const applySilent = () => {
+            const effective = row.silentOn && !row.editBlocked;
+            setIcon(silentBtn, effective ? "bell-off" : "bell");
+            silentBtn.toggleClass("is-active", effective);
+        };
+        applySilent(); // reflects the "Always publish silently" default
+        setTooltip(silentBtn, t.MULTI_PRESET_SILENT_POST_NAME);
+        silentBtn.addEventListener("click", () => {
+            row.silentOn = !row.silentOn;
+            applySilent();
+        });
+
+        // Attachment positioning applies to a post's caption; a comment is a text reply
+        // that carries no attachments of its own, so the button is present but inert there.
+        const attachBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+        enableLongPressTooltip(attachBtn);
+        setIcon(attachBtn, "image-down");
+        setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
+        const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && isPost);
+        attachBtn.addEventListener("click", () => {
+            row.attachOn = !row.attachOn;
+            applyAttach();
+        });
+
+        // Link-preview placement, cycling through three states: default (Telegram's
+        // automatic placement) → preview above the text → preview disabled entirely.
+        // While a rich method blocks the option, the button shows the default state.
+        const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+        enableLongPressTooltip(previewModeBtn);
+        const applyPreviewMode = () => {
+            const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
+            setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
+            setTooltip(previewModeBtn, mode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
+                : mode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
+                : t.MULTI_PRESET_SPLIT_PREVIEW_DEFAULT);
+            previewModeBtn.toggleClass("is-active", mode !== "default");
+            // The in-preview card mirrors the mode (placement / hidden); late-bound —
+            // it's a noop until the preview block below is built.
+            row.updateLinkPreviewCard();
+        };
+        applyPreviewMode();
+        previewModeBtn.addEventListener("click", () => {
+            row.previewMode = row.previewMode === "default" ? "top" : row.previewMode === "top" ? "off" : "default";
+            applyPreviewMode();
+        });
+
+        // "Send when online": Telegram delivers once the recipient comes online.
+        // Rides the same schedule slot as a date, so the two are mutually exclusive,
+        // and it shares scheduling's method restrictions (account methods only).
+        const onlineBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+        enableLongPressTooltip(onlineBtn);
+        setIcon(onlineBtn, "wifi");
+        setTooltip(onlineBtn, t.MULTI_PRESET_SPLIT_ONLINE_TIP);
+        const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked && isPost);
+
+        const pillEl = controlsEl.createDiv("telegram-split-schedule-pill");
+        enableLongPressTooltip(pillEl);
+        setTooltip(pillEl, t.MULTI_PRESET_SCHEDULE_NAME);
+        const scheduleInput = pillEl.createEl("input", { cls: "telegram-split-schedule-input" });
+        scheduleInput.type = "datetime-local";
+
+        // row.scheduleValue is authoritative; the input is just its view, so the value
+        // can be visually cleared while a conflicting method blocks scheduling and
+        // restored intact when a supported method returns.
+        scheduleInput.addEventListener("input", () => {
+            row.scheduleValue = scheduleInput.value;
+            if (scheduleInput.value && row.onlineOn) {
+                row.onlineOn = false;
+                applyOnline();
+            }
+        });
+        onlineBtn.addEventListener("click", () => {
+            row.onlineOn = !row.onlineOn;
+            // Choosing "when online" discards a picked date (and vice versa).
+            if (row.onlineOn) {
+                row.scheduleValue = "";
+                scheduleInput.value = "";
+            }
+            applyOnline();
+        });
+
+        // A comment can't carry either option no matter the method, so on a comment card
+        // both stay greyed out for good.
+        row.applyRichState = () => {
+            attachBtn.toggleClass("is-disabled", row.richBlocked || !isPost);
+            previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked);
+            applyAttach();
+            applyPreviewMode();
+        };
+        row.applySchedState = () => {
+            const blocked = row.schedBlocked || !isPost;
+            onlineBtn.toggleClass("is-disabled", blocked);
+            pillEl.toggleClass("is-disabled", blocked);
+            scheduleInput.disabled = blocked;
+            scheduleInput.value = blocked ? "" : row.scheduleValue;
+            applyOnline();
+        };
+
+        // A message set to "edit" keeps its preview visible but greys out (and visually
+        // resets) the options that don't apply to an edit; attachments positioning
+        // stays usable.
+        row.applyEditState = () => {
+            silentBtn.toggleClass("is-disabled", row.editBlocked);
+            applySilent();
+            // Re-applies the preview-mode button too — its disabled state mixes in
+            // editBlocked, which may have just changed.
+            row.applyRichState();
+        };
+
+        // ── Preview ──
+        const previewEl = parent.createDiv(params.previewCls);
+        // markdown-rendered pulls in Obsidian's reading-view styling so the preview
+        // looks exactly like the note's own preview.
+        const previewContentEl = previewEl.createDiv(`${params.contentCls} markdown-rendered`);
+        // Telegram-style card showing what the chosen link's preview will look like.
+        // It lives INSIDE the text flow (previewContentEl) so it clamps and scrolls with
+        // the content; hidden until a link is selected, moved above/below the text by mode.
+        const linkCardEl = previewContentEl.createDiv("telegram-split-linkpreview is-hidden");
+        const expandBtn = previewEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
+        enableLongPressTooltip(expandBtn);
+        setIcon(expandBtn, "chevron-down");
+        setTooltip(expandBtn, t.MULTI_PRESET_SPLIT_EXPAND);
+        let expanded = false;
+        expandBtn.addEventListener("click", () => {
+            expanded = !expanded;
+            previewEl.toggleClass("is-expanded", expanded);
+            setIcon(expandBtn, expanded ? "chevron-up" : "chevron-down");
+            setTooltip(expandBtn, expanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
+        });
+        // Shows the expand control only while the collapsed clamp actually clips content.
+        // Re-run whenever the content height changes — the link-preview card appearing,
+        // growing (OpenGraph data arriving) or disappearing can flip the answer.
+        const refreshExpand = () => {
+            if (expanded) return;
+            const clipped = previewContentEl.scrollHeight > previewContentEl.clientHeight + 1;
+            expandBtn.toggle(clipped);
+            previewEl.toggleClass("no-expand", !clipped);
+        };
+        // Renders / repositions the card imitating the chosen link's Telegram preview:
+        // hidden with no link chosen (or previews disabled), placed above or below the
+        // text to mirror where Telegram will put it. Content is rebuilt only when the
+        // URL changes; OpenGraph data fills in asynchronously over the URL skeleton.
+        let cardUrl: string | null = null;
+        row.updateLinkPreviewCard = () => {
+            // Telegram renders a preview by default — for the first web link in the
+            // text — so with no explicit selection the card falls back to that link.
+            const autoUrl = (): string | null => {
+                for (const a of Array.from(previewContentEl.querySelectorAll("a"))) {
+                    const href = a.getAttribute("href") ?? "";
+                    if (/^https?:\/\//i.test(href)) return href;
+                }
+                return null;
+            };
+            // While a rich method (or an edit selection) blocks link-preview options
+            // the card shows the default behaviour, matching the reset mode button.
+            const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
+            const url = row.linkPreviewUrl ?? autoUrl();
+            if (!url || mode === "off") {
+                linkCardEl.addClass("is-hidden");
+                window.requestAnimationFrame(refreshExpand);
+                return;
+            }
+            linkCardEl.removeClass("is-hidden");
+            // In the text flow: first child of the content in "top" mode, last otherwise —
+            // so it scrolls (and clamps) together with the text.
+            if (mode === "top") previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
+            else previewContentEl.appendChild(linkCardEl);
+            window.requestAnimationFrame(refreshExpand);
+            if (cardUrl === url) return;
+            cardUrl = url;
+            linkCardEl.empty();
+            const textEl = linkCardEl.createDiv("telegram-split-linkpreview-text");
+            const siteEl = textEl.createDiv({ cls: "telegram-split-linkpreview-site", text: new URL(url).hostname.replace(/^www\./, "") });
+            const titleEl = textEl.createDiv({ cls: "telegram-split-linkpreview-title", text: url });
+            void this.fetchLinkPreview(url).then(data => {
+                if (cardUrl !== url || !linkCardEl.isConnected) return;
+                siteEl.setText(data.siteName);
+                if (data.title) titleEl.setText(data.title);
+                if (data.description) textEl.createDiv({ cls: "telegram-split-linkpreview-desc", text: data.description });
+                if (data.image) {
+                    const img = linkCardEl.createEl("img", { cls: "telegram-split-linkpreview-image" });
+                    img.src = data.image;
+                    img.addEventListener("error", () => img.remove());
+                }
+                window.requestAnimationFrame(refreshExpand);
+            });
+        };
+
+        // Clicking a web link chooses it as this message's link-preview source (clicking
+        // the chosen one again clears the choice); Ctrl/Cmd+Click keeps the normal
+        // behaviour of opening the link. Capture phase so the anchor's own handlers never fire.
+        previewContentEl.addEventListener("click", (e: MouseEvent) => {
+            const anchor = (e.target as HTMLElement).closest("a");
+            if (!anchor || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
+            if (e.ctrlKey || e.metaKey) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const current = previewContentEl.querySelector("a.is-preview-source");
+            current?.removeClass("is-preview-source");
+            if (current === anchor) {
+                row.linkPreviewUrl = null;
+            } else {
+                anchor.addClass("is-preview-source");
+                row.linkPreviewUrl = anchor.getAttribute("href");
+            }
+            row.updateLinkPreviewCard();
+        }, { capture: true });
+
+        void params.render(previewContentEl)
+            .then(() => window.requestAnimationFrame(() => {
+                // Explain the click behaviour on every selectable web link.
+                previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
+                    if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.MULTI_PRESET_SPLIT_LINK_TIP);
+                });
+                // Now that the links exist, show Telegram's default preview (first link).
+                row.updateLinkPreviewCard();
+                refreshExpand();
+            }));
+
+        // ── Mode toggle ──
+        // Segmented control choosing what happens to this message: ignore / publish / edit.
+        // Only the applicable modes are offered (modeSetupFor), and a message with nothing
+        // to decide gets no toggle at all. When several published links exist, the "Edit"
+        // segment opens a menu to pick which message the edit rewrites.
+        if (setup.modes.length > 0) {
+            const modeRowEl = parent.createDiv("telegram-split-mode-row");
+            const toggleEl = modeRowEl.createDiv("telegram-split-mode-toggle");
+            const hintEl = modeRowEl.createDiv("telegram-split-mode-hint");
+            // Several links to choose from: the edit segment becomes a dropdown, and
+            // publishing is blocked until one of them is picked.
+            const needsPick = links.length > 1;
+            const segmentEls = new Map<SplitMode, HTMLElement>();
+
+            row.applyMode = () => {
+                segmentEls.forEach((el, mode) => el.toggleClass("is-selected", mode === row.mode));
+                const link = row.editLink;
+                const info = link && link !== "all" ? this.resolvedInfoFor(link) : null;
+                hintEl.setText(row.mode !== "edit" ? ""
+                    : link === null ? t.MULTI_PRESET_UPDATE_NO_OPTION
+                    : link === "all" ? t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS
+                    : info?.title ? t.MULTI_PRESET_UPDATE_WILL_USE.replace("{name}", info.title)
+                    : link);
+                // A missing choice reads as something still to do, not as information.
+                hintEl.toggleClass("is-error", row.mode === "edit" && link === null);
+            };
+
+            for (const [mode, icon, label] of splitModeSegments()) {
+                if (!setup.modes.includes(mode)) continue;
+                const segEl = toggleEl.createEl("button", { cls: "telegram-split-mode-option", attr: { type: "button" } });
+                enableLongPressTooltip(segEl);
+                setIcon(segEl.createSpan("telegram-split-mode-icon"), icon);
+                segEl.createSpan({ cls: "telegram-split-mode-label", text: label });
+                if (mode === "edit" && needsPick) {
+                    setIcon(segEl.createSpan("telegram-split-mode-caret"), "chevron-down");
+                    setTooltip(segEl, t.MULTI_PRESET_SPLIT_MODE_EDIT_PICK);
+                }
+                segEl.addEventListener("click", (evt: MouseEvent) => {
+                    if (mode === "edit" && needsPick) this.openEditLinkMenu(evt, row);
+                    else this.setSplitMode(row, mode);
+                });
+                segmentEls.set(mode, segEl);
+            }
+            row.applyMode();
+        }
+
+        return row;
     }
 
-    // Attachment positioning for an edit comes from the row of the part the chosen link
-    // belongs to. Positioning is the one per-post option that applies to edits.
-    private attachForLink(link: string): boolean {
-        const row = this.splitRows[this.partIndexForLink(link)];
-        return row ? row.attachOn && !row.richBlocked : false;
-    }
-
-    // The per-part options to publish with, or undefined when the split layout isn't active.
+    // The per-part options to publish with, or undefined when there are no previews at all.
+    // A control blocked by the chosen method (or by the card's kind) keeps its stored state
+    // internally but must not affect the publish — it's collected as unset instead.
     private collectSplitPartOptions(): SplitPartOptions[] | undefined {
         if (this.splitRows.length === 0) return undefined;
-        // A control blocked by the chosen method keeps its stored state internally but must
-        // not affect the publish — collect it as unset instead.
         return this.splitRows.map(row => ({
-            selected: row.selectedOn,
+            // Only the parts set to "publish" go out as new messages; "ignore" and "edit"
+            // parts are skipped by the send paths (an edit runs as its own pass).
+            selected: row.mode === "publish",
             silent: row.silentOn,
             attachUnderText: !row.richBlocked && row.attachOn,
             scheduleDate: !row.schedBlocked && !row.onlineOn && row.scheduleValue
@@ -1219,6 +1374,15 @@ export class MultiPresetModal extends Modal {
             linkPreviewUrl: !row.richBlocked ? row.linkPreviewUrl ?? undefined : undefined,
             linkPreviewAboveText: !row.richBlocked && row.previewMode === "top",
             linkPreviewDisabled: !row.richBlocked && row.previewMode === "off",
+            // A comment carries only what a reply can: its own selection, silence and link
+            // preview. Attachment positioning and scheduling are blocked on comment cards.
+            comments: row.comments.map(comment => ({
+                selected: comment.mode === "publish",
+                silent: comment.silentOn,
+                linkPreviewUrl: !comment.richBlocked ? comment.linkPreviewUrl ?? undefined : undefined,
+                linkPreviewAboveText: !comment.richBlocked && comment.previewMode === "top",
+                linkPreviewDisabled: !comment.richBlocked && comment.previewMode === "off",
+            })),
         }));
     }
 
@@ -1231,6 +1395,23 @@ export class MultiPresetModal extends Modal {
         const noteContent = await this.app.vault.cachedRead(this.file);
         const noteBody = noteContent.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
         this.splitPosts = parseSplitPosts(noteBody);
+
+        // Read before the previews are built: the mode toggles offer exactly the links recorded
+        // in the note's properties (a single-post note's post links, and every comment link).
+        const cache = this.app.metadataCache.getFileCache(this.file);
+        const readLinks = (key: string): string[] => {
+            const raw: unknown = cache?.frontmatter?.[key];
+            return Array.isArray(raw) ? raw.map(String) : (typeof raw === 'string' ? [raw] : []);
+        };
+        const allStoredPostLinks = readLinks("tg_posts");
+        const allStoredCommentLinks = readLinks("tg_comments");
+        this.storedPostLinks = allStoredPostLinks;
+        this.storedCommentLinks = allStoredCommentLinks;
+        // The note's comment notes in whole-note collection order — the order the send paths
+        // record their links in, so a comment's position here is what targets it on an edit.
+        this.commentEmbedOrder = this.plugin.settings.treatMdEmbedsAsComments
+            ? this.collectCommentPreviews(noteBody).files.map(f => f.path)
+            : [];
 
         const hasPresets = this.plugin.settings.channels.length > 0;
         const hasAuthors = this.plugin.settings.accounts.length > 0 || this.plugin.settings.botTokens.length > 0;
@@ -1330,108 +1511,49 @@ export class MultiPresetModal extends Modal {
             cls: "telegram-modal-heading"
         });
 
-        // Post previews (per-post settings rows). They stay visible during edits too —
-        // options an edit can't use are disabled per row instead.
+        // Message previews: one card per part, one per pre-written comment. Each carries its
+        // own settings row and (unless there's nothing to decide) a mode toggle choosing
+        // whether that message is ignored, published or edited.
         if (this.splitPosts.length > 0) this.renderSplitSection(contentEl);
 
-        // Initial state now that all option elements exist.
-        this.updateScheduleState();
-        this.updateAttachState();
-        this.updateEditState();
-
-        // ─── Edit Post & Comments Section ─────────────────────────────────────────────
-
-        const cache = this.app.metadataCache.getFileCache(this.file);
-        const readLinks = (key: string): string[] => {
-            const raw: unknown = cache?.frontmatter?.[key];
-            return Array.isArray(raw) ? raw.map(String) : (typeof raw === 'string' ? [raw] : []);
-        };
-        const allStoredPostLinks = readLinks("tg_posts");
-        const allStoredCommentLinks = readLinks("tg_comments");
-
-        contentEl.createDiv({ text: t.MULTI_PRESET_UPDATE_HEADING, cls: "telegram-modal-heading" });
-
-        // "Update existing post" row
-        const updateOptionEl = contentEl.createDiv("telegram-option-item telegram-option-item--edit");
-        const updateTextEl = updateOptionEl.createDiv("telegram-option-text");
-        updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NAME, cls: "telegram-option-name" });
-        this.updateDescEl = updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NAME_DESC, cls: "telegram-option-desc" });
-        this.updateHintEl = updateTextEl.createDiv({ cls: "telegram-update-channel-hint" });
-        this.updateHintEl.hide();
-        const updateControlEl = updateOptionEl.createDiv("telegram-option-control");
-
-        // "Edit existing comments" row
-        const commentOptionEl = contentEl.createDiv("telegram-option-item telegram-option-item--edit");
-        const commentTextEl = commentOptionEl.createDiv("telegram-option-text");
-        commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NAME, cls: "telegram-option-name" });
-        commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_DESC, cls: "telegram-option-desc" });
-        const commentControlEl = commentOptionEl.createDiv("telegram-option-control");
-
-        const hasAnyLinks = allStoredPostLinks.length > 0 || allStoredCommentLinks.length > 0;
-        if (!hasAnyLinks || this.plugin.settings.accounts.length === 0) {
-            updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NO_LINKS, cls: "telegram-option-desc" });
-            commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
+        // Initial state now that all option elements exist. A note that's already published
+        // starts out editing, so the preset list is narrowed to the presets that can reach the
+        // edited chat right away — unless the command that opened the modal pre-selected a
+        // preset, in which case that choice is left alone.
+        if (this.initialChannelId) {
+            this.updateScheduleState();
+            this.updateAttachState();
+            this.updateEditState();
         } else {
-            const updateLoadingEl = updateControlEl.createSpan({ text: t.MULTI_PRESET_UPDATE_RESOLVING, cls: "telegram-update-channel-hint" });
-            const commentLoadingEl = commentControlEl.createSpan({ text: t.MULTI_PRESET_UPDATE_RESOLVING, cls: "telegram-update-channel-hint" });
+            this.applyEditLinkFilter();
+        }
 
-            void (async () => {
-                const allLinksToResolve = [...allStoredPostLinks, ...allStoredCommentLinks];
+        // ─── Stored-link resolution ───────────────────────────────────────────────────
+        // Editing is chosen per message on the cards above; all that's left note-wide is
+        // resolving each stored link's chat, which turns the mode hints into "Will edit in
+        // <chat>" and gives the fallback edit route a title to work with. A split note edits
+        // through the links in its own markers, so those are resolved too — deduped against
+        // the properties, which record the same messages in the full `https://` form.
+        const linksToResolve = [...allStoredPostLinks, ...allStoredCommentLinks];
+        for (const post of this.splitPosts) {
+            for (const link of post.links) {
+                if (!linksToResolve.some(existing => linksMatch(existing, link))) linksToResolve.push(link);
+            }
+        }
+
+        if (linksToResolve.length > 0 && this.plugin.settings.accounts.length > 0) {
+            // The edit pickers are usable straight away (they label their options with the raw
+            // links), so this only fills in chat titles — the publish handler awaits it before
+            // editing so an edit never runs against an unresolved link.
+            this.linkResolution = (async () => {
                 const results = await Promise.all(
-                    allLinksToResolve.map(link => fetchEntityInfoAnyAccount(link, this.plugin))
+                    linksToResolve.map(link => fetchEntityInfoAnyAccount(link, this.plugin))
                 );
-
-                if (!updateLoadingEl.isConnected) return; // modal was closed before resolution
-
-                allLinksToResolve.forEach((link, i) => {
+                linksToResolve.forEach((link, i) => {
                     if (results[i]) this.resolvedLinks.set(link, results[i]);
                 });
-
-                updateLoadingEl.remove();
-                if (allStoredPostLinks.length > 0) {
-                    this.updateLinkDropdown = new DropdownComponent(updateControlEl);
-                    this.updateLinkDropdown.addOption("none", t.MULTI_PRESET_UPDATE_NO_OPTION);
-                    if (allStoredPostLinks.length > 1) {
-                        this.updateLinkDropdown.addOption("all", t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS);
-                    }
-                    allStoredPostLinks.forEach(link => { this.updateLinkDropdown!.addOption(link, t.MULTI_PRESET_UPDATE_LINK_LABEL.replace("{link}", link)); });
-                    this.updateLinkDropdown.setValue("none");
-                    this.updateLinkDropdown.onChange(value => { this.handleLinkSelection(value); });
-                } else {
-                    updateTextEl.createDiv({ text: t.MULTI_PRESET_UPDATE_NO_LINKS, cls: "telegram-option-desc" });
-                }
-
-                commentLoadingEl.remove();
-                if (allStoredCommentLinks.length > 0) {
-                    const commentGroups = new Map<string, { links: string[]; title: string | null }>();
-                    allStoredCommentLinks.forEach(link => {
-                        const parsed = parseLinkComponents(link);
-                        if (!parsed) return;
-                        if (!commentGroups.has(parsed.chatId)) {
-                            commentGroups.set(parsed.chatId, {
-                                links: [],
-                                title: this.resolvedLinks.get(link)?.title ?? null,
-                            });
-                        }
-                        commentGroups.get(parsed.chatId)!.links.push(link);
-                    });
-
-                    this.commentLinkDropdown = new DropdownComponent(commentControlEl);
-                    this.commentLinkDropdown.addOption("none", t.MULTI_PRESET_UPDATE_NO_OPTION);
-                    if (commentGroups.size > 1) {
-                        this.commentLinkDropdown.addOption("all", t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS);
-                    }
-                    commentGroups.forEach((group, chatId) => {
-                        this.commentLinkDropdown!.addOption(chatId, group.title ?? chatId);
-                    });
-                    this.commentLinkDropdown.setValue("none");
-                    this.commentLinkDropdown.onChange(() => {
-                        this.updatePublishBtn();
-                        this.applyEditLinkFilter();
-                    });
-                } else {
-                    commentTextEl.createDiv({ text: t.MULTI_PRESET_EDIT_COMMENTS_NO_LINKS, cls: "telegram-option-desc" });
-                }
+                // Resolved titles make the mode hints read "Will edit in <chat>".
+                if (this.contentEl.isConnected) for (const row of this.allCards()) row.applyMode();
             })();
         }
 
@@ -1442,79 +1564,63 @@ export class MultiPresetModal extends Modal {
             .setButtonText(t.MULTI_PRESET_POST_BTN)
             .setCta()
             .onClick(async () => {
-                const updateLinkRaw = this.updateLinkDropdown?.getValue();
-                const isUpdatingPost = !!updateLinkRaw && updateLinkRaw !== "none";
-                const commentDropdownValue = this.commentLinkDropdown?.getValue();
-                const isEditingComments = !!commentDropdownValue && commentDropdownValue !== "none";
+                const editRows = this.editingRows();
+                const publishRows = this.publishingRows();
+
+                // A message set to "edit" with several published links needs one picked first —
+                // there's no sensible default among them.
+                if (editRows.some(row => row.editLink === null)) {
+                    new Notice(t.MULTI_PRESET_SPLIT_MODE_NO_LINK);
+                    return;
+                }
+
+                // A comment goes out as a reply to the post it belongs to, so it can only be
+                // published by the same action that publishes that post — the send paths have
+                // no message to reply to otherwise.
+                if (this.splitRows.some(part => part.mode !== "publish" && part.comments.some(c => c.mode === "publish"))) {
+                    new Notice(t.MULTI_PRESET_SPLIT_COMMENT_NEEDS_POST);
+                    return;
+                }
 
                 const adhocChannel = this.buildAdhocChannel();
-                if (!isUpdatingPost && !isEditingComments && this.selectedChannels.size === 0 && !adhocChannel) {
+                if (publishRows.length > 0 && this.selectedChannels.size === 0 && !adhocChannel) {
                     new Notice(t.MULTI_PRESET_NO_SELECTION);
                     return;
                 }
-                if (isUpdatingPost && updateLinkRaw !== "all" && !this.builtUpdateChannel) {
-                    new Notice(t.MULTI_PRESET_UPDATE_NO_MATCH_NOTICE);
+                if (publishRows.length === 0 && editRows.length === 0) {
+                    new Notice(t.MULTI_PRESET_SPLIT_NONE_SELECTED);
                     return;
                 }
 
-                // Fresh publishes carry all their options per post (the preview rows); the
+                // Fresh publishes carry all their options per message (the preview cards); the
                 // publish-wide silent below only serves the edit paths, where it doesn't
-                // apply anyway. An edit's attachment positioning comes from the edited
-                // part's own row (attachForLink).
+                // apply anyway. An edit's attachment positioning comes from its own card.
                 const silent = this.plugin.settings.alwaysSilent;
-
-                let partOptions: SplitPartOptions[] | undefined;
-                if (!isUpdatingPost && !isEditingComments) {
-                    partOptions = this.collectSplitPartOptions();
-                    if (partOptions && !partOptions.some(p => p.selected)) {
-                        new Notice(t.MULTI_PRESET_SPLIT_NONE_SELECTED);
-                        return;
-                    }
-                }
+                const partOptions = publishRows.length > 0 ? this.collectSplitPartOptions() : undefined;
+                // Snapshot each edit before the modal (and its cards) go away.
+                const edits = editRows.map(row => ({
+                    kind: row.kind,
+                    embedIndex: row.embedIndex,
+                    links: row.editLink === "all" ? row.editLinks : [row.editLink!],
+                    attachUnderText: row.attachOn && !row.richBlocked,
+                }));
 
                 this.close();
 
-                if (isUpdatingPost) {
-                    if (updateLinkRaw === "all") {
-                        for (const link of allStoredPostLinks) {
-                            const info = this.resolvedLinks.get(link);
-                            if (!info?.title) continue;
-                            await this.editPost(link, info.title, silent, this.attachForLink(link));
+                if (edits.length > 0) {
+                    // Chat titles are only needed for the fallback route (no matching preset),
+                    // but an edit must never run against a still-unresolved link.
+                    await this.linkResolution;
+                    for (const edit of edits) {
+                        for (const link of edit.links) {
+                            if (edit.kind === "comment") await this.editComment(link, edit.embedIndex, silent);
+                            else await this.editPost(link, this.resolvedInfoFor(link)?.title ?? null, silent, edit.attachUnderText);
                         }
-                    } else {
-                        await this.editPost(updateLinkRaw, this.resolvedLinks.get(updateLinkRaw)?.title ?? null, silent, this.attachForLink(updateLinkRaw));
                     }
                 }
-                if (isEditingComments) {
-                    const commentGroupsByChatId = new Map<string, string[]>();
-                    allStoredCommentLinks.forEach(link => {
-                        const parsed = parseLinkComponents(link);
-                        if (!parsed) return;
-                        const group = commentGroupsByChatId.get(parsed.chatId) ?? [];
-                        group.push(link);
-                        commentGroupsByChatId.set(parsed.chatId, group);
-                    });
-                    commentGroupsByChatId.forEach(links => {
-                        links.sort((a, b) => (parseLinkComponents(a)?.messageId ?? 0) - (parseLinkComponents(b)?.messageId ?? 0));
-                    });
-
-                    // Each comment chat routes by the preset selected for that chat: a bot /
-                    // bot-rich preset edits via its bot, otherwise editing uses the account.
-                    const editGroup = async (chatId: string, links: string[]) => {
-                        const route = this.editRouteFor(chatId);
-                        await this.plugin.editNoteComments(this.file, links, silent, route?.method ?? "account", route?.channel.botToken);
-                    };
-
-                    if (commentDropdownValue === "all") {
-                        for (const [chatId, links] of commentGroupsByChatId.entries()) {
-                            await editGroup(chatId, links);
-                        }
-                    } else {
-                        const links = commentGroupsByChatId.get(commentDropdownValue) ?? [];
-                        await editGroup(commentDropdownValue, links);
-                    }
-                }
-                if (!isUpdatingPost && !isEditingComments) {
+                // The messages set to "publish" go out in one pass; partOptions skips the parts
+                // and comments set to ignore or edit.
+                if (publishRows.length > 0) {
                     for (const channelId of this.selectedChannels) {
                         const channel = this.plugin.settings.channels.find(c => c.id === channelId);
                         const method = this.channelRows.find(r => r.id === channelId)?.method;
@@ -1526,11 +1632,11 @@ export class MultiPresetModal extends Modal {
                     }
                 }
             });
+        // The default modes decide the label: a single already-published post starts on "edit".
+        this.updatePublishBtn();
     }
 
     onClose() {
-        this.splitResizeObservers.forEach(observer => observer.disconnect());
-        this.splitResizeObservers = [];
         this.splitRenderComponent.unload();
         this.contentEl.empty();
     }

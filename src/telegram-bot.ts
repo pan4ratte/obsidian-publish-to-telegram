@@ -3,7 +3,7 @@
 // Self-contained: only imports from markdown.ts and Obsidian's API.
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
-import { TelegramChannel, TelegramSettings, SplitPartOptions } from "./types";
+import { TelegramChannel, TelegramSettings, SplitPartOptions, CommentOptions } from "./types";
 import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
 import { t } from "../lang/helpers";
@@ -203,9 +203,10 @@ function baseBody(chatId: string, silent: boolean, topicId?: number): Record<str
     return body;
 }
 
-async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<SendResult> {
-    // link_preview_options pins the preview to a chosen URL, lifts it above the text,
-    // or suppresses it entirely (disabling wins over the other two).
+// link_preview_options pins the preview to a chosen URL, lifts it above the text, or
+// suppresses it entirely (disabling wins over the other two). Empty when nothing is chosen,
+// so the field can be left off the request altogether. Shared by posts and comment replies.
+function linkPreviewOptions(linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Record<string, unknown> {
     const linkPreview: Record<string, unknown> = {};
     if (linkPreviewDisabled) {
         linkPreview.is_disabled = true;
@@ -213,6 +214,11 @@ async function sendTextBot(token: string, chatId: string, text: string, silent: 
         if (linkPreviewUrl) linkPreview.url = linkPreviewUrl;
         if (linkPreviewAboveText) linkPreview.show_above_text = true;
     }
+    return linkPreview;
+}
+
+async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<SendResult> {
+    const linkPreview = linkPreviewOptions(linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
     const result = await callBotJson(token, "sendMessage", {
         ...baseBody(chatId, silent, topicId),
         text,
@@ -319,12 +325,14 @@ async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile
     return { link: buildBotPostLink(chatId, result[0].message_id), messageId: result[0].message_id };
 }
 
-async function sendReplyBot(token: string, chatId: string, replyToMessageId: number, text: string, silent: boolean, topicId?: number): Promise<number> {
+async function sendReplyBot(token: string, chatId: string, replyToMessageId: number, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<number> {
+    const linkPreview = linkPreviewOptions(linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
     const result = await callBotJson(token, "sendMessage", {
         ...baseBody(chatId, silent, topicId),
         reply_to_message_id: replyToMessageId,
         text,
         parse_mode: "HTML",
+        ...(Object.keys(linkPreview).length > 0 ? { link_preview_options: linkPreview } : {}),
     }) as { message_id: number };
     return result.message_id;
 }
@@ -344,11 +352,11 @@ async function sendRichReplyBot(token: string, chatId: string, replyToMessageId:
 // method), or as a classic HTML reply otherwise (the plain "bot" method). A failed Rich
 // Message is NOT downgraded to HTML — the error propagates to the caller, which surfaces
 // it; the comment is not sent unformatted.
-async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number): Promise<number> {
+async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<number> {
     if (markdown.length > 0) {
         return await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
     }
-    return await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId);
+    return await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
 }
 
 async function getLinkedChatId(token: string, chatId: string): Promise<number | null> {
@@ -392,6 +400,7 @@ async function sendPartViaBotApi(
     linkPreviewUrl?: string,
     linkPreviewAboveText?: boolean,
     linkPreviewDisabled?: boolean,
+    commentOptions?: CommentOptions[],
 ): Promise<SendResult | null> {
     const richMarkdown = obsidianToRichMarkdown(body);
     const htmlFallback = mdToBotApiHtml(body);
@@ -512,25 +521,31 @@ async function sendPartViaBotApi(
     const commentLinks: string[] = [];
     if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0) {
         const linkedChatId = await getLinkedChatId(token, chatId).catch(() => null);
-        for (const mdFile of mdEmbeds) {
-            const mdContent = await app.vault.read(mdFile);
+        for (let ci = 0; ci < mdEmbeds.length; ci++) {
+            // Per-comment options from the modal (aligned to this part's embeds): a comment the
+            // user left unselected is skipped, and the rest carry their own silent / link-preview
+            // choices instead of the post's.
+            const copts = commentOptions?.[ci];
+            if (copts && !copts.selected) continue;
+            const mdContent = await app.vault.read(mdEmbeds[ci]);
             const { body: mdBody } = extractFrontmatter(mdContent);
             const commentHtml = mdToBotApiHtml(mdBody);
             const commentMd = commentsAsRich ? obsidianToRichMarkdown(mdBody) : "";
             if (!commentHtml.length && !commentMd.length) continue;
+            const commentSilent = copts?.silent ?? silent;
 
             // A comment failure must not lose the main post's link, so isolate it.
             try {
                 if (linkedChatId !== null) {
                     const discussionId = await findDiscussionMessageId(token, linkedChatId, result.messageId);
                     if (discussionId !== null) {
-                        const commentMsgId = await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, silent);
+                        const commentMsgId = await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, commentSilent, undefined, copts?.linkPreviewUrl, copts?.linkPreviewAboveText, copts?.linkPreviewDisabled);
                         commentLinks.push(buildBotPostLink(String(linkedChatId), commentMsgId));
                     } else {
                         new Notice(t.NOTICE_COMMENT_DISCUSSION_NOT_FOUND);
                     }
                 } else {
-                    const commentMsgId = await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, silent, topicId);
+                    const commentMsgId = await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, commentSilent, topicId, copts?.linkPreviewUrl, copts?.linkPreviewAboveText, copts?.linkPreviewDisabled);
                     commentLinks.push(buildBotPostLink(chatId, commentMsgId));
                 }
             } catch (err) {
@@ -769,7 +784,7 @@ export async function sendNoteViaBotApi(
                 const result = await sendPartViaBotApi(
                     app, effectiveParts[i], token, chatId, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText,
                     treatMdEmbedsAsComments, file, topicId, postAsRich, commentsAsRich,
-                    opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled,
+                    opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments,
                 );
                 if (result) {
                     links.push(result.link);

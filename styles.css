@@ -736,62 +736,13 @@ body .telegram-auth-submit:disabled {
     color: var(--text-muted);
 }
 
-.telegram-multi-preset-item.is-disabled,
-.telegram-option-item.is-disabled {
+.telegram-multi-preset-item.is-disabled {
     opacity: 0.35;
     pointer-events: none;
     user-select: none;
 }
 
-.telegram-update-channel-hint {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-accent);
-    margin-top: 4px;
-}
-
-.telegram-update-channel-hint.is-error {
-    color: var(--text-error);
-}
-
-/* ── Option rows ── */
-
-.telegram-option-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 16px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--setting-items-radius);
-    margin-bottom: 8px;
-}
-
-.telegram-option-text {
-    display: flex;
-    flex-direction: column;
-}
-
-.telegram-option-name {
-    font-size: var(--font-ui-medium);
-    color: var(--text-normal);
-}
-
-.telegram-option-desc {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-    margin-top: 4px;
-}
-
 /* ── Split post layout ── */
-
-/* Editing narrows the previews to the parts (and comments) the edit touches — the rest
-   are hidden rather than rebuilt, so their settings survive a change of selection. */
-.telegram-split-section.is-hidden,
-.telegram-split-post.is-hidden,
-.telegram-split-comments-header.is-hidden,
-.telegram-split-comment.is-hidden,
-.telegram-option-item.is-hidden {
-    display: none;
-}
 
 /* Each post is its own bordered card; the preview inside is separated from the
    button row only by a top border. overflow:hidden clips the preview (and the
@@ -803,27 +754,14 @@ body .telegram-auth-submit:disabled {
     overflow: hidden;
 }
 
-/* No wrapping: when the row overflows, the date pill and send toggle relocate to the
-   --bottom row under the preview instead (see the modal's per-post ResizeObserver). */
+/* The circle buttons and the date pill wrap onto further lines when the card is too
+   narrow for one row; nothing relocates elsewhere. */
 .telegram-split-controls {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 12px 12px;
-    flex-wrap: nowrap;
-    overflow: hidden;
-}
-
-.telegram-split-controls--bottom {
-    border-top: 1px solid var(--background-modifier-border);
-}
-
-.telegram-split-controls--bottom:empty {
-    display: none;
-}
-
-body .telegram-split-send-btn {
-    margin-left: auto;
+    flex-wrap: wrap;
 }
 
 body .telegram-split-circle-btn {
@@ -947,6 +885,99 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     max-height: calc(13.5em * var(--line-height-normal, 1.5));
 }
 
+/* ── Per-post mode toggle ── */
+
+/* Sits directly under the post preview, above any comment previews. */
+.telegram-split-mode-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+/* Segmented control: the chosen mode rides on a raised thumb over a filled track. Both take
+   the colours of Obsidian's own toggle (--interactive-accent track, --toggle-thumb-color
+   thumb, --input-shadow) so a theme that restyles toggles restyles this too. */
+.telegram-split-mode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background-color: var(--interactive-accent);
+}
+
+body .telegram-split-mode-option {
+    /* flex: 0 0 auto for the same reason as the circle buttons: Obsidian's mobile base
+       styles give plain <button>s flex-grow and would stretch these segments. */
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 999px;
+    background-color: transparent;
+    box-shadow: none;
+    color: var(--text-on-accent);
+    font-size: var(--font-ui-smaller);
+    cursor: pointer;
+}
+
+/* --background-modifier-hover is translucent, so it reads as a tint over the accent track. */
+body .telegram-split-mode-option:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+/* The thumb: Obsidian's toggle knob colour, so it reads as the same control family. Its
+   label takes the accent theme's "text on a light surface" colour — --toggle-thumb-color
+   stays light in the dark theme too, so --text-normal would vanish on it. */
+body .telegram-split-mode-option.is-selected {
+    background-color: var(--toggle-thumb-color);
+    color: var(--text-on-accent-inverted);
+    box-shadow: var(--input-shadow);
+}
+
+.telegram-split-mode-icon,
+.telegram-split-mode-caret {
+    display: flex;
+    align-items: center;
+}
+
+.telegram-split-mode-caret {
+    margin-inline-start: -2px;
+    opacity: 0.75;
+}
+
+/* Pinned like the circle buttons' icons: --icon-size varies by platform, and these icons
+   get flex-shrunk to width 0 on the tablet layout without the explicit box. */
+body .telegram-split-mode-option .svg-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    stroke: currentColor;
+    stroke-width: 2px;
+}
+
+/* Which post the "Edit" mode targets (or a prompt to choose one). */
+.telegram-split-mode-hint {
+    min-width: 0;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+.telegram-split-mode-hint.is-error {
+    color: var(--text-error);
+}
+
+.telegram-split-mode-hint:empty {
+    display: none;
+}
+
 /* ── Pre-written comment previews ── */
 
 .telegram-split-comments-header {
@@ -958,22 +989,29 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-/* Indented from the left so the comments read as attached to, not part of, the post. */
-/* position:relative anchors the same expand fade bar the post preview uses; the
-   bottom padding gives the fade room and shrinks when nothing is clipped (.no-expand). */
+/* Each pre-written comment is its own card inside the post card, built exactly like the post:
+   a settings row, a clamped preview and a mode toggle. Consecutive comments are separated by
+   a border so they read as a stack of messages. */
 .telegram-split-comment {
-    position: relative;
-    padding: 16px 16px 0px 16px;
     background-color: var(--background-primary);
-}
-
-.telegram-split-comment.no-expand {
-    padding-bottom: 12px;
 }
 
 .telegram-split-comment + .telegram-split-comment {
     border-top: 1px solid var(--background-modifier-border);
-    padding-top: 12px;
+}
+
+/* position:relative anchors the same expand fade bar the post preview uses; the bottom
+   padding gives the fade room and shrinks when nothing is clipped (.no-expand). */
+.telegram-split-comment-preview {
+    position: relative;
+    min-width: 0;
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 16px 16px 0px 16px;
+    background-color: var(--background-primary);
+}
+
+.telegram-split-comment-preview.no-expand {
+    padding-bottom: 6px;
 }
 
 .telegram-split-comment-content {
@@ -982,7 +1020,7 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
 }
 
 /* Expanded: square scrollable box, matching the post preview's behaviour. */
-.telegram-split-comment.is-expanded .telegram-split-comment-content {
+.telegram-split-comment-preview.is-expanded .telegram-split-comment-content {
     max-height: none;
     aspect-ratio: 1 / 1;
     overflow-y: auto;
@@ -1049,8 +1087,9 @@ img.telegram-split-linkpreview-image {
     flex-shrink: 0;
 }
 
-/* The link chosen as the post's link-preview source. */
-body .telegram-split-preview-content a.is-preview-source {
+/* The link chosen as the message's link-preview source (post or comment). */
+body .telegram-split-preview-content a.is-preview-source,
+body .telegram-split-comment-content a.is-preview-source {
     background-color: var(--text-highlight-bg);
     border-radius: var(--radius-s);
     padding: 0 2px;
@@ -1104,6 +1143,27 @@ body .telegram-split-expand .svg-icon {
     height: 20px;
 }
 
+/* ── Long-press tooltip (touch devices) ── */
+
+/* Shown after a long press on an icon control, since a touch screen produces no hover.
+   Deliberately not using Obsidian's `.tooltip` class: the mobile app suppresses those, so it
+   carries its own class and repeats the look with Obsidian's own tooltip variables.
+   Positioned from the control's viewport rect, hence `fixed`. */
+.telegram-touch-tooltip {
+    position: fixed;
+    z-index: var(--layer-tooltip);
+    max-width: 70vw;
+    width: max-content;
+    padding: var(--size-2-2) var(--size-4-2);
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-message);
+    color: var(--text-on-accent);
+    font-size: var(--font-ui-smaller);
+    line-height: var(--line-height-tight);
+    text-align: center;
+    pointer-events: none;
+}
+
 /* ── Footer buttons ── */
 
 .telegram-modal-buttons {
@@ -1118,11 +1178,6 @@ body .telegram-split-expand .svg-icon {
 }
 
 @media (max-width: 520px) {
-    .telegram-option-item.telegram-option-item--edit {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
     .telegram-modal-buttons {
         margin-bottom: 16px;
     }

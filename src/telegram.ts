@@ -16,7 +16,7 @@ import {
 } from "@mtcute/web";
 import { thtml } from "@mtcute/html-parser";
 import wasmBytes from "@mtcute/wasm/mtcute.wasm";
-import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions } from "./types";
+import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions, CommentOptions } from "./types";
 import { errMessage } from "./util";
 import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
@@ -490,15 +490,25 @@ async function sendCommentViaAccount(
     richMarkdown: string,
     richAttachments: Record<string, RichAttachment> | undefined,
     silent: boolean,
+    linkPreviewUrl?: string,
+    linkPreviewAboveText?: boolean,
+    linkPreviewDisabled?: boolean,
 ): Promise<string | null> {
     const channelPeer = peerFor(channelChatId);
 
     // Sends the comment as a Rich Message when rich markdown is provided ("account-rich"),
     // else as a classic HTML message. Both accept the same commentTo/replyTo/sendAs params.
-    const sendComment = (params: { commentTo?: number; replyTo?: number; sendAs?: string | number; silent: boolean }): Promise<Message> =>
-        richMarkdown.length > 0
-            ? client.sendRichMessage(channelPeer, { content: { type: "markdown", content: richMarkdown, attachments: richAttachments }, ...params })
-            : client.sendText(channelPeer, htmlText(text), params);
+    // A classic comment honours the same link-preview choices as a classic post: a chosen
+    // source URL rides as webpage media carrying the text, otherwise the automatic preview
+    // can be lifted above the text or suppressed (suppressing wins).
+    const sendComment = (params: { commentTo?: number; replyTo?: number; sendAs?: string | number; silent: boolean }): Promise<Message> => {
+        if (richMarkdown.length > 0) {
+            return client.sendRichMessage(channelPeer, { content: { type: "markdown", content: richMarkdown, attachments: richAttachments }, ...params });
+        }
+        if (linkPreviewDisabled) return client.sendText(channelPeer, htmlText(text), { ...params, disableWebPreview: true });
+        if (linkPreviewUrl) return client.sendMedia(channelPeer, InputMedia.webpage(linkPreviewUrl, { caption: htmlText(text) }), { ...params, invert: linkPreviewAboveText });
+        return client.sendText(channelPeer, htmlText(text), { ...params, invertMedia: linkPreviewAboveText });
+    };
 
     // Resolve the discussion group (if any).
     let linkedGroupChatId: string | undefined;
@@ -568,6 +578,7 @@ async function sendPartViaAccount(
     linkPreviewUrl?: string,
     linkPreviewAboveText?: boolean,
     linkPreviewDisabled?: boolean,
+    commentOptions?: CommentOptions[],
 ): Promise<SendResult | null> {
     const text = mdToTelegramHtml(body);
     const { attachments, mdEmbeds } = collectMediaFiles(app, body, sourceFile);
@@ -694,7 +705,13 @@ async function sendPartViaAccount(
     if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0 && !scheduleDate) {
         onProgress?.();
         const commentLinks: string[] = [];
-        for (const mdFile of mdEmbeds) {
+        for (let ci = 0; ci < mdEmbeds.length; ci++) {
+            const mdFile = mdEmbeds[ci];
+            // Per-comment options from the modal (aligned to this part's embeds): a comment the
+            // user left unselected is skipped, and the rest carry their own silent / link-preview
+            // choices instead of the post's.
+            const copts = commentOptions?.[ci];
+            if (copts && !copts.selected) continue;
             const mdContent = await app.vault.read(mdFile);
             const { body: mdBody } = extractFrontmatter(mdContent);
             const formattedMdContent = mdToTelegramHtml(mdBody);
@@ -709,7 +726,10 @@ async function sendPartViaAccount(
                 richCommentAttachments = built.attachments;
             }
             if (!formattedMdContent.length && !richMdComment.length) continue;
-            const commentLink = await sendCommentViaAccount(client, channel.chatId, result.messageId, formattedMdContent, richMdComment, richCommentAttachments, silent);
+            const commentLink = await sendCommentViaAccount(
+                client, channel.chatId, result.messageId, formattedMdContent, richMdComment, richCommentAttachments,
+                copts?.silent ?? silent, copts?.linkPreviewUrl, copts?.linkPreviewAboveText, copts?.linkPreviewDisabled,
+            );
             if (commentLink) commentLinks.push(commentLink);
         }
         if (commentLinks.length > 0) result = { ...result, commentLinks };
@@ -848,7 +868,7 @@ export async function sendNoteToTelegram(
                 ? (opts.sendWhenOnline ? "online" : opts.scheduleDate)
                 : scheduleDate;
             try {
-                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled);
+                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments);
                 if (result) {
                     // A scheduled part's link points at the scheduled queue, not a real post —
                     // it's resolved later via the scheduled task instead of being recorded now.
