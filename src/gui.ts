@@ -961,22 +961,32 @@ export class MultiPresetModal extends Modal {
         return undefined;
     }
 
+    // How a stored link is named in the UI: the chat it lives in and the message's id, e.g.
+    // "My Channel: 102". Falls back to the chat id from the link itself while its title is
+    // still resolving, and to the whole link for anything that isn't a recognizable post link.
+    private linkLabel(link: string): string {
+        const parsed = parseLinkComponents(link);
+        if (!parsed) return link;
+        return `${this.resolvedInfoFor(link)?.title ?? parsed.chatId}: ${parsed.messageId}`;
+    }
+
     // The dropdown behind the "Edit" segment when a message has several published links: pick
-    // which one the edit rewrites, or all of them at once.
-    private openEditLinkMenu(evt: MouseEvent, row: CardRow) {
+    // which one the edit rewrites, or all of them at once. Anchored to the segment's own left
+    // edge rather than the pointer, so it opens in the same place however it was activated.
+    private openEditLinkMenu(anchorEl: HTMLElement, row: CardRow) {
         const menu = new Menu();
         menu.addItem(item => item
             .setTitle(t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS)
             .setChecked(row.editLink === "all")
             .onClick(() => { row.editLink = "all"; this.setSplitMode(row, "edit"); }));
         for (const link of row.editLinks) {
-            const title = this.resolvedInfoFor(link)?.title;
             menu.addItem(item => item
-                .setTitle(title ? `${title} — ${link}` : link)
+                .setTitle(this.linkLabel(link))
                 .setChecked(row.editLink === link)
                 .onClick(() => { row.editLink = link; this.setSplitMode(row, "edit"); }));
         }
-        menu.showAtMouseEvent(evt);
+        const rect = anchorEl.getBoundingClientRect();
+        menu.showAtPosition({ x: rect.left, y: rect.bottom + 2 });
     }
 
     // Builds the previews: one card per split part, each followed by a card for every
@@ -1325,14 +1335,11 @@ export class MultiPresetModal extends Modal {
             row.applyMode = () => {
                 segmentEls.forEach((el, mode) => el.toggleClass("is-selected", mode === row.mode));
                 const link = row.editLink;
-                const info = link && link !== "all" ? this.resolvedInfoFor(link) : null;
-                hintEl.setText(row.mode !== "edit" ? ""
-                    : link === null ? t.MULTI_PRESET_UPDATE_NO_OPTION
+                // Nothing to say while no target is chosen — the attempt to publish is what
+                // reports that, so the card doesn't carry a standing error message.
+                hintEl.setText(row.mode !== "edit" || link === null ? ""
                     : link === "all" ? t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS
-                    : info?.title ? t.MULTI_PRESET_UPDATE_WILL_USE.replace("{name}", info.title)
-                    : link);
-                // A missing choice reads as something still to do, not as information.
-                hintEl.toggleClass("is-error", row.mode === "edit" && link === null);
+                    : t.MULTI_PRESET_UPDATE_WILL_USE.replace("{name}", this.linkLabel(link)));
             };
 
             for (const [mode, icon, label] of splitModeSegments()) {
@@ -1345,8 +1352,8 @@ export class MultiPresetModal extends Modal {
                     setIcon(segEl.createSpan("telegram-split-mode-caret"), "chevron-down");
                     setTooltip(segEl, t.MULTI_PRESET_SPLIT_MODE_EDIT_PICK);
                 }
-                segEl.addEventListener("click", (evt: MouseEvent) => {
-                    if (mode === "edit" && needsPick) this.openEditLinkMenu(evt, row);
+                segEl.addEventListener("click", () => {
+                    if (mode === "edit" && needsPick) this.openEditLinkMenu(segEl, row);
                     else this.setSplitMode(row, mode);
                 });
                 segmentEls.set(mode, segEl);

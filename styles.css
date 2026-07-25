@@ -887,58 +887,64 @@ input.telegram-split-schedule-input::-webkit-calendar-picker-indicator {
 
 /* ── Per-post mode toggle ── */
 
-/* Sits directly under the post preview, above any comment previews. */
+/* Sits directly under the post preview, above any comment previews. A column so the toggle
+   itself can span the full width of the card, with the edit target reading underneath it. */
 .telegram-split-mode-row {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
     padding: 12px;
     border-top: 1px solid var(--background-modifier-border);
 }
 
-/* Segmented control: the chosen mode rides on a raised thumb over a filled track. Both take
-   the colours of Obsidian's own toggle (--interactive-accent track, --toggle-thumb-color
-   thumb, --input-shadow) so a theme that restyles toggles restyles this too. */
+/* Segmented control spanning the whole card: the segments share the width evenly and the
+   chosen one is outlined in the accent colour. */
 .telegram-split-mode-toggle {
     display: flex;
     align-items: center;
     gap: 2px;
     padding: 3px;
     border-radius: 999px;
-    background-color: var(--interactive-accent);
 }
 
 body .telegram-split-mode-option {
-    /* flex: 0 0 auto for the same reason as the circle buttons: Obsidian's mobile base
-       styles give plain <button>s flex-grow and would stretch these segments. */
-    flex: 0 0 auto;
+    /* An explicit flex so the segments split the row evenly — and so Obsidian's mobile base
+       styles for plain <button>s can't impose their own growth. min-width:0 lets a long label
+       ellipsize instead of forcing the row wider. */
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     height: 28px;
     padding: 0 12px;
-    border: none;
+    /* Transparent border on every segment: the selected one turns it accent-coloured, and
+       reserving the space here keeps the others from shifting when the choice moves. */
+    border: 1px solid transparent;
     border-radius: 999px;
     background-color: transparent;
     box-shadow: none;
-    color: var(--text-on-accent);
+    color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     cursor: pointer;
 }
 
-/* --background-modifier-hover is translucent, so it reads as a tint over the accent track. */
 body .telegram-split-mode-option:hover {
     background-color: var(--background-modifier-hover);
 }
 
-/* The thumb: Obsidian's toggle knob colour, so it reads as the same control family. Its
-   label takes the accent theme's "text on a light surface" colour — --toggle-thumb-color
-   stays light in the dark theme too, so --text-normal would vanish on it. */
 body .telegram-split-mode-option.is-selected {
-    background-color: var(--toggle-thumb-color);
-    color: var(--text-on-accent-inverted);
-    box-shadow: var(--input-shadow);
+    color: var(--interactive-accent-hover);
+    border: 1px solid var(--interactive-accent-hover);
+}
+
+/* Labels ellipsize rather than widen the row; the icon beside them never shrinks. */
+.telegram-split-mode-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .telegram-split-mode-icon,
@@ -962,16 +968,13 @@ body .telegram-split-mode-option .svg-icon {
     stroke-width: 2px;
 }
 
-/* Which post the "Edit" mode targets (or a prompt to choose one). */
+/* Which message the "Edit" mode targets. Empty (and hidden) until one is chosen — a missing
+   choice is reported as a notice when publishing is attempted, not as inline red text. */
 .telegram-split-mode-hint {
     min-width: 0;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     overflow-wrap: anywhere;
-}
-
-.telegram-split-mode-hint.is-error {
-    color: var(--text-error);
 }
 
 .telegram-split-mode-hint:empty {
