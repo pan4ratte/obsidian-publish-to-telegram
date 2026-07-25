@@ -363,7 +363,6 @@ export class MultiPresetModal extends Modal {
     // preset at a time) doesn't re-enter the toggle's own onChange handler.
     private updatingPresets = false;
 
-    private publishBtn: ButtonComponent | null = null;
     private channelRows: Array<{ id: string, container: HTMLElement, toggle: ToggleComponent, method: PostMethod, methodsEl: HTMLElement }> = [];
     private resolvedLinks = new Map<string, { title: string | null; isChannel: boolean }>();
     // Post links recorded in the note's `tg_posts` property; they're what a single-post note
@@ -432,13 +431,6 @@ export class MultiPresetModal extends Modal {
     private editingRows(): CardRow[] { return this.allCards().filter(row => row.mode === "edit"); }
     private publishingRows(): CardRow[] { return this.allCards().filter(row => row.mode === "publish"); }
 
-    // An action that only edits keeps the "Edit" button label; as soon as any message is set to
-    // publish, the action publishes (possibly alongside edits) and the label says so.
-    private updatePublishBtn() {
-        const editingOnly = this.publishingRows().length === 0 && this.editingRows().length > 0;
-        this.publishBtn?.setButtonText(editingOnly ? t.MULTI_PRESET_EDIT_BTN : t.MULTI_PRESET_POST_BTN);
-    }
-
     // The methods that would actually be used on publish: one per selected preset plus the
     // ad-hoc method (when chosen). Drives which advanced options apply.
     private activeMethods(): PostMethod[] {
@@ -498,51 +490,42 @@ export class MultiPresetModal extends Modal {
         this.updateAttachState();
     }
 
-    // Collects the normalized chat ids of the links currently chosen for editing.
-    // Returns null when an "all" bulk option is chosen (no single chat to match against).
-    private editingChatIds(): Set<string> | null {
-        const ids = new Set<string>();
+    // A chosen edit target names a chat, and the preset covering that chat is the one that will
+    // route the edit (editRouteFor) — so when exactly one preset can reach the chats being
+    // edited, it's picked automatically. Only ever fills an empty selection: an explicit choice
+    // (including one made by the command that opened the modal) is never overridden.
+    private autoSelectPresetForEdit() {
+        if (this.selectedChannels.size > 0 || this.adhocAuthor !== null) return;
+
+        const chatIds = new Set<string>();
         for (const row of this.editingRows()) {
-            if (row.editLink === null || row.editLink === "all") return null;
-            const parsed = parseLinkComponents(row.editLink);
-            if (parsed) ids.add(normChatId(parsed.chatId));
+            const links = row.editLink === "all" ? row.editLinks : row.editLink ? [row.editLink] : [];
+            for (const link of links) {
+                const parsed = parseLinkComponents(link);
+                if (parsed) chatIds.add(normChatId(parsed.chatId));
+            }
         }
-        return ids;
+        if (chatIds.size === 0) return;
+
+        const matching = this.channelRows.filter(row => {
+            const channel = this.plugin.settings.channels.find(c => c.id === row.id);
+            return !!channel && (channel.chatTargets ?? []).some(target => chatIds.has(normChatId(target.id)));
+        });
+        // Several candidates (or none) leave the choice to the user — guessing would be wrong
+        // as often as it was right.
+        if (matching.length === 1) this.selectOnlyPreset(matching[0].id);
     }
 
-    // Reflects the current edit selection on the preset rows: for an edit-only action, only
-    // the presets whose chat targets match an edited link's chat stay enabled (all disabled
-    // for an "all" bulk option), since the preset the user toggles on supplies the method and
-    // token used to perform the edit. As soon as a message is set to publish the filter lifts —
-    // that publish needs its own preset, and edits fall back to resolving their link's chat.
-    private applyEditLinkFilter() {
-        const editing = this.editingRows().length > 0 && this.publishingRows().length === 0;
-
-        if (!editing) {
-            this.channelRows.forEach(row => row.container.removeClass("is-disabled"));
-        } else {
-            const chatIds = this.editingChatIds();
-            this.channelRows.forEach(row => {
-                const channel = this.plugin.settings.channels.find(c => c.id === row.id);
-                const matches = chatIds !== null && !!channel
-                    && (channel.chatTargets ?? []).some(target => chatIds.has(normChatId(target.id)));
-                if (matches) {
-                    row.container.removeClass("is-disabled");
-                } else {
-                    row.container.addClass("is-disabled");
-                    if (this.selectedChannels.has(row.id)) {
-                        // Untoggle just this row (radio selection would otherwise cascade).
-                        this.updatingPresets = true;
-                        row.toggle.setValue(false);
-                        row.methodsEl.toggleClass("is-hidden", true);
-                        this.selectedChannels.delete(row.id);
-                        this.updatingPresets = false;
-                    }
-                }
-            });
-        }
-        // Refresh the option states on every mode change: most per-message options don't
-        // apply to edits.
+    // Re-applies everything that depends on the current modes and the chosen preset — most
+    // per-message options don't apply to an edit.
+    //
+    // Editing used to narrow the preset list to the presets whose chats matched the link being
+    // edited, untoggling any that didn't. That belonged to the old single-dropdown model: one
+    // action can now edit several messages in different chats while publishing others, so
+    // there's no single chat to filter by. Instead the single unambiguous case is handled for
+    // the user (autoSelectPresetForEdit), and routing still prefers a selected preset covering
+    // the link's chat, falling back to the account.
+    private refreshOptionStates() {
         this.updateScheduleState();
         this.updateAttachState();
         this.updateEditState();
@@ -940,13 +923,14 @@ export class MultiPresetModal extends Modal {
         };
     }
 
-    // Applies a mode picked on a card's toggle and refreshes everything that depends on the
-    // publish/edit split: the button label, the preset filter and the per-message option states.
+    // Applies a mode picked on a card's toggle and refreshes the per-message option states that
+    // depend on the publish/edit split.
     private setSplitMode(row: CardRow, mode: SplitMode) {
         row.mode = mode;
         row.applyMode();
-        this.updatePublishBtn();
-        this.applyEditLinkFilter();
+        // Choosing what to edit can settle which preset performs it.
+        this.autoSelectPresetForEdit();
+        this.refreshOptionStates();
     }
 
     // Chat info for a link whichever spelling it's recorded in: the note's properties keep
@@ -1005,7 +989,7 @@ export class MultiPresetModal extends Modal {
         for (const post of this.splitPosts) {
             const postEl = sectionEl.createDiv("telegram-split-post");
             // Pre-written comments publish as separate messages, so their embed markup is
-            // pulled out of the post's own preview and each becomes its own card below it.
+            // pulled out of the post's own preview and each gets its own card below it.
             const { cleaned, files: commentFiles } = this.plugin.settings.treatMdEmbedsAsComments
                 ? this.collectCommentPreviews(post.content)
                 : { cleaned: post.content, files: [] as TFile[] };
@@ -1021,32 +1005,34 @@ export class MultiPresetModal extends Modal {
                 render: contentEl => MarkdownRenderer.render(this.app, cleaned, contentEl, this.file.path, this.splitRenderComponent),
             });
 
-            // One shared "Comments" heading above the first comment card.
+            // The part's comments live in a card of their own, set apart from the post card
+            // they belong to, under one shared "Comments" heading.
             if (commentFiles.length > 0) {
-                postEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" });
-            }
-            for (const commentFile of commentFiles) {
-                // The comment's position among the note's comment notes: both its stored links
-                // and the offset an edit needs are looked up by it.
-                const embedIndex = this.commentEmbedOrder.indexOf(commentFile.path);
-                row.comments.push(this.renderCard({
-                    parent: postEl.createDiv("telegram-split-comment"),
-                    kind: "comment",
-                    links: embedIndex < 0 ? [] : this.commentEditLinks(embedIndex),
-                    embedIndex,
-                    previewCls: "telegram-split-comment-preview",
-                    contentCls: "telegram-split-comment-content",
-                    render: async contentEl => {
-                        const raw = await this.app.vault.cachedRead(commentFile);
-                        await MarkdownRenderer.render(
-                            this.app,
-                            raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
-                            contentEl,
-                            commentFile.path,
-                            this.splitRenderComponent,
-                        );
-                    },
-                }));
+                const commentsEl = sectionEl.createDiv("telegram-split-comments");
+                commentsEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" });
+                for (const commentFile of commentFiles) {
+                    // The comment's position among the note's comment notes: both its stored
+                    // links and the offset an edit needs are looked up by it.
+                    const embedIndex = this.commentEmbedOrder.indexOf(commentFile.path);
+                    row.comments.push(this.renderCard({
+                        parent: commentsEl.createDiv("telegram-split-comment"),
+                        kind: "comment",
+                        links: embedIndex < 0 ? [] : this.commentEditLinks(embedIndex),
+                        embedIndex,
+                        previewCls: "telegram-split-comment-preview",
+                        contentCls: "telegram-split-comment-content",
+                        render: async contentEl => {
+                            const raw = await this.app.vault.cachedRead(commentFile);
+                            await MarkdownRenderer.render(
+                                this.app,
+                                raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
+                                contentEl,
+                                commentFile.path,
+                                this.splitRenderComponent,
+                            );
+                        },
+                    }));
+                }
             }
 
             this.splitRows.push(row);
@@ -1154,11 +1140,54 @@ export class MultiPresetModal extends Modal {
         setTooltip(onlineBtn, t.MULTI_PRESET_SPLIT_ONLINE_TIP);
         const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked && isPost);
 
-        const pillEl = controlsEl.createDiv("telegram-split-schedule-pill");
-        enableLongPressTooltip(pillEl);
-        setTooltip(pillEl, t.MULTI_PRESET_SCHEDULE_NAME);
-        const scheduleInput = pillEl.createEl("input", { cls: "telegram-split-schedule-input" });
+        // Scheduling is a round button like the rest of the row. The native datetime input
+        // rides inside it — invisible and click-through — purely to own the picker and hold
+        // the chosen value; the button carries the state (active + the date in its tooltip).
+        const scheduleBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn telegram-split-schedule-btn", attr: { type: "button" } });
+        enableLongPressTooltip(scheduleBtn);
+        // The icon lives in its own span so nothing that re-renders it can wipe out the input.
+        setIcon(scheduleBtn.createSpan("telegram-split-schedule-icon"), getIcon("calendar-clock") ? "calendar-clock" : "calendar");
+        const scheduleInput = scheduleBtn.createEl("input", { cls: "telegram-split-schedule-input" });
         scheduleInput.type = "datetime-local";
+
+        const applySchedule = () => {
+            const on = !!row.scheduleValue && !row.schedBlocked && isPost;
+            scheduleBtn.toggleClass("is-active", on);
+            // With the date no longer written in the row, the tooltip is what tells the user
+            // when the post is going out.
+            setTooltip(scheduleBtn, on
+                ? t.MULTI_PRESET_SPLIT_SCHEDULE_AT.replace("{date}", new Date(row.scheduleValue).toLocaleString())
+                : t.MULTI_PRESET_SCHEDULE_NAME);
+        };
+
+        // showPicker() is the only way to open the picker from the button, since the input
+        // itself takes no clicks. Webviews without it fall back to a synthetic tap on the
+        // input, which is what opens the picker on mobile.
+        const openSchedulePicker = () => {
+            try { scheduleInput.showPicker(); }
+            catch { scheduleInput.click(); }
+        };
+
+        scheduleBtn.addEventListener("click", () => {
+            // With a date already chosen there are two things the user might want, so the
+            // button offers them rather than silently reopening the picker.
+            if (!row.scheduleValue) { openSchedulePicker(); return; }
+            const menu = new Menu();
+            menu.addItem(item => item
+                .setTitle(t.MULTI_PRESET_SPLIT_SCHEDULE_CHANGE)
+                .setIcon("calendar")
+                .onClick(() => openSchedulePicker()));
+            menu.addItem(item => item
+                .setTitle(t.MULTI_PRESET_SPLIT_SCHEDULE_CLEAR)
+                .setIcon("x")
+                .onClick(() => {
+                    row.scheduleValue = "";
+                    scheduleInput.value = "";
+                    applySchedule();
+                }));
+            const rect = scheduleBtn.getBoundingClientRect();
+            menu.showAtPosition({ x: rect.left, y: rect.bottom + 2 });
+        });
 
         // row.scheduleValue is authoritative; the input is just its view, so the value
         // can be visually cleared while a conflicting method blocks scheduling and
@@ -1169,6 +1198,7 @@ export class MultiPresetModal extends Modal {
                 row.onlineOn = false;
                 applyOnline();
             }
+            applySchedule();
         });
         onlineBtn.addEventListener("click", () => {
             row.onlineOn = !row.onlineOn;
@@ -1176,6 +1206,7 @@ export class MultiPresetModal extends Modal {
             if (row.onlineOn) {
                 row.scheduleValue = "";
                 scheduleInput.value = "";
+                applySchedule();
             }
             applyOnline();
         });
@@ -1191,9 +1222,10 @@ export class MultiPresetModal extends Modal {
         row.applySchedState = () => {
             const blocked = row.schedBlocked || !isPost;
             onlineBtn.toggleClass("is-disabled", blocked);
-            pillEl.toggleClass("is-disabled", blocked);
+            scheduleBtn.toggleClass("is-disabled", blocked);
             scheduleInput.disabled = blocked;
             scheduleInput.value = blocked ? "" : row.scheduleValue;
+            applySchedule();
             applyOnline();
         };
 
@@ -1326,7 +1358,8 @@ export class MultiPresetModal extends Modal {
         if (setup.modes.length > 0) {
             const modeRowEl = parent.createDiv("telegram-split-mode-row");
             // The hint goes in first: it reads above the bar, which stays flush with the
-            // bottom edge of the block.
+            // bottom edge of the block. It's taken out of the flow and slides out from behind
+            // the bar (see styles.css), so appearing and disappearing moves nothing else.
             const hintEl = modeRowEl.createDiv("telegram-split-mode-hint");
             const toggleEl = modeRowEl.createDiv("telegram-split-mode-toggle");
             // Several links to choose from: the edit segment becomes a dropdown, and
@@ -1339,9 +1372,13 @@ export class MultiPresetModal extends Modal {
                 const link = row.editLink;
                 // Nothing to say while no target is chosen — the attempt to publish is what
                 // reports that, so the card doesn't carry a standing error message.
-                hintEl.setText(row.mode !== "edit" || link === null ? ""
-                    : link === "all" ? t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS
-                    : t.MULTI_PRESET_UPDATE_WILL_USE.replace("{name}", this.linkLabel(link)));
+                const hint = row.mode !== "edit" || link === null ? ""
+                    : link === "all" ? t.MULTI_PRESET_UPDATE_WILL_USE_ALL
+                    : t.MULTI_PRESET_UPDATE_WILL_USE.replace("{name}", this.linkLabel(link));
+                // Keep the old text while it slides back out of view, so the label doesn't
+                // blank out mid-animation.
+                if (hint) hintEl.setText(hint);
+                hintEl.toggleClass("is-visible", hint.length > 0);
             };
 
             for (const [mode, icon, label] of splitModeSegments()) {
@@ -1525,17 +1562,12 @@ export class MultiPresetModal extends Modal {
         // whether that message is ignored, published or edited.
         if (this.splitPosts.length > 0) this.renderSplitSection(contentEl);
 
-        // Initial state now that all option elements exist. A note that's already published
-        // starts out editing, so the preset list is narrowed to the presets that can reach the
-        // edited chat right away — unless the command that opened the modal pre-selected a
-        // preset, in which case that choice is left alone.
-        if (this.initialChannelId) {
-            this.updateScheduleState();
-            this.updateAttachState();
-            this.updateEditState();
-        } else {
-            this.applyEditLinkFilter();
-        }
+        // Initial state now that all option elements exist: the cards' default modes decide
+        // which options apply, and the footers start closed unless a preset is already settled —
+        // either by the command that opened the modal, or by a card that starts out editing a
+        // link only one preset can reach.
+        this.autoSelectPresetForEdit();
+        this.refreshOptionStates();
 
         // ─── Stored-link resolution ───────────────────────────────────────────────────
         // Editing is chosen per message on the cards above; all that's left note-wide is
@@ -1569,7 +1601,9 @@ export class MultiPresetModal extends Modal {
         // ─── Publish Button ───────────────────────────────────────────────────────────
 
         const btnContainer = contentEl.createDiv("telegram-modal-buttons");
-        this.publishBtn = new ButtonComponent(btnContainer)
+        // One label whatever the cards are set to: the modes say what happens to each message,
+        // so the button only has to say "go".
+        new ButtonComponent(btnContainer)
             .setButtonText(t.MULTI_PRESET_POST_BTN)
             .setCta()
             .onClick(async () => {
@@ -1641,8 +1675,6 @@ export class MultiPresetModal extends Modal {
                     }
                 }
             });
-        // The default modes decide the label: a single already-published post starts on "edit".
-        this.updatePublishBtn();
     }
 
     onClose() {
