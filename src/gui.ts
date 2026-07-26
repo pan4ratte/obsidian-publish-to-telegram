@@ -192,13 +192,15 @@ interface CardRow {
     scheduleValue: string;
     // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no active
     // state, empty date) so the user isn't misled, but the underlying state survives and
-    // reappears when a supported method is picked again.
+    // reappears when a supported method is picked again. `ignoreBlocked` is the same idea for
+    // a message set to "ignore": it isn't sent at all, so none of its settings apply.
     richBlocked: boolean;
     schedBlocked: boolean;
     editBlocked: boolean;
+    ignoreBlocked: boolean;
     applyRichState: () => void;
     applySchedState: () => void;
-    applyEditState: () => void;
+    applyModeState: () => void;
     // Comment cards: the comment's position among the whole note's comment notes, which is how
     // an edit targets exactly this comment (editNoteComments' embedOffset). -1 on post cards.
     embedIndex: number;
@@ -439,14 +441,14 @@ export class MultiPresetModal extends Modal {
         return methods;
     }
 
-    // Scheduling and "send when online" aren't supported by the Bot API, and editing an
-    // existing post can't use either. The controls grey out and visually reset, but the
-    // stored state survives — switching back to a supported method restores it.
+    // Scheduling and "send when online" aren't supported by the Bot API, and neither editing an
+    // existing post nor ignoring a message can use either. The controls grey out and visually
+    // reset, but the stored state survives — switching back to a supported method restores it.
     private updateScheduleState() {
         const methods = this.activeMethods();
         const allBot = methods.length > 0 && methods.every(m => !isAccountMethod(m));
         for (const row of this.allCards()) {
-            row.schedBlocked = allBot || row.mode === "edit";
+            row.schedBlocked = allBot || row.mode !== "publish";
             row.applySchedState();
         }
     }
@@ -462,14 +464,15 @@ export class MultiPresetModal extends Modal {
         }
     }
 
-    // Per message: the options an edit can't use (silent, link-preview mode — scheduling is
-    // covered by updateScheduleState) grey out and visually reset on the cards set to
-    // "edit", state preserved. Attachments positioning stays enabled: it's the one option
-    // edits support.
-    private updateEditState() {
+    // Per message: the options its mode can't use grey out and visually reset, state preserved.
+    // On a card set to "edit" that's silent and the link-preview mode (scheduling is covered by
+    // updateScheduleState); attachment positioning stays enabled, it's the one option edits
+    // support. A card set to "ignore" sends nothing at all, so every option is blocked.
+    private updateModeState() {
         for (const row of this.allCards()) {
             row.editBlocked = row.mode === "edit";
-            row.applyEditState();
+            row.ignoreBlocked = row.mode === "ignore";
+            row.applyModeState();
         }
     }
 
@@ -526,9 +529,11 @@ export class MultiPresetModal extends Modal {
     // the user (autoSelectPresetForEdit), and routing still prefers a selected preset covering
     // the link's chat, falling back to the account.
     private refreshOptionStates() {
+        // Modes first: the mode-derived flags are what the method-driven updaters below
+        // mix into each control's disabled state.
+        this.updateModeState();
         this.updateScheduleState();
         this.updateAttachState();
-        this.updateEditState();
     }
 
     // The first selected preset whose chat targets include the given chat, with the
@@ -1074,9 +1079,10 @@ export class MultiPresetModal extends Modal {
             richBlocked: false,
             schedBlocked: false,
             editBlocked: false,
+            ignoreBlocked: setup.mode === "ignore",
             applyRichState: () => {},
             applySchedState: () => {},
-            applyEditState: () => {},
+            applyModeState: () => {},
             embedIndex: params.embedIndex ?? -1,
             comments: [],
         };
@@ -1086,7 +1092,7 @@ export class MultiPresetModal extends Modal {
         const silentBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
         enableLongPressTooltip(silentBtn);
         const applySilent = () => {
-            const effective = row.silentOn && !row.editBlocked;
+            const effective = row.silentOn && !row.editBlocked && !row.ignoreBlocked;
             setIcon(silentBtn, effective ? "bell-off" : "bell");
             silentBtn.toggleClass("is-active", effective);
         };
@@ -1103,7 +1109,7 @@ export class MultiPresetModal extends Modal {
         enableLongPressTooltip(attachBtn);
         setIcon(attachBtn, "image-down");
         setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
-        const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && isPost);
+        const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && !row.ignoreBlocked && isPost);
         attachBtn.addEventListener("click", () => {
             row.attachOn = !row.attachOn;
             applyAttach();
@@ -1115,7 +1121,7 @@ export class MultiPresetModal extends Modal {
         const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
         enableLongPressTooltip(previewModeBtn);
         const applyPreviewMode = () => {
-            const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
+            const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked ? "default" : row.previewMode;
             setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
             setTooltip(previewModeBtn, mode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
                 : mode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
@@ -1138,6 +1144,8 @@ export class MultiPresetModal extends Modal {
         enableLongPressTooltip(onlineBtn);
         setIcon(onlineBtn, "wifi");
         setTooltip(onlineBtn, t.MULTI_PRESET_SPLIT_ONLINE_TIP);
+        // schedBlocked already carries the "ignore" mode (updateScheduleState), so the two
+        // scheduling controls need no ignoreBlocked check of their own.
         const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked && isPost);
 
         // Scheduling is a round button like the rest of the row. The native datetime input
@@ -1214,8 +1222,8 @@ export class MultiPresetModal extends Modal {
         // A comment can't carry either option no matter the method, so on a comment card
         // both stay greyed out for good.
         row.applyRichState = () => {
-            attachBtn.toggleClass("is-disabled", row.richBlocked || !isPost);
-            previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked);
+            attachBtn.toggleClass("is-disabled", row.richBlocked || row.ignoreBlocked || !isPost);
+            previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked || row.ignoreBlocked);
             applyAttach();
             applyPreviewMode();
         };
@@ -1231,12 +1239,13 @@ export class MultiPresetModal extends Modal {
 
         // A message set to "edit" keeps its preview visible but greys out (and visually
         // resets) the options that don't apply to an edit; attachments positioning
-        // stays usable.
-        row.applyEditState = () => {
-            silentBtn.toggleClass("is-disabled", row.editBlocked);
+        // stays usable. A message set to "ignore" isn't sent at all, so its whole settings
+        // row goes dead — only the mode toggle below it still responds.
+        row.applyModeState = () => {
+            silentBtn.toggleClass("is-disabled", row.editBlocked || row.ignoreBlocked);
             applySilent();
-            // Re-applies the preview-mode button too — its disabled state mixes in
-            // editBlocked, which may have just changed.
+            // Re-applies the attachment / preview-mode buttons too — their disabled state
+            // mixes in editBlocked and ignoreBlocked, which may have just changed.
             row.applyRichState();
         };
 
@@ -1284,9 +1293,9 @@ export class MultiPresetModal extends Modal {
                 }
                 return null;
             };
-            // While a rich method (or an edit selection) blocks link-preview options
+            // While a rich method (or an edit / ignore selection) blocks link-preview options
             // the card shows the default behaviour, matching the reset mode button.
-            const mode = row.richBlocked || row.editBlocked ? "default" : row.previewMode;
+            const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked ? "default" : row.previewMode;
             const url = row.linkPreviewUrl ?? autoUrl();
             if (!url || mode === "off") {
                 linkCardEl.addClass("is-hidden");
