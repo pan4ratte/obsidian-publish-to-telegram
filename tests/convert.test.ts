@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mdToTelegramHtml } from '../src/markdown';
+import { mdToTelegramHtml, obsidianToRichMarkdown } from '../src/markdown';
 
 // `expect(x).toBe(y)` over node:assert, so the ported test bodies stay unchanged.
 function expect(received: unknown) {
@@ -273,4 +273,50 @@ His ideas shaped Western thought for centuries.
 
 His writings remain a cornerstone of Western philosophy.`;
   expect(mdToTelegramHtml(markdown)).toBe(expected);
+});
+
+// Rich Messages render empty lines. Telegram drops a bare blank line (it's a block separator,
+// and blocks render flush), so every blank line past the first \u2014 the one the paragraph break is
+// written with \u2014 comes back as a block holding a non-breaking space: N blank lines render as
+// N-1 empty lines.
+const NBSP = '\u00A0';
+
+test('Rich: one blank line is the paragraph break, and adds no empty line', () => {
+  const markdown = 'first\n\nsecond';
+  expect(obsidianToRichMarkdown(markdown)).toBe('first\n\nsecond');
+});
+
+test('Rich: two blank lines make one empty line', () => {
+  const markdown = 'first\n\n\nsecond';
+  expect(obsidianToRichMarkdown(markdown)).toBe(`first\n\n${NBSP}\n\nsecond`);
+});
+
+test('Rich: every blank line past the first makes an empty line', () => {
+  const markdown = 'first\n\n\n\n\nsecond';
+  expect(obsidianToRichMarkdown(markdown)).toBe(`first\n\n${NBSP}\n\n${NBSP}\n\n${NBSP}\n\nsecond`);
+});
+
+test('Rich: a line of nothing but whitespace counts as a blank line', () => {
+  const markdown = 'first\n \t\n\nsecond';
+  expect(obsidianToRichMarkdown(markdown)).toBe(`first\n\n${NBSP}\n\nsecond`);
+});
+
+test('Rich: blank lines around the message are dropped, not filled', () => {
+  const markdown = '\n  \nfirst line\n\n\nlast\n \n\n';
+  expect(obsidianToRichMarkdown(markdown)).toBe(`first line\n\n${NBSP}\n\nlast`);
+});
+
+test('Rich: a blank line inside fenced code stays blank', () => {
+  const markdown = '```\ncode\n\nstill code\n```';
+  expect(obsidianToRichMarkdown(markdown)).toBe('```\ncode\n\nstill code\n```');
+});
+
+test('Rich: nothing is injected inside a container block', () => {
+  const markdown = '<tg-collage>\n\n![](https://x/a.jpg)\n![](https://x/b.jpg)\n\n</tg-collage>';
+  expect(obsidianToRichMarkdown(markdown)).toBe(markdown);
+});
+
+test('Classic HTML still collapses the blank lines its own conversion introduces', () => {
+  const markdown = 'first\n\n\n\nsecond';
+  expect(mdToTelegramHtml(markdown)).toBe('first\n\nsecond');
 });

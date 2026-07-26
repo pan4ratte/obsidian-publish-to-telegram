@@ -135,6 +135,10 @@ export function customEmojiToHtml(text: string): string {
 // them inline as media blocks, as are `tg://…?id=` references to uploaded attachments
 // (telegram.ts rewrites local media embeds into these before calling this). Any remaining
 // local embed (e.g. an embedded note) can't be a media block and is stripped.
+//
+// A Rich Message can hold empty lines, which Markdown's own block separation would otherwise
+// swallow, so blank lines past the paragraph break the first one makes come back as real empty
+// lines (materializeBlankLines).
 export function obsidianToRichMarkdown(body: string): string {
     let text = stripObsidianSyntax(body, { keepRichMediaEmbeds: true });
 
@@ -150,7 +154,68 @@ export function obsidianToRichMarkdown(body: string): string {
 
     text = escapeRichHashtags(text);
 
-    return text.trim();
+    return materializeBlankLines(text.trim());
+}
+
+// The character that carries an otherwise empty line: a non-breaking space (U+00A0).
+// See materializeBlankLines.
+const BLANK_LINE_FILLER = "\u00A0";
+
+// A line holding a single lone HTML tag, which opens or closes a container block
+// (<tg-collage>, <tg-slideshow>, <details>, …). Their contents aren't free text — a media
+// block list, a summary — so nothing is injected inside one.
+const CONTAINER_TAG_LINE = /^[ \t]*<\/?[a-z][^>]*>[ \t]*$/i;
+
+// Telegram's Rich Markdown reads blank lines the way any Markdown does — as block separators,
+// not as content — and renders the blocks flush against each other, so an empty line a note is
+// written with never shows up in the message on its own.
+//
+// The note's first blank line is spent on that separation, exactly as Markdown intends: it's
+// what a paragraph break is written with, so it buys no empty line. Every blank line *past* the
+// first is a deliberate one and comes back as a block of its own holding a non-breaking space —
+// not a blank line by Markdown's definition (only spaces and tabs make a line blank), so it
+// survives as a real, visibly empty line. A run of N blank lines therefore renders as N-1 empty
+// lines: two for one, three for two, and so on.
+//
+// The blank lines themselves stay around the fillers — they're what keeps the neighbouring
+// tables, lists, fenced code and headings parsing as blocks. Two runs are left exactly as they
+// were: those inside fenced code, where a filler would read as code, and those touching a
+// container tag, whose contents aren't free text.
+//
+// A non-breaking space rather than <br>: Rich Markdown does take HTML tags inline, but if a
+// given tag isn't honoured the message shows the literal markup, while an unhonoured filler
+// character is at worst invisible.
+function materializeBlankLines(text: string): string {
+    const stashed: string[] = [];
+    const stash = (s: string): string => `\x00BL${stashed.push(s) - 1}\x00`;
+    const stashedText = text.replace(/```[\s\S]*?```/g, stash);   // fenced code blocks
+
+    const lines = stashedText.split("\n");
+    const isBlank = (line: string): boolean => line.trim().length === 0;
+    const out: string[] = [];
+
+    for (let i = 0; i < lines.length;) {
+        if (!isBlank(lines[i])) { out.push(lines[i++]); continue; }
+        // The whole run of blank lines, and the content lines on either side of it. Runs at the
+        // very start or end can't happen (the text is trimmed first), but an unfilled run there
+        // would only re-add the padding that was just dropped, so they're left alone too.
+        let end = i;
+        while (end < lines.length && isBlank(lines[end])) end++;
+        const before = out.length > 0 ? out[out.length - 1] : null;
+        const after = end < lines.length ? lines[end] : null;
+        const fillers = end - i - 1;   // the first blank line is the block separator itself
+        if (fillers === 0 || before === null || after === null
+            || CONTAINER_TAG_LINE.test(before) || CONTAINER_TAG_LINE.test(after)) {
+            out.push(...lines.slice(i, end));
+        } else {
+            out.push("");
+            for (let n = 0; n < fillers; n++) out.push(BLANK_LINE_FILLER, "");
+        }
+        i = end;
+    }
+
+    // eslint-disable-next-line no-control-regex -- \x00 sentinels delimit stashed code spans
+    return out.join("\n").replace(/\x00BL(\d+)\x00/g, (_, i: string) => stashed[parseInt(i)]);
 }
 
 // Telegram Rich Markdown reads a leading #word as a heading, so an Obsidian hashtag
