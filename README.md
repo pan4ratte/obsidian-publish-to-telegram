@@ -16,42 +16,33 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
 
 ## Features
 
-1. Create presets to post to different channels, groups, forum topics and personal messages:
+### 1. Publishing notes to any chat
 
-    * A preset can hold multiple target chats at once.
-    * Four optional publication methods: by account, by account with rich-text formatting, by bot, or by bot with rich-text formatting. Each method has its own features and limitations.
-    * Search field that loads the chat list if authorization is complete and an account is picked.
-    * Option to enter target chat `@username` or `ID` manually.
+Create presets for channels, groups, forum topics and personal messages. A single preset can hold several target chats, and you can search through your chat list after authorization or enter a `@username` or `ID` manually. A default preset lets you publish instantly with a single hotkey.
 
-2. Post in different ways: with hotkeys, command palette and context menus, as well as through advanced publishing settings menu.
+### 2. Four publishing methods
 
-3. Advanced publishing settings allow to:
+As your account, as a bot, or either of them with rich-text formatting. The method can be saved in a preset or an alternative one picked in the advanced publishing settings. You can also make a one-time post without a preset at all. Publishing is available with a hotkey, the command palette, the file context menu or the advanced publishing settings.
 
-    * Make a one-time post without a saved preset.
-    * Post with preset, using alternative publication method.
-  	* Post without sound.
-  	* Post with attached media under the text.
-    * Schedule the publication.
-    * Send the post when the recipient comes online.
-    * Choose the link preview source, move the preview above the text or disable it.
-    * See in the preview how Telegram will render the message, attachment placement included.
-    * Choose for every message whether it is published, edited or skipped.
+### 3. Full support for Telegram formatting
 
-4. Photo, video, audio, album and document attachments.
+Not only standard formatting is supported, but rich-text elements as well: accordions, centered quotes, references, LaTeX formulas, maps, collages and slideshows. Attachments are available too — photo, video, audio, albums and documents. An emoji bar with search mirrors Telegram's categories and loads the custom packs added to your account. `\split` markers and rich-text formatting elements are inserted straight from the note editor's context menu.
 
-5. Publish pre-written commentaries to the post discussion (or as replies to the message if it was posted in a group or sent to a user).
+### 4. Splitting notes into several posts
 
-6. Set up a default preset to post quickly with it.
+Publish several posts in a row from a single note and attach pre-written comments to them, which land in the post's discussion — or become replies to the message, if it is published in a group or in personal messages.
 
-7. Option to enable automatic posts and comments links saving to the note's properties.   
+### 5. Preview and settings for every post
 
-8. Publish multiple posts in a row from a single note using a special command that splits the note's text into separate posts.
+The advanced publishing settings show every message the way Telegram will render it, attachment placement and link preview included. For every post you can set: silent publishing, attachments below the text, the link preview's source and placement, scheduled publishing, sending when the recipient comes online, as well as specify whether it is published, edited or skipped.
 
-9. Insert `\split` markers and rich-text formatting elements straight from the note's editor context menu.
+### 6. Editing posts and comments
 
-10. Insert emoji — including custom Telegram emoji from an emoji bar in the note editor.
+Edit posts and comments right from the note they were published from. To do that, enable automatic saving of post links to the note's properties.
 
-11. Detailed user guide in the plugin settings with detailed description of all features and supported formatting options.
+---
+
+**A detailed user guide with setup walkthroughs and a description of every feature and every supported formatting option is available right in the plugin settings and can be opened from the command palette.**
 
 
 ## Installation
