@@ -14,6 +14,8 @@
 
 * Fixed a bug where empty lines did not appear in rich-text messages.
 * The link preview is no longer shown for rich-text methods or for messages with attachments, and the preview placement setting is disabled in those cases.
+* Message cards in the advanced publishing settings now have headers numbering the posts and comments.
+* Pre-written comments are now shown as separate cards in the preview.
 
 
 ## 6.0.0
