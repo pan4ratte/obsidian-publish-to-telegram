@@ -66,7 +66,7 @@ export default class SendToTelegramPlugin extends Plugin {
                 menu.addSeparator();
 
                 menu.addItem((item) => {
-                    item.setTitle(t.MENU_TITLE).setIcon("paper-plane");
+                    item.setTitle(t.FILE_MENU_TITLE).setIcon("paper-plane");
                     item.onClick(async () => {
                         const defaultChannel = await this.resolveDefaultChannel();
                         if (!defaultChannel) {
@@ -299,7 +299,7 @@ export default class SendToTelegramPlugin extends Plugin {
 
         this.addCommand({
             id: "show-formatting-help",
-            name: t.COMMAND_SHOW_FORMATTING_HELP,
+            name: t.COMMAND_SHOW_USER_GUIDE,
             callback: () => {
                 new FormattingHelpModal(this.app, getUserGuideContent()).open();
             }
@@ -327,7 +327,7 @@ export default class SendToTelegramPlugin extends Plugin {
             const commandId = `send-channel-${channel.id}`;
             this.addCommand({
                 id: commandId,
-                name: `${t.COMMAND_SEND_TO_PRESET} ${channel.name || t.CHANNEL_DEFAULT_NAME}`,
+                name: `${t.COMMAND_SEND_TO_PRESET} ${channel.name || t.PRESET_DEFAULT_NAME}`,
                 callback: async () => {
                     const file = this.app.workspace.getActiveFile();
                     if (!file) return;
@@ -639,7 +639,7 @@ export default class SendToTelegramPlugin extends Plugin {
         } else if (this.settings.accounts.length === 0) {
             new Notice(t.NOTICE_ERR_NOT_AUTHENTICATED); return;
         }
-        const progressNotice = new Notice(t.NOTICE_EDITING_COMMENTS, 0);
+        const progressNotice = new Notice(t.NOTICE_EDITING_COMMENT, 0);
         try {
             let errors: Error[];
             if (isBot) {
@@ -657,7 +657,7 @@ export default class SendToTelegramPlugin extends Plugin {
                 if (msg.includes("MESSAGE_NOT_MODIFIED")) new Notice(t.NOTICE_ERR_NOT_MODIFIED);
                 else new Notice(`${t.NOTICE_ERR_SEND}${err.message ?? ""}`);
             }
-            if (errors.length === 0) new Notice(t.NOTICE_COMMENTS_EDITED);
+            if (errors.length === 0) new Notice(t.NOTICE_COMMENT_EDITED);
         } catch (err) {
             progressNotice.hide();
             new Notice(`${t.NOTICE_ERR_SEND}${errMessage(err)}`);

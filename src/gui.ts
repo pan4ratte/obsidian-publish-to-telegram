@@ -230,9 +230,9 @@ interface CardRow {
 // modes a given post actually offers are rendered (see modeOptionsFor).
 function splitModeSegments(): Array<[SplitMode, string, string]> {
     return [
-        ["ignore", "ban", t.MULTI_PRESET_SPLIT_MODE_IGNORE],
-        ["publish", "send", t.MULTI_PRESET_SPLIT_MODE_PUBLISH],
-        ["edit", "pencil", t.MULTI_PRESET_SPLIT_MODE_EDIT],
+        ["ignore", "ban", t.ADVANCED_CARD_MODE_IGNORE],
+        ["publish", "send", t.ADVANCED_CARD_MODE_PUBLISH],
+        ["edit", "pencil", t.ADVANCED_CARD_MODE_EDIT],
     ];
 }
 
@@ -285,7 +285,7 @@ export class FormattingHelpModal extends Modal {
 
     onOpen() {
         const { contentEl, titleEl } = this;
-        titleEl.setText(t.SETTING_FORMATTING_HELP);
+        titleEl.setText(t.USER_GUIDE_TITLE);
         contentEl.addClass("telegram-formatting-help-modal");
         this.renderComponent.load();
         void MarkdownRenderer.render(
@@ -615,7 +615,7 @@ export class MultiPresetModal extends Modal {
         }
         // Neither a selected preset nor an authorized account can reach this chat — say so
         // rather than finishing quietly with nothing edited.
-        new Notice(t.MULTI_PRESET_UPDATE_NO_MATCH);
+        new Notice(t.ADVANCED_ERR_LINK_UNRESOLVED);
     }
 
     // Edits one pre-written comment in place. `embedIndex` is the comment's position among the
@@ -658,7 +658,7 @@ export class MultiPresetModal extends Modal {
         this.contentEl.addEventListener("pointerdown", markInteraction, { capture: true });
         this.contentEl.addEventListener("keydown", markInteraction, { capture: true });
 
-        container.createDiv({ text: t.MULTI_PRESET_ADHOC_HEADING, cls: "telegram-modal-heading" });
+        container.createDiv({ text: t.ADVANCED_ADHOC_HEADING, cls: "telegram-modal-heading" });
         // Bordered box matching the other sections in this modal.
         const boxEl = container.createDiv("telegram-adhoc-box");
 
@@ -678,7 +678,7 @@ export class MultiPresetModal extends Modal {
         const selectorsEl = boxEl.createDiv("telegram-adhoc-selectors");
 
         const authorDropdown = new DropdownComponent(selectorsEl.createDiv("telegram-adhoc-select"));
-        authorDropdown.addOption("", t.MULTI_PRESET_ADHOC_AUTHOR_PLACEHOLDER);
+        authorDropdown.addOption("", t.ADVANCED_ADHOC_AUTHOR_PLACEHOLDER);
         for (const account of this.plugin.settings.accounts) {
             authorDropdown.addOption(`account:${account.id}`, account.displayName || t.METHOD_ACCOUNT);
         }
@@ -721,7 +721,7 @@ export class MultiPresetModal extends Modal {
         const dropdown = this.adhocMethodDropdown;
         if (!dropdown) return;
         dropdown.selectEl.empty();
-        dropdown.addOption("", t.MULTI_PRESET_ADHOC_METHOD_PLACEHOLDER);
+        dropdown.addOption("", t.ADVANCED_ADHOC_METHOD_PLACEHOLDER);
         if (this.adhocAuthor) {
             const family: PostMethod[] = this.adhocAuthor.type === "bot"
                 ? ["bot", "bot-rich"] : ["account", "account-rich"];
@@ -778,8 +778,8 @@ export class MultiPresetModal extends Modal {
         const cached = suggestAccountId ? this.dialogsByAccount.get(suggestAccountId) : undefined;
         input.placeholder = hasChips ? "" : (
             suggestAccountId
-                ? (cached?.loading ? t.SETTING_CHAT_PICKER_LOADING : t.SETTING_PLACEHOLDER_CHAT_SEARCH)
-                : t.SETTING_PLACEHOLDER_CHAT
+                ? (cached?.loading ? t.SETTING_CHAT_LOADING_PLACEHOLDER : t.SETTING_CHAT_SEARCH_PLACEHOLDER)
+                : t.SETTING_CHAT_PLACEHOLDER
         );
 
         // The suggest is created lazily, on the first real user gesture in the field. Merely
@@ -795,7 +795,7 @@ export class MultiPresetModal extends Modal {
                     // Kick off the (cached, once-per-account) dialog fetch only now; show the
                     // loading placeholder until it resolves (dialogsFor clears it).
                     if (this.dialogsFor(accountId).loading && !hasChips) {
-                        input.placeholder = t.SETTING_CHAT_PICKER_LOADING;
+                        input.placeholder = t.SETTING_CHAT_LOADING_PLACEHOLDER;
                     }
                     suggest = new ChatSuggest(
                         this.app, input,
@@ -847,8 +847,8 @@ export class MultiPresetModal extends Modal {
             await client?.destroy().catch(() => {});
             entry.loading = false;
             this.contentEl.querySelectorAll<HTMLInputElement>('.telegram-chat-search').forEach(input => {
-                if (input.placeholder === t.SETTING_CHAT_PICKER_LOADING) {
-                    input.placeholder = t.SETTING_PLACEHOLDER_CHAT_SEARCH;
+                if (input.placeholder === t.SETTING_CHAT_LOADING_PLACEHOLDER) {
+                    input.placeholder = t.SETTING_CHAT_SEARCH_PLACEHOLDER;
                 }
             });
             return dialogs;
@@ -1007,7 +1007,7 @@ export class MultiPresetModal extends Modal {
     private openEditLinkMenu(anchorEl: HTMLElement, row: CardRow) {
         const menu = new Menu();
         menu.addItem(item => item
-            .setTitle(t.MULTI_PRESET_EDIT_COMMENTS_ALL_CHATS)
+            .setTitle(t.ADVANCED_CARD_EDIT_ALL_CHATS)
             .setChecked(row.editLink === "all")
             .onClick(() => { row.editLink = "all"; this.setSplitMode(row, "edit"); }));
         for (const link of row.editLinks) {
@@ -1056,7 +1056,7 @@ export class MultiPresetModal extends Modal {
             // they belong to, under one shared "Comments" heading.
             if (commentFiles.length > 0) {
                 const commentsEl = sectionEl.createDiv("telegram-split-comments");
-                commentsEl.createDiv({ text: t.MULTI_PRESET_SPLIT_COMMENT_LABEL, cls: "telegram-split-comments-header" });
+                commentsEl.createDiv({ text: t.ADVANCED_CARD_COMMENTS_HEADING, cls: "telegram-split-comments-header" });
                 for (const commentFile of commentFiles) {
                     // The comment's position among the note's comment notes: both its stored
                     // links and the offset an edit needs are looked up by it.
@@ -1143,7 +1143,7 @@ export class MultiPresetModal extends Modal {
             silentBtn.toggleClass("is-active", effective);
         };
         applySilent(); // reflects the "Always publish silently" default
-        setTooltip(silentBtn, t.MULTI_PRESET_SILENT_POST_NAME);
+        setTooltip(silentBtn, t.ADVANCED_CARD_SILENT_TOOLTIP);
         silentBtn.addEventListener("click", () => {
             row.silentOn = !row.silentOn;
             applySilent();
@@ -1155,7 +1155,7 @@ export class MultiPresetModal extends Modal {
         const attachBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
         enableLongPressTooltip(attachBtn);
         setIcon(attachBtn, "image-down");
-        setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
+        setTooltip(attachBtn, t.ADVANCED_CARD_ATTACH_TOOLTIP);
         const applyAttach = () => {
             attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && !row.ignoreBlocked);
             // Which side of the text the album sits on is this button's doing, so the preview
@@ -1177,9 +1177,9 @@ export class MultiPresetModal extends Modal {
             const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked || row.hasMedia
                 ? "default" : row.previewMode;
             setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
-            setTooltip(previewModeBtn, mode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
-                : mode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
-                : t.MULTI_PRESET_SPLIT_PREVIEW_DEFAULT);
+            setTooltip(previewModeBtn, mode === "top" ? t.ADVANCED_CARD_PREVIEW_TOP_TOOLTIP
+                : mode === "off" ? t.ADVANCED_CARD_PREVIEW_OFF_TOOLTIP
+                : t.ADVANCED_CARD_PREVIEW_DEFAULT_TOOLTIP);
             previewModeBtn.toggleClass("is-active", mode !== "default");
             // The in-preview card mirrors the mode (placement / hidden); late-bound —
             // it's a noop until the preview block below is built.
@@ -1199,7 +1199,7 @@ export class MultiPresetModal extends Modal {
         const onlineBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
         enableLongPressTooltip(onlineBtn);
         setIcon(onlineBtn, "wifi");
-        setTooltip(onlineBtn, t.MULTI_PRESET_SPLIT_ONLINE_TIP);
+        setTooltip(onlineBtn, t.ADVANCED_CARD_ONLINE_TOOLTIP);
         // schedBlocked already carries the "ignore" mode (updateScheduleState), so the two
         // scheduling controls need no ignoreBlocked check of their own.
         const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked);
@@ -1220,8 +1220,8 @@ export class MultiPresetModal extends Modal {
             // With the date no longer written in the row, the tooltip is what tells the user
             // when the post is going out.
             setTooltip(scheduleBtn, on
-                ? t.MULTI_PRESET_SPLIT_SCHEDULE_AT.replace("{date}", new Date(row.scheduleValue).toLocaleString())
-                : t.MULTI_PRESET_SCHEDULE_NAME);
+                ? t.ADVANCED_CARD_SCHEDULE_AT_TOOLTIP.replace("{date}", new Date(row.scheduleValue).toLocaleString())
+                : t.ADVANCED_CARD_SCHEDULE_TOOLTIP);
         };
 
         // showPicker() is the only way to open the picker from the button, since the input
@@ -1238,11 +1238,11 @@ export class MultiPresetModal extends Modal {
             if (!row.scheduleValue) { openSchedulePicker(); return; }
             const menu = new Menu();
             menu.addItem(item => item
-                .setTitle(t.MULTI_PRESET_SPLIT_SCHEDULE_CHANGE)
+                .setTitle(t.ADVANCED_CARD_SCHEDULE_CHANGE)
                 .setIcon("calendar")
                 .onClick(() => openSchedulePicker()));
             menu.addItem(item => item
-                .setTitle(t.MULTI_PRESET_SPLIT_SCHEDULE_CLEAR)
+                .setTitle(t.ADVANCED_CARD_SCHEDULE_CLEAR)
                 .setIcon("x")
                 .onClick(() => {
                     row.scheduleValue = "";
@@ -1331,13 +1331,13 @@ export class MultiPresetModal extends Modal {
         const expandBtn = previewEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
         enableLongPressTooltip(expandBtn);
         setIcon(expandBtn, "chevron-down");
-        setTooltip(expandBtn, t.MULTI_PRESET_SPLIT_EXPAND);
+        setTooltip(expandBtn, t.ADVANCED_CARD_EXPAND_TOOLTIP);
         let expanded = false;
         expandBtn.addEventListener("click", () => {
             expanded = !expanded;
             previewEl.toggleClass("is-expanded", expanded);
             setIcon(expandBtn, expanded ? "chevron-up" : "chevron-down");
-            setTooltip(expandBtn, expanded ? t.MULTI_PRESET_SPLIT_COLLAPSE : t.MULTI_PRESET_SPLIT_EXPAND);
+            setTooltip(expandBtn, expanded ? t.ADVANCED_CARD_COLLAPSE_TOOLTIP : t.ADVANCED_CARD_EXPAND_TOOLTIP);
         });
         // Shows the expand control only while the collapsed clamp actually clips content.
         // Re-run whenever the content height changes — the link-preview card appearing,
@@ -1476,7 +1476,7 @@ export class MultiPresetModal extends Modal {
             .then(() => window.requestAnimationFrame(() => {
                 // Explain the click behaviour on every selectable web link.
                 previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
-                    if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.MULTI_PRESET_SPLIT_LINK_TIP);
+                    if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.ADVANCED_CARD_LINK_TOOLTIP);
                 });
                 // Now that the embeds and links exist, whether this message carries media is
                 // settled — which decides both how the media is laid out and whether the
@@ -1509,8 +1509,8 @@ export class MultiPresetModal extends Modal {
                 // Nothing to say while no target is chosen — the attempt to publish is what
                 // reports that, so the card doesn't carry a standing error message.
                 const hint = row.mode !== "edit" || link === null ? ""
-                    : link === "all" ? t.MULTI_PRESET_UPDATE_WILL_USE_ALL
-                    : t.MULTI_PRESET_UPDATE_WILL_USE.replace("{name}", this.linkLabel(link));
+                    : link === "all" ? t.ADVANCED_CARD_EDIT_WILL_USE_ALL
+                    : t.ADVANCED_CARD_EDIT_WILL_USE.replace("{name}", this.linkLabel(link));
                 // Keep the old text while it slides back out of view, so the label doesn't
                 // blank out mid-animation.
                 if (hint) hintEl.setText(hint);
@@ -1525,7 +1525,7 @@ export class MultiPresetModal extends Modal {
                 segEl.createSpan({ cls: "telegram-split-mode-label", text: label });
                 if (mode === "edit" && needsPick) {
                     setIcon(segEl.createSpan("telegram-split-mode-caret"), "chevron-down");
-                    setTooltip(segEl, t.MULTI_PRESET_SPLIT_MODE_EDIT_PICK);
+                    setTooltip(segEl, t.ADVANCED_CARD_MODE_EDIT_PICK);
                 }
                 segEl.addEventListener("click", () => {
                     if (mode === "edit" && needsPick) this.openEditLinkMenu(segEl, row);
@@ -1574,7 +1574,7 @@ export class MultiPresetModal extends Modal {
 
     async onOpen() {
         const { contentEl, titleEl } = this;
-        titleEl.setText(t.MULTI_PRESET_TITLE);
+        titleEl.setText(t.ADVANCED_TITLE);
 
         // Every publish shows previews: one post for a plain note, several for a note
         // split with `%% \split %%` markers.
@@ -1613,7 +1613,7 @@ export class MultiPresetModal extends Modal {
         if (hasAuthors) this.renderAdhocSection(contentEl);
 
         if (hasPresets) contentEl.createDiv({
-            text: t.MULTI_PRESET_CHANNEL_SELECTION,
+            text: t.ADVANCED_PRESET_HEADING,
             cls: "telegram-modal-heading"
         });
 
@@ -1627,7 +1627,7 @@ export class MultiPresetModal extends Modal {
 
             const headerEl = itemEl.createDiv("telegram-multi-preset-header");
             const nameEl = headerEl.createDiv("telegram-multi-preset-name");
-            nameEl.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME });
+            nameEl.createSpan({ text: channel.name || t.PRESET_DEFAULT_NAME });
 
             const isPreToggled = this.initialChannelId === channel.id;
             if (isPreToggled) this.selectedChannels.add(channel.id);
@@ -1663,7 +1663,7 @@ export class MultiPresetModal extends Modal {
                 const isDefault = value === defaultMethod;
                 const optEl = methodsEl.createDiv("telegram-preset-method-option");
                 optEl.createSpan({
-                    text: isDefault ? t.MULTI_PRESET_METHOD_DEFAULT.replace("{method}", label) : label,
+                    text: isDefault ? t.ADVANCED_METHOD_DEFAULT.replace("{method}", label) : label,
                     cls: "telegram-preset-method-label",
                 });
                 const mToggle = new ToggleComponent(optEl.createDiv())
@@ -1693,7 +1693,7 @@ export class MultiPresetModal extends Modal {
         });
 
         contentEl.createDiv({
-            text: t.MULTI_PRESET_ADVANCED_FORMATTING,
+            text: t.ADVANCED_POST_SETTINGS_HEADING,
             cls: "telegram-modal-heading"
         });
 
@@ -1744,7 +1744,7 @@ export class MultiPresetModal extends Modal {
         // One label whatever the cards are set to: the modes say what happens to each message,
         // so the button only has to say "go".
         new ButtonComponent(btnContainer)
-            .setButtonText(t.MULTI_PRESET_POST_BTN)
+            .setButtonText(t.ADVANCED_PUBLISH_BTN)
             .setCta()
             .onClick(async () => {
                 const editRows = this.editingRows();
@@ -1753,7 +1753,7 @@ export class MultiPresetModal extends Modal {
                 // A message set to "edit" with several published links needs one picked first —
                 // there's no sensible default among them.
                 if (editRows.some(row => row.editLink === null)) {
-                    new Notice(t.MULTI_PRESET_SPLIT_MODE_NO_LINK);
+                    new Notice(t.ADVANCED_ERR_EDIT_TARGET_MISSING);
                     return;
                 }
 
@@ -1761,17 +1761,17 @@ export class MultiPresetModal extends Modal {
                 // published by the same action that publishes that post — the send paths have
                 // no message to reply to otherwise.
                 if (this.splitRows.some(part => part.mode !== "publish" && part.comments.some(c => c.mode === "publish"))) {
-                    new Notice(t.MULTI_PRESET_SPLIT_COMMENT_NEEDS_POST);
+                    new Notice(t.ADVANCED_ERR_COMMENT_NEEDS_POST);
                     return;
                 }
 
                 const adhocChannel = this.buildAdhocChannel();
                 if (publishRows.length > 0 && this.selectedChannels.size === 0 && !adhocChannel) {
-                    new Notice(t.MULTI_PRESET_NO_SELECTION);
+                    new Notice(t.ADVANCED_ERR_NO_PRESET_SELECTED);
                     return;
                 }
                 if (publishRows.length === 0 && editRows.length === 0) {
-                    new Notice(t.MULTI_PRESET_SPLIT_NONE_SELECTED);
+                    new Notice(t.ADVANCED_ERR_NOTHING_SELECTED);
                     return;
                 }
 
@@ -1890,10 +1890,10 @@ export class TelegramSettingTab extends PluginSettingTab {
             name: t.SETTING_HEADER,
             desc: t.SETTING_DESCRIPTION,
             aliases: [
-                t.SECTION_GENERAL, t.SECTION_PRESETS, t.SETTING_ADD_CHANNEL_NAME,
+                t.SECTION_GENERAL, t.SECTION_PRESETS, t.SETTING_PRESETS_INTRO_TITLE,
                 t.SETTING_SAVE_POST_LINKS_NAME, t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME,
                 t.SETTING_ALWAYS_SILENT_NAME,
-                t.SETTING_ADD_PRESET, t.SETTING_FORMATTING_HELP,
+                t.SETTING_CREATE_PRESET_BTN, t.USER_GUIDE_TITLE,
                 t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
                 t.AUTH_MANAGE_CREDENTIALS_BTN,
             ],
@@ -2061,8 +2061,8 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         const addSection = containerEl.createDiv("telegram-add-preset-section");
         const infoDiv = addSection.createDiv("telegram-add-preset-info");
-        infoDiv.createDiv({ text: t.SETTING_ADD_CHANNEL_NAME, cls: "telegram-add-preset-title" });
-        infoDiv.createDiv({ text: t.SETTING_ADD_CHANNEL_DESC, cls: "telegram-add-preset-description" });
+        infoDiv.createDiv({ text: t.SETTING_PRESETS_INTRO_TITLE, cls: "telegram-add-preset-title" });
+        infoDiv.createDiv({ text: t.SETTING_PRESETS_INTRO_DESC, cls: "telegram-add-preset-description" });
 
         const linkRow = addSection.createDiv("telegram-add-preset-button-row");
 
@@ -2077,7 +2077,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             .buttonEl.addClass("telegram-link-button");
 
         new ButtonComponent(linkRow)
-            .setButtonText(t.SETTING_FORMATTING_HELP)
+            .setButtonText(t.USER_GUIDE_TITLE)
             .onClick(() => {
                 new FormattingHelpModal(this.app, getUserGuideContent()).open();
             })
@@ -2086,12 +2086,12 @@ export class TelegramSettingTab extends PluginSettingTab {
         const addRow = addSection.createDiv("telegram-add-preset-button-row");
 
         new ButtonComponent(addRow)
-            .setButtonText(t.SETTING_ADD_PRESET)
+            .setButtonText(t.SETTING_CREATE_PRESET_BTN)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
-                while (existingNames.has(`${t.CHANNEL_DEFAULT_NAME} ${idx}`)) idx++;
-                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.CHANNEL_DEFAULT_NAME} ${idx}`, defaultMethod: "account", chatTargets: [], chatId: "", isDefault: false });
+                while (existingNames.has(`${t.PRESET_DEFAULT_NAME} ${idx}`)) idx++;
+                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.PRESET_DEFAULT_NAME} ${idx}`, defaultMethod: "account", chatTargets: [], chatId: "", isDefault: false });
                 await this.plugin.saveSettings();
                 this.rerender();
             }).buttonEl.addClass("telegram-add-button");
@@ -2100,14 +2100,14 @@ export class TelegramSettingTab extends PluginSettingTab {
             const channelDiv = containerEl.createDiv("telegram-channel-item");
             const header = channelDiv.createDiv("telegram-channel-header");
             const titleContainer = header.createDiv("telegram-header-title-container");
-            titleContainer.createSpan({ text: channel.name || t.CHANNEL_DEFAULT_NAME, cls: "telegram-header-name" });
+            titleContainer.createSpan({ text: channel.name || t.PRESET_DEFAULT_NAME, cls: "telegram-header-name" });
 
             new ButtonComponent(titleContainer.createDiv("telegram-edit-container"))
                 .setIcon("pencil").onClick(() => {
                     titleContainer.empty();
                     const input = new TextComponent(titleContainer)
                         .setValue(channel.name)
-                        .setPlaceholder(t.SETTING_PLACE_HOLDER_NAME);
+                        .setPlaceholder(t.SETTING_PRESET_NAME_PLACEHOLDER);
                     input.inputEl.focus();
 
                     let saved = false;
@@ -2130,7 +2130,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                     new ConfirmationModal(
                         this.app,
                         t.CONFIRM_DELETE_TITLE,
-                        t.CONFIRM_DELETE_MSG.replace("{name}", channel.name || t.CHANNEL_DEFAULT_NAME),
+                        t.CONFIRM_DELETE_MSG.replace("{name}", channel.name || t.PRESET_DEFAULT_NAME),
                         t.CONFIRM_DELETE_BTN,
                         async () => {
                             // Bot tokens are shared, named entities now — deleting a preset
@@ -2157,7 +2157,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
             this.renderChatPicker(channelDiv, channel);
 
-            new Setting(channelDiv).setName(t.SETTING_DEFAULT_CHANNEL).setDesc(t.SETTING_DEFAULT_DESC)
+            new Setting(channelDiv).setName(t.SETTING_DEFAULT_PRESET_NAME).setDesc(t.SETTING_DEFAULT_PRESET_DESC)
                 .addToggle(toggle => {
                     toggle.setValue(channel.isDefault || false)
                         .onChange(async (v) => {
@@ -2183,12 +2183,12 @@ export class TelegramSettingTab extends PluginSettingTab {
             void this.plugin.saveSettings();
         }
         const setting = new Setting(container)
-            .setName(t.SETTING_ACCOUNT_NAME)
-            .setDesc(accounts.length ? t.SETTING_ACCOUNT_DESC : t.SETTING_ACCOUNT_EMPTY_HINT);
+            .setName(t.SETTING_ACCOUNT_SELECT_NAME)
+            .setDesc(accounts.length ? t.SETTING_ACCOUNT_SELECT_DESC : t.SETTING_ACCOUNT_SELECT_EMPTY_HINT);
 
         if (accounts.length > 0) {
             setting.addDropdown(dd => {
-                dd.addOption("", t.SETTING_ACCOUNT_PLACEHOLDER);
+                dd.addOption("", t.SETTING_ACCOUNT_SELECT_PLACEHOLDER);
                 for (const acc of accounts) dd.addOption(acc.id, acc.displayName || acc.id);
                 const current = accounts.some(a => a.id === channel.accountId) ? channel.accountId! : "";
                 dd.setValue(current);
@@ -2205,8 +2205,8 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     private renderMethodField(container: HTMLElement, channel: TelegramChannel): void {
         const setting = new Setting(container)
-            .setName(t.SETTING_METHOD_NAME)
-            .setDesc(t.SETTING_METHOD_DESC)
+            .setName(t.SETTING_DEFAULT_METHOD_NAME)
+            .setDesc(t.SETTING_DEFAULT_METHOD_DESC)
             .addDropdown(dd => {
                 for (const [value, label] of methodOptions()) dd.addOption(value, label);
                 dd.setValue(channel.defaultMethod ?? "account");
@@ -2222,8 +2222,8 @@ export class TelegramSettingTab extends PluginSettingTab {
 
     private renderSecondaryToggle(container: HTMLElement, channel: TelegramChannel): void {
         new Setting(container)
-            .setName(t.SETTING_SECONDARY_NAME)
-            .setDesc(t.SETTING_SECONDARY_DESC)
+            .setName(t.SETTING_ALT_METHODS_NAME)
+            .setDesc(t.SETTING_ALT_METHODS_DESC)
             .addToggle(toggle => {
                 toggle.setValue(channel.useSecondaryMethods ?? false)
                     .onChange(async (v) => {
@@ -2272,7 +2272,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         const save = async (saveBtn: ButtonComponent) => {
             const token = tokenValue.trim();
-            if (!token) { new Notice(t.BOT_TOKEN_INCOMPLETE); return; }
+            if (!token) { new Notice(t.BOT_TOKEN_EMPTY); return; }
             saveBtn.setDisabled(true).setIcon("loader-2");
             try {
                 // Resolve the bot's name from Telegram so the token is labelled automatically.
@@ -2290,8 +2290,8 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         // Token input and Save button share one row.
         const tokenSetting = new Setting(card)
-            .setName(t.SETTING_BOT_TOKEN_NAME)
-            .setDesc(t.SETTING_BOT_TOKEN_DESC)
+            .setName(t.SETTING_BOT_TOKEN_INPUT_NAME)
+            .setDesc(t.SETTING_BOT_TOKEN_INPUT_DESC)
             .addText(text => {
                 text.inputEl.type = "password";
                 text.setPlaceholder("123456789:abc…")
@@ -2451,10 +2451,10 @@ export class TelegramSettingTab extends PluginSettingTab {
             const needsAccountChoice = !suggestAccountId && this.plugin.settings.accounts.length > 0;
 
             input.placeholder = hasChips ? "" : (
-                needsAccountChoice ? t.SETTING_CHOOSE_ACCOUNT_FIRST :
-                !suggestAccountId ? t.SETTING_PLACEHOLDER_CHAT :
-                this.dialogsFor(suggestAccountId).loading ? t.SETTING_CHAT_PICKER_LOADING :
-                t.SETTING_PLACEHOLDER_CHAT_SEARCH
+                needsAccountChoice ? t.SETTING_CHAT_NEEDS_ACCOUNT_PLACEHOLDER :
+                !suggestAccountId ? t.SETTING_CHAT_PLACEHOLDER :
+                this.dialogsFor(suggestAccountId).loading ? t.SETTING_CHAT_LOADING_PLACEHOLDER :
+                t.SETTING_CHAT_SEARCH_PLACEHOLDER
             );
 
             if (suggestAccountId) {
@@ -2537,8 +2537,8 @@ export class TelegramSettingTab extends PluginSettingTab {
             await client?.destroy().catch(() => {});
             entry.loading = false;
             this.containerEl.querySelectorAll<HTMLInputElement>('.telegram-chat-search').forEach(input => {
-                if (input.placeholder === t.SETTING_CHAT_PICKER_LOADING) {
-                    input.placeholder = t.SETTING_PLACEHOLDER_CHAT_SEARCH;
+                if (input.placeholder === t.SETTING_CHAT_LOADING_PLACEHOLDER) {
+                    input.placeholder = t.SETTING_CHAT_SEARCH_PLACEHOLDER;
                 }
             });
             return dialogs;
