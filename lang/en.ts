@@ -33,7 +33,7 @@ export default {
     SETTING_MD_EMBEDS_AS_COMMENTS_NAME: "Treat .md embeds as post comments",
     SETTING_MD_EMBEDS_AS_COMMENTS_DESC: "Contents of .md-attachments will be sent as comments to the post discussion",
     SETTING_COMMENTS_FOLLOW_POST_NAME: "Comments follow post settings",
-    SETTING_COMMENTS_FOLLOW_POST_DESC: "Changing a post's publishing settings applies them to its comments as well. A comment you set yourself keeps its own value",
+    SETTING_COMMENTS_FOLLOW_POST_DESC: "Changing a post's settings automatically applies them to the comments",
     SETTING_ALWAYS_SILENT_NAME: "Publish silently by default",
     SETTING_ALWAYS_SILENT_DESC: "All posts will be published with a notification without sound if not specified otherwise",
     SECTION_PRESETS: "Presets",
