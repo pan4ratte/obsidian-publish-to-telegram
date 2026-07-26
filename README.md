@@ -20,6 +20,10 @@ This plugin allows you to post notes directly to Telegram channels, groups and p
 
 Create presets for channels, groups, forum topics and personal messages. A single preset can hold several target chats, and you can search through your chat list after authorization or enter a `@username` or `ID` manually. A default preset lets you publish instantly with a single hotkey.
 
+<div align="center">
+  <img src="media/2-presets.png"width="100%" />
+</div>
+
 ### 2. Four publishing methods
 
 As your account, as a bot, or either of them with rich-text formatting. The method can be saved in a preset or an alternative one picked in the advanced publishing settings. You can also make a one-time post without a preset at all. Publishing is available with a hotkey, the command palette, the file context menu or the advanced publishing settings.
@@ -28,6 +32,10 @@ As your account, as a bot, or either of them with rich-text formatting. The meth
 
 Not only standard formatting is supported, but rich-text elements as well: accordions, centered quotes, references, LaTeX formulas, maps, collages and slideshows. Attachments are available too — photo, video, audio, albums and documents. An emoji bar with search mirrors Telegram's categories and loads the custom packs added to your account. `\split` markers and rich-text formatting elements are inserted straight from the note editor's context menu.
 
+<div align="center">
+  <img src="media/3-formatting.png"width="100%" />
+</div>
+
 ### 4. Splitting notes into several posts
 
 Publish several posts in a row from a single note and attach pre-written comments to them, which land in the post's discussion — or become replies to the message, if it is published in a group or in personal messages.
@@ -35,6 +43,10 @@ Publish several posts in a row from a single note and attach pre-written comment
 ### 5. Preview and settings for every post
 
 The advanced publishing settings show every message the way Telegram will render it, attachment placement and link preview included. For every post you can set: silent publishing, attachments below the text, the link preview's source and placement, scheduled publishing, sending when the recipient comes online, as well as specify whether it is published, edited or skipped.
+
+<div align="center">
+  <img src="media/4-advanced.png"width="100%" />
+</div>
 
 ### 6. Editing posts and comments
 
