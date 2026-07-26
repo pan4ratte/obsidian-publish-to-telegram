@@ -1,7 +1,7 @@
 export default {
     // ─── Settings ────────────────────────────────────────────────────────────────
     SETTING_HEADER: "Publish to Telegram Settings",
-    SETTING_DESCRIPTION: "This plugin allows you to post notes directly to Telegram channels, groups and personal messages. All Telegram formatting options are supported, as well as media and document attachments. Use advanced publishing settings menu to schedule posts, send them to multiple chats at once and more.",
+    SETTING_DESCRIPTION: "Post notes directly to Telegram channels, groups, forum topics and personal messages, as your own account or as a bot. Standard and rich-text Telegram formatting, media and document attachments, and custom emoji are supported. Advanced publishing settings let you preview every message, schedule it, split a note into several posts, and edit what you already published.",
     CHANGELOG_BANNER_PREFIX: "What's new in version ",
     CHANGELOG_BANNER_DISMISS: "Dismiss until the next update",
     SECTION_GENERAL: "General",

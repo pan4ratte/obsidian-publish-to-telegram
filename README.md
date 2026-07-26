@@ -2,7 +2,7 @@
 
 English | [Русский](https://github.com/pan4ratte/obsidian-publish-to-telegram/blob/main/README_RU.md)
 
-This plugin allows you to post notes directly to Telegram channels, groups and personal messages with different presets. Standard Telegram formatting, rich-text formatting, as well as media and document attachments are supported. Advanced publishing settings allow you to schedule posts, edit posts and comments and more.
+Post notes directly to Telegram channels, groups, forum topics and personal messages, as your own account or as a bot. Standard and rich-text Telegram formatting, media and document attachments, and custom emoji are supported. Advanced publishing settings let you preview every message, schedule it, split a note into several posts, and edit what you already published.
 
 <div align="center">
   <img src="media/1-cover.png"width="100%" />
