@@ -198,6 +198,10 @@ interface CardRow {
     // than inline — the preview then lays them out that way. Unset for rich methods and while
     // no method is chosen at all, where the note's own inline layout is what's shown.
     classicMedia: boolean;
+    // Whether this message carries attachments at all, known once its preview has rendered.
+    // A message with media has no room for a web preview — the media is what its one media
+    // slot holds — so the link-preview options don't apply to it.
+    hasMedia: boolean;
     updateMediaPlacement: () => void;
     onlineOn: boolean;
     scheduleValue: string;
@@ -1113,6 +1117,7 @@ export class MultiPresetModal extends Modal {
             updateLinkPreviewCard: () => {},
             linkPreviewUrl: null,
             classicMedia: false,
+            hasMedia: false,
             updateMediaPlacement: () => {},
             onlineOn: false,
             scheduleValue: "",
@@ -1169,7 +1174,8 @@ export class MultiPresetModal extends Modal {
         const previewModeBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
         enableLongPressTooltip(previewModeBtn);
         const applyPreviewMode = () => {
-            const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked ? "default" : row.previewMode;
+            const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked || row.hasMedia
+                ? "default" : row.previewMode;
             setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
             setTooltip(previewModeBtn, mode === "top" ? t.MULTI_PRESET_SPLIT_PREVIEW_TOP
                 : mode === "off" ? t.MULTI_PRESET_SPLIT_PREVIEW_OFF
@@ -1270,9 +1276,11 @@ export class MultiPresetModal extends Modal {
             this.shareSetting(row, "online");
         });
 
+        // Link-preview placement has nothing to place on a message that carries attachments,
+        // whatever the method: Telegram renders the media instead.
         row.applyRichState = () => {
             attachBtn.toggleClass("is-disabled", row.richBlocked || row.ignoreBlocked);
-            previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked || row.ignoreBlocked);
+            previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked || row.ignoreBlocked || row.hasMedia);
             applyAttach();
             applyPreviewMode();
         };
@@ -1352,6 +1360,7 @@ export class MultiPresetModal extends Modal {
                 el.before(anchor);
                 mediaNodes.push({ el, anchor });
             });
+            row.hasMedia = mediaNodes.length > 0;
         };
 
         // Puts the embeds where the chosen method will: gathered into one album block above or
@@ -1396,17 +1405,18 @@ export class MultiPresetModal extends Modal {
                 }
                 return null;
             };
-            // While a rich method (or an edit / ignore selection) blocks link-preview options
-            // the card shows the default behaviour, matching the reset mode button.
-            const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked ? "default" : row.previewMode;
-            const url = row.linkPreviewUrl ?? autoUrl();
-            // A classic message carrying attachments shows those, not a web preview — the media
-            // is what the message's one media slot holds.
-            if (row.classicMedia && mediaNodes.length > 0) {
+            // Two messages never show a web preview at all, so neither do their cards: a Rich
+            // Message, which has no link preview to render, and any message carrying
+            // attachments — the media is what its one media slot holds.
+            if (row.richBlocked || row.hasMedia) {
                 linkCardEl.addClass("is-hidden");
                 window.requestAnimationFrame(refreshExpand);
                 return;
             }
+            // While an edit or ignore selection blocks the link-preview options the card shows
+            // the default behaviour, matching the reset mode button.
+            const mode = row.editBlocked || row.ignoreBlocked ? "default" : row.previewMode;
+            const url = row.linkPreviewUrl ?? autoUrl();
             if (!url || mode === "off") {
                 linkCardEl.addClass("is-hidden");
                 window.requestAnimationFrame(refreshExpand);
@@ -1445,6 +1455,10 @@ export class MultiPresetModal extends Modal {
             const anchor = (e.target as HTMLElement).closest("a");
             if (!anchor || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
             if (e.ctrlKey || e.metaKey) return;
+            // Nothing to choose on a message that carries attachments: it renders those and no
+            // web preview, and unlike a method restriction that can't change while the modal is
+            // open. A rich method still records the choice, for when a classic one is picked.
+            if (row.hasMedia) return;
             e.preventDefault();
             e.stopPropagation();
             const current = previewContentEl.querySelector("a.is-preview-source");
@@ -1464,11 +1478,11 @@ export class MultiPresetModal extends Modal {
                 previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
                     if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.MULTI_PRESET_SPLIT_LINK_TIP);
                 });
-                // Now that the embeds and links exist, lay the media out for the chosen method
-                // and show Telegram's default preview (first link).
+                // Now that the embeds and links exist, whether this message carries media is
+                // settled — which decides both how the media is laid out and whether the
+                // link-preview options apply at all, so the whole state is re-applied.
                 collectMediaNodes();
-                row.updateMediaPlacement();
-                row.updateLinkPreviewCard();
+                row.applyRichState();
                 refreshExpand();
             }));
 
@@ -1539,9 +1553,11 @@ export class MultiPresetModal extends Modal {
             scheduleDate: !row.schedBlocked && !row.onlineOn && row.scheduleValue
                 ? new Date(row.scheduleValue) : undefined,
             sendWhenOnline: !row.schedBlocked && row.onlineOn,
-            linkPreviewUrl: !row.richBlocked ? row.linkPreviewUrl ?? undefined : undefined,
-            linkPreviewAboveText: !row.richBlocked && row.previewMode === "top",
-            linkPreviewDisabled: !row.richBlocked && row.previewMode === "off",
+            // Link-preview choices only reach the send path on a message that can render one:
+            // not a Rich Message, and not one carrying attachments.
+            linkPreviewUrl: !row.richBlocked && !row.hasMedia ? row.linkPreviewUrl ?? undefined : undefined,
+            linkPreviewAboveText: !row.richBlocked && !row.hasMedia && row.previewMode === "top",
+            linkPreviewDisabled: !row.richBlocked && !row.hasMedia && row.previewMode === "off",
             // A comment carries only what a reply can: everything the post does except a
             // scheduled date, which it has no use for — it goes out with the post it replies to.
             comments: row.comments.map(comment => ({
@@ -1549,9 +1565,9 @@ export class MultiPresetModal extends Modal {
                 silent: comment.silentOn,
                 attachUnderText: !comment.richBlocked && comment.attachOn,
                 sendWhenOnline: !comment.schedBlocked && comment.onlineOn,
-                linkPreviewUrl: !comment.richBlocked ? comment.linkPreviewUrl ?? undefined : undefined,
-                linkPreviewAboveText: !comment.richBlocked && comment.previewMode === "top",
-                linkPreviewDisabled: !comment.richBlocked && comment.previewMode === "off",
+                linkPreviewUrl: !comment.richBlocked && !comment.hasMedia ? comment.linkPreviewUrl ?? undefined : undefined,
+                linkPreviewAboveText: !comment.richBlocked && !comment.hasMedia && comment.previewMode === "top",
+                linkPreviewDisabled: !comment.richBlocked && !comment.hasMedia && comment.previewMode === "off",
             })),
         }));
     }
