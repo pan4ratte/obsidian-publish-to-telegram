@@ -90,7 +90,15 @@ export default {
     ADVANCED_PUBLISH_BTN: "Отправить на публикацию",
 
     // ─── Advanced settings: per-message preview cards ─────────────────────────────
-    ADVANCED_CARD_COMMENTS_HEADING: "Комментарии:",
+    // A card's header names the message it previews. A note with one post says just "Post",
+    // since there's nothing to tell its comments apart from; a split note numbers every
+    // message and ties each comment back to the post it goes under.
+    ADVANCED_CARD_POST_HEADING: "Пост",
+    ADVANCED_CARD_POST_NUMBERED_HEADING: "Пост {n}",
+    ADVANCED_CARD_COMMENT_HEADING: "Комментарий",
+    ADVANCED_CARD_COMMENT_NUMBERED_HEADING: "Комментарий {n}",
+    ADVANCED_CARD_COMMENT_FOR_POST_HEADING: "Комментарий к посту {post}",
+    ADVANCED_CARD_COMMENT_FOR_POST_NUMBERED_HEADING: "Комментарий {n} к посту {post}",
     ADVANCED_CARD_SILENT_TOOLTIP: "Опубликовать без звука",
     ADVANCED_CARD_ATTACH_TOOLTIP: "Вложения под текстом",
     ADVANCED_CARD_SCHEDULE_TOOLTIP: "Запланировать публикацию",

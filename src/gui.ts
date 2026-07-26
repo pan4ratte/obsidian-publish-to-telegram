@@ -1033,13 +1033,27 @@ export class MultiPresetModal extends Modal {
         // A lone previewed post gets a taller collapsed clamp than a multi-post split.
         if (this.splitPosts.length === 1) sectionEl.addClass("telegram-split-section--single");
 
-        for (const post of this.splitPosts) {
+        // Headers only need to say which post is which once the note actually splits; a
+        // single-post note has one of each, so numbering them would say nothing.
+        const multiPost = this.splitPosts.length > 1;
+
+        for (const [postIndex, post] of this.splitPosts.entries()) {
             const postEl = sectionEl.createDiv("telegram-split-post");
             // Pre-written comments publish as separate messages, so their embed markup is
             // pulled out of the post's own preview and each gets its own card below it.
             const { cleaned, files: commentFiles } = this.plugin.settings.treatMdEmbedsAsComments
                 ? this.collectCommentPreviews(post.content)
                 : { cleaned: post.content, files: [] as TFile[] };
+
+            // A lone post with no comments is the only card on screen, so a header naming it
+            // would label something nothing else can be confused with. Every other layout has
+            // siblings to tell apart, and then every card is titled.
+            if (multiPost || commentFiles.length > 0) postEl.createDiv({
+                text: multiPost
+                    ? t.ADVANCED_CARD_POST_NUMBERED_HEADING.replace("{n}", String(postIndex + 1))
+                    : t.ADVANCED_CARD_POST_HEADING,
+                cls: "telegram-split-card-header",
+            });
 
             const row = this.renderCard({
                 parent: postEl,
@@ -1052,34 +1066,54 @@ export class MultiPresetModal extends Modal {
                 render: contentEl => MarkdownRenderer.render(this.app, cleaned, contentEl, this.file.path, this.splitRenderComponent),
             });
 
-            // The part's comments live in a card of their own, set apart from the post card
-            // they belong to, under one shared "Comments" heading.
-            if (commentFiles.length > 0) {
-                const commentsEl = sectionEl.createDiv("telegram-split-comments");
-                commentsEl.createDiv({ text: t.ADVANCED_CARD_COMMENTS_HEADING, cls: "telegram-split-comments-header" });
-                for (const commentFile of commentFiles) {
-                    // The comment's position among the note's comment notes: both its stored
-                    // links and the offset an edit needs are looked up by it.
-                    const embedIndex = this.commentEmbedOrder.indexOf(commentFile.path);
-                    row.comments.push(this.renderCard({
-                        parent: commentsEl.createDiv("telegram-split-comment"),
-                        kind: "comment",
-                        links: embedIndex < 0 ? [] : this.commentEditLinks(embedIndex),
-                        embedIndex,
-                        previewCls: "telegram-split-comment-preview",
-                        contentCls: "telegram-split-comment-content",
-                        render: async contentEl => {
-                            const raw = await this.app.vault.cachedRead(commentFile);
-                            await MarkdownRenderer.render(
-                                this.app,
-                                raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
-                                contentEl,
-                                commentFile.path,
-                                this.splitRenderComponent,
-                            );
-                        },
-                    }));
+            // A comment's header numbers it within its post and, on a split note, names that
+            // post. A post with a single comment has nothing to number it against, so the
+            // number is dropped either way — same rule the post header follows.
+            const onlyComment = commentFiles.length === 1;
+            const commentHeading = (index: number): string => {
+                const n = String(index + 1);
+                if (!multiPost) {
+                    return onlyComment
+                        ? t.ADVANCED_CARD_COMMENT_HEADING
+                        : t.ADVANCED_CARD_COMMENT_NUMBERED_HEADING.replace("{n}", n);
                 }
+                const post = String(postIndex + 1);
+                return onlyComment
+                    ? t.ADVANCED_CARD_COMMENT_FOR_POST_HEADING.replace("{post}", post)
+                    : t.ADVANCED_CARD_COMMENT_FOR_POST_NUMBERED_HEADING.replace("{n}", n).replace("{post}", post);
+            };
+
+            // Each comment gets a card of its own, built and spaced exactly like the post card
+            // it follows — they're all messages going out, so nothing here frames them
+            // differently. Their headers carry the relationship instead.
+            for (const [commentIndex, commentFile] of commentFiles.entries()) {
+                const commentEl = sectionEl.createDiv("telegram-split-comment");
+                commentEl.createDiv({
+                    text: commentHeading(commentIndex),
+                    cls: "telegram-split-card-header",
+                });
+                // The comment's position among the note's comment notes: both its stored
+                // links and the offset an edit needs are looked up by it. It counts across
+                // the whole note, so it's not what the header numbers.
+                const embedIndex = this.commentEmbedOrder.indexOf(commentFile.path);
+                row.comments.push(this.renderCard({
+                    parent: commentEl,
+                    kind: "comment",
+                    links: embedIndex < 0 ? [] : this.commentEditLinks(embedIndex),
+                    embedIndex,
+                    previewCls: "telegram-split-comment-preview",
+                    contentCls: "telegram-split-comment-content",
+                    render: async contentEl => {
+                        const raw = await this.app.vault.cachedRead(commentFile);
+                        await MarkdownRenderer.render(
+                            this.app,
+                            raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
+                            contentEl,
+                            commentFile.path,
+                            this.splitRenderComponent,
+                        );
+                    },
+                }));
             }
 
             this.splitRows.push(row);

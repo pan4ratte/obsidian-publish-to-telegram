@@ -90,7 +90,15 @@ export default {
     ADVANCED_PUBLISH_BTN: "Send to publishing",
 
     // ─── Advanced settings: per-message preview cards ─────────────────────────────
-    ADVANCED_CARD_COMMENTS_HEADING: "Comments:",
+    // A card's header names the message it previews. A note with one post says just "Post",
+    // since there's nothing to tell its comments apart from; a split note numbers every
+    // message and ties each comment back to the post it goes under.
+    ADVANCED_CARD_POST_HEADING: "Post",
+    ADVANCED_CARD_POST_NUMBERED_HEADING: "Post {n}",
+    ADVANCED_CARD_COMMENT_HEADING: "Comment",
+    ADVANCED_CARD_COMMENT_NUMBERED_HEADING: "Comment {n}",
+    ADVANCED_CARD_COMMENT_FOR_POST_HEADING: "Comment for post {post}",
+    ADVANCED_CARD_COMMENT_FOR_POST_NUMBERED_HEADING: "Comment {n} for post {post}",
     ADVANCED_CARD_SILENT_TOOLTIP: "Publish silently",
     ADVANCED_CARD_ATTACH_TOOLTIP: "Attachments below the text",
     ADVANCED_CARD_SCHEDULE_TOOLTIP: "Schedule the post",

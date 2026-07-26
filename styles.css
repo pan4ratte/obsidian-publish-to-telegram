@@ -754,6 +754,17 @@ body .telegram-auth-submit:disabled {
     overflow: hidden;
 }
 
+/* Names the message a card previews — "Post", "Post 2", "Comment 1 for post 2". Shared by
+   post and comment cards so both are titled the same way, and sitting above the settings
+   row it caps the card the way the mode bar closes it off. */
+.telegram-split-card-header {
+    padding: 12px 16px;
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
 /* The circle buttons and the date pill wrap onto further lines when the card is too
    narrow for one row; nothing relocates elsewhere. */
 .telegram-split-controls {
@@ -1002,32 +1013,16 @@ body .telegram-split-mode-option .svg-icon {
 
 /* ── Pre-written comment previews ── */
 
-/* The comments of a part form their own card, standing clear of the post card above it (whose
-   own margin supplies the gap) so the two read as separate sections. */
-.telegram-split-comments {
+/* Each pre-written comment is a card in its own right, built exactly like the post card —
+   a header, a settings row, a clamped preview and a mode footer — and carrying the same
+   16px gap, so a part and its comments read as one evenly spaced stack of messages rather
+   than a post followed by a bundle. */
+.telegram-split-comment {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
     margin-bottom: 16px;
     overflow: hidden;
-}
-
-.telegram-split-comments-header {
-    padding: 12px 16px;
-    font-size: var(--font-ui-smaller);
-    font-weight: var(--font-semibold);
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--background-modifier-border);
-}
-
-/* Each pre-written comment is a block inside the comments card, built exactly like the post:
-   a settings row, a clamped preview and a mode footer. Consecutive comments are separated by
-   a border so they read as a stack of messages. */
-.telegram-split-comment {
     background-color: var(--background-primary);
-}
-
-.telegram-split-comment + .telegram-split-comment {
-    border-top: 1px solid var(--background-modifier-border);
 }
 
 /* position:relative anchors the same expand fade bar the post preview uses; the bottom
