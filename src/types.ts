@@ -41,12 +41,15 @@ export interface TelegramChannel {
 }
 
 // Per-comment publish options for the pre-written comments (embedded .md notes) that ride
-// along with a part, index-aligned to that part's md embeds. A comment is a text reply in the
-// discussion, so only what a reply can carry is here: an unselected comment is skipped, and
-// each sent comment uses its own silent / link-preview values instead of the part's.
+// along with a part, index-aligned to that part's md embeds. A comment is a reply, so only what
+// a reply can carry is here: an unselected comment is skipped, and each sent comment uses its
+// own values instead of the part's. No scheduled date of its own — a comment goes out with the
+// post it replies to — but "send when online" is a property of the reply itself.
 export interface CommentOptions {
     selected: boolean;
     silent: boolean;
+    attachUnderText?: boolean;      // place the comment's media below its text
+    sendWhenOnline?: boolean;       // deliver the comment when the recipient comes online (personal chats)
     linkPreviewUrl?: string;        // URL whose link preview the comment should render
     linkPreviewAboveText?: boolean; // render the link preview above the comment text
     linkPreviewDisabled?: boolean;  // suppress the link preview entirely (wins over the two above)
@@ -95,6 +98,7 @@ export interface TelegramSettings {
     accounts: TelegramAccount[];
     savePostLinks: boolean;
     treatMdEmbedsAsComments: boolean;
+    commentsFollowPostSettings: boolean;  // a comment card mirrors its post's settings until the user sets that comment's own
     alwaysSilent: boolean;            // publish with a soundless notification by default (overridable per publish)
     telegramDisplayName: string;
     dismissedChangelogVersion?: string;
@@ -116,6 +120,7 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
     accounts: [],
     savePostLinks: false,
     treatMdEmbedsAsComments: false,
+    commentsFollowPostSettings: true,
     alwaysSilent: false,
     telegramDisplayName: "",
     pendingScheduledLinks: [],

@@ -2,7 +2,7 @@
 // Account (User API) send path — runs on mtcute (github.com/mtcute/mtcute). This is the
 // path a preset uses for the "account" and "account-rich" methods; bot methods go through
 // telegram-bot.ts (Bot API) instead.
-import { App, TFile, requestUrl } from "obsidian";
+import { App, TFile, Notice, requestUrl } from "obsidian";
 import {
     TelegramClient,
     WebCryptoProvider,
@@ -20,6 +20,7 @@ import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLin
 import { errMessage } from "./util";
 import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
+import { t } from "../lang/helpers";
 
 // Re-exported for callers that import it from this module (gui.ts, main.ts); the
 // implementation now lives in split.ts alongside the other link helpers.
@@ -457,7 +458,102 @@ export async function getUserDialogs(client: TelegramClient): Promise<DialogData
     }
 }
 
+// ─── Classic attachment batching ──────────────────────────────────────────────
+
+// The one batch of attachments a classic message sends: an album of photos/videos, a single
+// GIF, or an album of documents. `asDocument` forces the document type (PDFs).
+interface MediaBatch { files: MediaFile[]; asDocument: boolean }
+
+// Splits attachments the way a classic message has to send them, and answers how many messages
+// that would take: photos and videos group into albums of ALBUM_LIMIT, each GIF is its own
+// message (animations can't be grouped) and documents group into their own albums. A mixed
+// photo+video album counts as impossible too — the User API rejects it with MEDIA_INVALID.
+//
+// A classic message is one message, so anything above a single batch is refused by the callers
+// (MIXED_MEDIA_CLASSIC) rather than fragmenting a post or a comment across messages.
+function classicMediaBatches(attachments: MediaFile[], extraDocs: MediaFile[] = []): {
+    photoAndVideoFiles: MediaFile[]; gifFiles: MediaFile[]; docFiles: MediaFile[];
+    messageCount: number; mixedAlbum: boolean; single: MediaBatch | null;
+} {
+    const photoAndVideoFiles = attachments.filter(f =>
+        ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
+    );
+    const gifFiles = attachments.filter(f => f.extension === "gif");
+    const docFiles = [...attachments.filter(f => f.extension === "pdf"), ...extraDocs];
+
+    const hasPhoto = photoAndVideoFiles.some(f => ["jpg", "jpeg", "png", "webp"].includes(f.extension));
+    const hasVideo = photoAndVideoFiles.some(f => VIDEO_EXTS.has(f.extension));
+    const messageCount = Math.ceil(photoAndVideoFiles.length / ALBUM_LIMIT) + gifFiles.length
+        + Math.ceil(docFiles.length / ALBUM_LIMIT);
+
+    // The lone batch, for callers that only ever send one. Null when there's nothing to send
+    // or when it wouldn't fit in one message anyway.
+    const single: MediaBatch | null =
+        messageCount !== 1 ? null
+        : photoAndVideoFiles.length > 0 ? { files: photoAndVideoFiles, asDocument: false }
+        : gifFiles.length > 0 ? { files: gifFiles, asDocument: false }
+        : { files: docFiles, asDocument: true };
+
+    return { photoAndVideoFiles, gifFiles, docFiles, messageCount, mixedAlbum: hasPhoto && hasVideo, single };
+}
+
 // ─── Comment (discussion) sending ─────────────────────────────────────────────
+
+// A pre-written comment, prepared before its post is sent: the text, the rich form (when the
+// post is rich) and — for a classic comment — the single attachment batch its own note embeds.
+interface PreparedComment {
+    text: string;
+    richMarkdown: string;
+    richAttachments?: Record<string, RichAttachment>;
+    mediaBatch?: MediaBatch;
+    options?: CommentOptions;
+}
+
+// Reads and prepares the comments a part will publish, before the post itself goes out. Doing
+// it up front is what lets a comment whose attachments a classic message can't carry be refused
+// with nothing published, the same way a post's own attachments are checked before sending.
+//
+// Comments the user unselected are dropped here, as are those that would come out empty.
+async function prepareComments(
+    app: App, mdEmbeds: TFile[], commentOptions: CommentOptions[] | undefined, postAsRich: boolean
+): Promise<PreparedComment[]> {
+    const prepared: PreparedComment[] = [];
+    for (let ci = 0; ci < mdEmbeds.length; ci++) {
+        const options = commentOptions?.[ci];
+        if (options && !options.selected) continue;
+        const mdFile = mdEmbeds[ci];
+        const { body: mdBody } = extractFrontmatter(await app.vault.read(mdFile));
+        const text = mdToTelegramHtml(mdBody);
+
+        // Comments follow the post method: rich for "account-rich", classic otherwise. Rich
+        // comments carry their own local media inside the rich content (resolved against the
+        // embedded note); an unembeddable local document there is dropped, comments being
+        // best-effort.
+        let richMarkdown = "";
+        let richAttachments: Record<string, RichAttachment> | undefined;
+        if (postAsRich) {
+            const built = await buildRichMessageContent(app, mdBody, mdFile);
+            richMarkdown = built.markdown;
+            richAttachments = built.attachments;
+        }
+
+        // A classic comment sends its note's attachments itself. Nested .md embeds are left
+        // out: one level of comments is what the note structure describes.
+        let mediaBatch: MediaBatch | undefined;
+        if (!postAsRich) {
+            const { attachments } = collectMediaFiles(app, mdBody, mdFile);
+            if (attachments.length > 0) {
+                const batches = classicMediaBatches(attachments);
+                if (batches.messageCount > 1 || batches.mixedAlbum || !batches.single) throw new Error("MIXED_MEDIA_CLASSIC");
+                mediaBatch = batches.single;
+            }
+        }
+
+        if (!text.length && !richMarkdown.length && !mediaBatch) continue;
+        prepared.push({ text, richMarkdown, richAttachments, mediaBatch, options });
+    }
+    return prepared;
+}
 
 // Whether the channel may post comments under its own identity. Telegram validates a
 // comment's `send_as` against the identities allowed in the DISCUSSION GROUP (not the
@@ -482,6 +578,24 @@ async function channelCanSendAs(
     }
 }
 
+// True when this chat's comments land in a linked discussion group rather than in the chat
+// itself — the one case where a comment can't ride along with a scheduled post, since the
+// message it replies to (the post's copy in that group) doesn't exist until the post actually
+// publishes. Personal chats, groups and channels with no discussion group all take comments as
+// plain replies in the same chat, which Telegram schedules like any other message.
+//
+// This is the same question sendCommentViaAccount asks to decide how to send, asked the same
+// way: a peer with no linked chat — including a user, where getFullChat has nothing to give —
+// falls through to the direct reply.
+async function commentsUseDiscussionGroup(client: TelegramClient, chatId: string): Promise<boolean> {
+    try {
+        const full = await client.getFullChat(peerFor(chatId));
+        return !!full.linkedChat;
+    } catch {
+        return false;
+    }
+}
+
 async function sendCommentViaAccount(
     client: TelegramClient,
     channelChatId: string,
@@ -493,21 +607,45 @@ async function sendCommentViaAccount(
     linkPreviewUrl?: string,
     linkPreviewAboveText?: boolean,
     linkPreviewDisabled?: boolean,
+    schedule?: Date | "online",
+    attachUnderText?: boolean,
+    mediaBatch?: MediaBatch,
 ): Promise<string | null> {
     const channelPeer = peerFor(channelChatId);
+    // One flag governs which side of the text a message's media sits on. For a reply carrying
+    // its note's attachments that's those attachments; for a plain text reply it's the link
+    // preview — either control asking for the media to move sets it.
+    const invertMedia = !!linkPreviewAboveText || !!attachUnderText;
 
     // Sends the comment as a Rich Message when rich markdown is provided ("account-rich"),
-    // else as a classic HTML message. Both accept the same commentTo/replyTo/sendAs params.
-    // A classic comment honours the same link-preview choices as a classic post: a chosen
-    // source URL rides as webpage media carrying the text, otherwise the automatic preview
-    // can be lifted above the text or suppressed (suppressing wins).
-    const sendComment = (params: { commentTo?: number; replyTo?: number; sendAs?: string | number; silent: boolean }): Promise<Message> => {
+    // else as a classic message. Both accept the same commentTo/replyTo/sendAs params.
+    //
+    // A classic comment carries the attachments its own note embeds, exactly as a classic post
+    // carries its own — the text rides along as their caption. prepareComments has already
+    // reduced them to a single batch (one album, one GIF or one document album), so the reply
+    // stays one message with one link. With no attachments it's a text message, honouring the
+    // same link-preview choices as a classic post: a chosen source URL rides as webpage media
+    // carrying the text, otherwise the automatic preview can be lifted above the text or
+    // suppressed (suppressing wins).
+    const sendComment = async (params: { commentTo?: number; replyTo?: number; sendAs?: string | number; silent: boolean; schedule?: Date | "online" }): Promise<Message> => {
         if (richMarkdown.length > 0) {
             return client.sendRichMessage(channelPeer, { content: { type: "markdown", content: richMarkdown, attachments: richAttachments }, ...params });
         }
+        if (mediaBatch) {
+            const { files, asDocument } = mediaBatch;
+            const invert = text.length > 0 && invertMedia;
+            if (files.length === 1) {
+                const media = await toInputMedia(files[0], asDocument, text.length ? htmlText(text) : undefined);
+                return client.sendMedia(channelPeer, media, { ...params, invert });
+            }
+            const medias = await Promise.all(files.map((f, i) =>
+                toInputMedia(f, asDocument, i === 0 && text.length ? htmlText(text) : undefined)));
+            const msgs = await client.sendMediaGroup(channelPeer, medias, { ...params, invertMedia: invert });
+            return msgs[0];
+        }
         if (linkPreviewDisabled) return client.sendText(channelPeer, htmlText(text), { ...params, disableWebPreview: true });
-        if (linkPreviewUrl) return client.sendMedia(channelPeer, InputMedia.webpage(linkPreviewUrl, { caption: htmlText(text) }), { ...params, invert: linkPreviewAboveText });
-        return client.sendText(channelPeer, htmlText(text), { ...params, invertMedia: linkPreviewAboveText });
+        if (linkPreviewUrl) return client.sendMedia(channelPeer, InputMedia.webpage(linkPreviewUrl, { caption: htmlText(text) }), { ...params, invert: invertMedia });
+        return client.sendText(channelPeer, htmlText(text), { ...params, invertMedia });
     };
 
     // Resolve the discussion group (if any).
@@ -556,8 +694,10 @@ async function sendCommentViaAccount(
         return null;
     }
 
-    // No discussion group: reply directly in the channel
-    const sent = await sendComment({ replyTo: channelMessageId, silent });
+    // No discussion group: reply directly in the chat — a personal chat, a group, or a channel
+    // that has none. This is the branch a schedule can ride: the reply joins the post in the
+    // chat's scheduled queue.
+    const sent = await sendComment({ replyTo: channelMessageId, silent, schedule });
     return buildPostLinkFromChatId(channelChatId, sent.id);
 }
 
@@ -587,15 +727,18 @@ async function sendPartViaAccount(
     const topicId = channel.topicId;
     const threadId = topicId ? topicId : undefined;
 
-    const photoAndVideoFiles = attachments.filter(f =>
-        ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
-    );
-    const gifFiles = attachments.filter(f => f.extension === "gif");
     // PDFs always upload as documents; embedded .md files join them as document
     // attachments unless they're being sent as comments instead.
-    const pdfFiles = attachments.filter(f => f.extension === "pdf");
     const mdDocFiles = treatMdEmbedsAsComments ? [] : mdEmbeds.map(f => mdEmbedToMedia(app, f));
-    const docFiles = [...pdfFiles, ...mdDocFiles];
+    const { photoAndVideoFiles, gifFiles, docFiles, messageCount, mixedAlbum } =
+        classicMediaBatches(attachments, mdDocFiles);
+
+    // The comments are read and checked before anything is sent, so a comment carrying
+    // attachments a classic message can't take refuses the publish instead of landing under an
+    // already-published post.
+    const comments = treatMdEmbedsAsComments && mdEmbeds.length > 0
+        ? await prepareComments(app, mdEmbeds, commentOptions, postAsRich)
+        : [];
 
     let result: SendResult | null = null;
     let captionConsumed = false;
@@ -636,16 +779,9 @@ async function sendPartViaAccount(
         }
     } else {
         // A classic-method post must be a single message; if the attachments would produce
-        // more than one, it's refused up front (nothing is sent) rather than fragmenting the
-        // post. Separate messages come from: the photo+video album, each GIF (its own message
-        // — animations can't be grouped), and the document album (PDFs + .md). An album holds
-        // at most ALBUM_LIMIT items, so >10 of one kind also splits across messages.
-        // Additionally, the User API rejects a mixed photo+video album (MEDIA_INVALID), so
-        // that can't be one post either. The user is told to use a rich method or split up.
-        const hasPhoto = photoAndVideoFiles.some(f => ["jpg", "jpeg", "png", "webp"].includes(f.extension));
-        const hasVideo = photoAndVideoFiles.some(f => VIDEO_EXTS.has(f.extension));
-        const messageCount = Math.ceil(photoAndVideoFiles.length / ALBUM_LIMIT) + gifFiles.length + Math.ceil(docFiles.length / ALBUM_LIMIT);
-        if (messageCount > 1 || (hasPhoto && hasVideo)) throw new Error("MIXED_MEDIA_CLASSIC");
+        // more than one (see classicMediaBatches), it's refused up front (nothing is sent)
+        // rather than fragmenting the post. The user is told to use a rich method or split up.
+        if (messageCount > 1 || mixedAlbum) throw new Error("MIXED_MEDIA_CLASSIC");
 
         // ── Photos and videos: grouped into one album ─────────────────────────
         if (photoAndVideoFiles.length > 0) {
@@ -702,35 +838,37 @@ async function sendPartViaAccount(
         };
     }
 
-    if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0 && !scheduleDate) {
+    // A scheduled post takes its comments along wherever they're plain replies in the same chat:
+    // they go into the scheduled queue beside it. Only a linked discussion group can't, its
+    // reply target not existing yet, and sendNoteViaAccount refuses that up front
+    // (SCHEDULED_COMMENTS_IN_DISCUSSION) — so a scheduled part reaching this point has a chat
+    // that takes the comments directly.
+    if (result && comments.length > 0) {
         onProgress?.();
         const commentLinks: string[] = [];
-        for (let ci = 0; ci < mdEmbeds.length; ci++) {
-            const mdFile = mdEmbeds[ci];
-            // Per-comment options from the modal (aligned to this part's embeds): a comment the
-            // user left unselected is skipped, and the rest carry their own silent / link-preview
-            // choices instead of the post's.
-            const copts = commentOptions?.[ci];
-            if (copts && !copts.selected) continue;
-            const mdContent = await app.vault.read(mdFile);
-            const { body: mdBody } = extractFrontmatter(mdContent);
-            const formattedMdContent = mdToTelegramHtml(mdBody);
-            // Comments follow the post method: rich for "account-rich", classic HTML otherwise.
-            // Rich comments carry their own local media (resolved against the embedded note);
-            // an unembeddable local document there is dropped, as comments are best-effort.
-            let richMdComment = "";
-            let richCommentAttachments: Record<string, RichAttachment> | undefined;
-            if (postAsRich) {
-                const built = await buildRichMessageContent(app, mdBody, mdFile);
-                richMdComment = built.markdown;
-                richCommentAttachments = built.attachments;
+        for (const comment of comments) {
+            // Per-comment options from the modal: each comment carries its own silent /
+            // attachment / link-preview choices instead of the post's.
+            const copts = comment.options;
+            // A comment has no date of its own — it rides the post's — but "send when online"
+            // belongs to the reply, and takes that slot for this comment when it's set.
+            const commentSchedule: Date | "online" | undefined = copts?.sendWhenOnline ? "online" : scheduleDate;
+            // A comment failure must not lose the post's link — the post is already out, and the
+            // caller needs its link to record and to edit later. Reported and moved past, the
+            // same way the Bot API path isolates its comments.
+            try {
+                const commentLink = await sendCommentViaAccount(
+                    client, channel.chatId, result.messageId, comment.text, comment.richMarkdown, comment.richAttachments,
+                    copts?.silent ?? silent, copts?.linkPreviewUrl, copts?.linkPreviewAboveText, copts?.linkPreviewDisabled,
+                    commentSchedule, copts?.attachUnderText ?? attachUnderText, comment.mediaBatch,
+                );
+                // A scheduled comment's id belongs to the scheduled queue, not to a real message,
+                // so it makes no link worth recording — same reason the scheduled post's own link
+                // is left out and resolved later.
+                if (commentLink && !commentSchedule) commentLinks.push(commentLink);
+            } catch (err) {
+                new Notice(t.NOTICE_COMMENT_FAILED.replace("{error}", errMessage(err)));
             }
-            if (!formattedMdContent.length && !richMdComment.length) continue;
-            const commentLink = await sendCommentViaAccount(
-                client, channel.chatId, result.messageId, formattedMdContent, richMdComment, richCommentAttachments,
-                copts?.silent ?? silent, copts?.linkPreviewUrl, copts?.linkPreviewAboveText, copts?.linkPreviewDisabled,
-            );
-            if (commentLink) commentLinks.push(commentLink);
         }
         if (commentLinks.length > 0) result = { ...result, commentLinks };
     }
@@ -856,17 +994,41 @@ export async function sendNoteToTelegram(
     // posts, whose real link isn't known until they go live.
     const postLinks: string[][] = effectiveParts.map(() => []);
 
+    // The schedule each part will actually be sent with, in part order. "Send when online"
+    // rides the same slot (mtcute accepts the literal "online"); an unselected part has none.
+    const partSchedules: Array<Date | "online" | undefined> = effectiveParts.map((_, i) => {
+        const opts = partOptions?.[i];
+        if (opts && !opts.selected) return undefined;
+        return opts ? (opts.sendWhenOnline ? "online" : opts.scheduleDate) : scheduleDate;
+    });
+
     const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash);
     try {
+        // ── Pre-flight: scheduled parts that carry comments ───────────────────
+        // A comment is a reply to the post. Wherever that reply goes into the same chat — a
+        // personal chat, a group, a channel with no discussion group — Telegram schedules it
+        // alongside the post. Only a linked discussion group can't: the post's copy there, the
+        // message being replied to, doesn't exist until the post actually publishes. So that one
+        // combination is refused here, before the first part goes out, rather than publishing
+        // the posts and dropping the comments.
+        const scheduledPartHasComments = treatMdEmbedsAsComments && effectiveParts.some((part, i) => {
+            if (!partSchedules[i]) return false;
+            const comments = partOptions?.[i]?.comments;
+            // With options from the modal the user's own selection decides; without them
+            // (a direct publish command) every embedded note is a comment.
+            return comments ? comments.some(c => c.selected)
+                : collectMediaFiles(app, part, file).mdEmbeds.length > 0;
+        });
+        if (scheduledPartHasComments && await commentsUseDiscussionGroup(client, channel.chatId)) {
+            throw new Error("SCHEDULED_COMMENTS_IN_DISCUSSION");
+        }
+
         for (let i = 0; i < effectiveParts.length; i++) {
             // Per-part options from the modal's split layout: skip parts the user unchecked and
             // let each part carry its own silent/attachments/schedule values.
             const opts = partOptions?.[i];
             if (opts && !opts.selected) continue;
-            // "Send when online" rides the schedule slot (mtcute accepts the literal "online").
-            const partSchedule: Date | "online" | undefined = opts
-                ? (opts.sendWhenOnline ? "online" : opts.scheduleDate)
-                : scheduleDate;
+            const partSchedule = partSchedules[i];
             try {
                 const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments);
                 if (result) {

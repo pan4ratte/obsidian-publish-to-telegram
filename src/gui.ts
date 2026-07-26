@@ -170,6 +170,12 @@ function isRichMethod(method: PostMethod): boolean {
 // What a previewed message does on publish, picked with the mode toggle under its preview.
 type SplitMode = "ignore" | "publish" | "edit";
 
+// The settings a comment card can inherit from the post card it belongs to ("Comments follow
+// post settings") — everything a reply can carry. Not among them: the scheduled date, which a
+// comment has no use for (it goes out with its post), and the chosen link-preview URL, which is
+// picked by clicking a link inside one message's own text and means nothing in another's.
+type SharedSetting = "silent" | "preview" | "attach" | "online";
+
 // One previewed message in the advanced modal: a post part, or one of the pre-written comments
 // (embedded .md notes) that ride along with it. Both get the same settings row and mode toggle;
 // a comment publishes as a text reply, so the options a reply can't carry (attachment
@@ -198,6 +204,9 @@ interface CardRow {
     schedBlocked: boolean;
     editBlocked: boolean;
     ignoreBlocked: boolean;
+    // Comment cards: the settings the user has set on this comment itself, which therefore stop
+    // following the post's ("Comments follow post settings").
+    overrides: Set<SharedSetting>;
     applyRichState: () => void;
     applySchedState: () => void;
     applyModeState: () => void;
@@ -450,6 +459,24 @@ export class MultiPresetModal extends Modal {
         for (const row of this.allCards()) {
             row.schedBlocked = allBot || row.mode !== "publish";
             row.applySchedState();
+        }
+    }
+
+    // Hands a setting the user just changed on a post card to that post's comments, for
+    // "Comments follow post settings". A change made on a comment card instead is that comment
+    // opting out: it records the override and from then on keeps its own value for that setting.
+    private shareSetting(row: CardRow, setting: SharedSetting) {
+        if (row.kind === "comment") { row.overrides.add(setting); return; }
+        if (!this.plugin.settings.commentsFollowPostSettings) return;
+        for (const comment of row.comments) {
+            if (comment.overrides.has(setting)) continue;
+            if (setting === "silent") comment.silentOn = row.silentOn;
+            else if (setting === "preview") comment.previewMode = row.previewMode;
+            else if (setting === "attach") comment.attachOn = row.attachOn;
+            else comment.onlineOn = row.onlineOn;
+            // Repaints the whole settings row from the card's state, the shared setting included.
+            comment.applyModeState();
+            comment.applySchedState();
         }
     }
 
@@ -1080,6 +1107,7 @@ export class MultiPresetModal extends Modal {
             schedBlocked: false,
             editBlocked: false,
             ignoreBlocked: setup.mode === "ignore",
+            overrides: new Set(),
             applyRichState: () => {},
             applySchedState: () => {},
             applyModeState: () => {},
@@ -1101,18 +1129,20 @@ export class MultiPresetModal extends Modal {
         silentBtn.addEventListener("click", () => {
             row.silentOn = !row.silentOn;
             applySilent();
+            this.shareSetting(row, "silent");
         });
 
-        // Attachment positioning applies to a post's caption; a comment is a text reply
-        // that carries no attachments of its own, so the button is present but inert there.
+        // Attachment positioning applies to a post's caption and, on a comment, to whatever
+        // media the reply carries — which is its link preview.
         const attachBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
         enableLongPressTooltip(attachBtn);
         setIcon(attachBtn, "image-down");
         setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
-        const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && !row.ignoreBlocked && isPost);
+        const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && !row.ignoreBlocked);
         attachBtn.addEventListener("click", () => {
             row.attachOn = !row.attachOn;
             applyAttach();
+            this.shareSetting(row, "attach");
         });
 
         // Link-preview placement, cycling through three states: default (Telegram's
@@ -1135,18 +1165,20 @@ export class MultiPresetModal extends Modal {
         previewModeBtn.addEventListener("click", () => {
             row.previewMode = row.previewMode === "default" ? "top" : row.previewMode === "top" ? "off" : "default";
             applyPreviewMode();
+            this.shareSetting(row, "preview");
         });
 
-        // "Send when online": Telegram delivers once the recipient comes online.
-        // Rides the same schedule slot as a date, so the two are mutually exclusive,
-        // and it shares scheduling's method restrictions (account methods only).
+        // "Send when online": Telegram delivers once the recipient comes online. On a post it
+        // rides the same schedule slot as a date, so the two are mutually exclusive; a comment
+        // has no date of its own (it goes out with its post) but carries this on its own reply.
+        // Both share scheduling's method restrictions (account methods only).
         const onlineBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
         enableLongPressTooltip(onlineBtn);
         setIcon(onlineBtn, "wifi");
         setTooltip(onlineBtn, t.MULTI_PRESET_SPLIT_ONLINE_TIP);
         // schedBlocked already carries the "ignore" mode (updateScheduleState), so the two
         // scheduling controls need no ignoreBlocked check of their own.
-        const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked && isPost);
+        const applyOnline = () => onlineBtn.toggleClass("is-active", row.onlineOn && !row.schedBlocked);
 
         // Scheduling is a round button like the rest of the row. The native datetime input
         // rides inside it — invisible and click-through — purely to own the picker and hold
@@ -1217,22 +1249,24 @@ export class MultiPresetModal extends Modal {
                 applySchedule();
             }
             applyOnline();
+            this.shareSetting(row, "online");
         });
 
-        // A comment can't carry either option no matter the method, so on a comment card
-        // both stay greyed out for good.
         row.applyRichState = () => {
-            attachBtn.toggleClass("is-disabled", row.richBlocked || row.ignoreBlocked || !isPost);
+            attachBtn.toggleClass("is-disabled", row.richBlocked || row.ignoreBlocked);
             previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked || row.ignoreBlocked);
             applyAttach();
             applyPreviewMode();
         };
+        // A scheduled date is the one option a comment genuinely can't hold: it is sent as a
+        // reply to its post, so it goes out when the post does. "Send when online" is a
+        // property of the reply itself and stays available.
         row.applySchedState = () => {
-            const blocked = row.schedBlocked || !isPost;
-            onlineBtn.toggleClass("is-disabled", blocked);
-            scheduleBtn.toggleClass("is-disabled", blocked);
-            scheduleInput.disabled = blocked;
-            scheduleInput.value = blocked ? "" : row.scheduleValue;
+            const dateBlocked = row.schedBlocked || !isPost;
+            onlineBtn.toggleClass("is-disabled", row.schedBlocked);
+            scheduleBtn.toggleClass("is-disabled", dateBlocked);
+            scheduleInput.disabled = dateBlocked;
+            scheduleInput.value = dateBlocked ? "" : row.scheduleValue;
             applySchedule();
             applyOnline();
         };
@@ -1429,11 +1463,13 @@ export class MultiPresetModal extends Modal {
             linkPreviewUrl: !row.richBlocked ? row.linkPreviewUrl ?? undefined : undefined,
             linkPreviewAboveText: !row.richBlocked && row.previewMode === "top",
             linkPreviewDisabled: !row.richBlocked && row.previewMode === "off",
-            // A comment carries only what a reply can: its own selection, silence and link
-            // preview. Attachment positioning and scheduling are blocked on comment cards.
+            // A comment carries only what a reply can: everything the post does except a
+            // scheduled date, which it has no use for — it goes out with the post it replies to.
             comments: row.comments.map(comment => ({
                 selected: comment.mode === "publish",
                 silent: comment.silentOn,
+                attachUnderText: !comment.richBlocked && comment.attachOn,
+                sendWhenOnline: !comment.schedBlocked && comment.onlineOn,
                 linkPreviewUrl: !comment.richBlocked ? comment.linkPreviewUrl ?? undefined : undefined,
                 linkPreviewAboveText: !comment.richBlocked && comment.previewMode === "top",
                 linkPreviewDisabled: !comment.richBlocked && comment.previewMode === "off",
@@ -1913,6 +1949,11 @@ export class TelegramSettingTab extends PluginSettingTab {
         new Setting(containerEl).setName(t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME).setDesc(t.SETTING_MD_EMBEDS_AS_COMMENTS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.treatMdEmbedsAsComments)
                 .onChange(async (v) => { this.plugin.settings.treatMdEmbedsAsComments = v; await this.plugin.saveSettings(); }))
+            .settingEl.addClass("telegram-bordered-setting");
+
+        new Setting(containerEl).setName(t.SETTING_COMMENTS_FOLLOW_POST_NAME).setDesc(t.SETTING_COMMENTS_FOLLOW_POST_DESC)
+            .addToggle(toggle => toggle.setValue(this.plugin.settings.commentsFollowPostSettings)
+                .onChange(async (v) => { this.plugin.settings.commentsFollowPostSettings = v; await this.plugin.saveSettings(); }))
             .settingEl.addClass("telegram-bordered-setting");
 
         new Setting(containerEl).setName(t.SETTING_ALWAYS_SILENT_NAME).setDesc(t.SETTING_ALWAYS_SILENT_DESC)

@@ -196,10 +196,13 @@ async function callBotFetch(token: string, method: string, form: FormData): Prom
 
 // ─── Send functions ───────────────────────────────────────────────────────────
 
-function baseBody(chatId: string, silent: boolean, topicId?: number): Record<string, unknown> {
+function baseBody(chatId: string, silent: boolean, topicId?: number, replyTo?: number): Record<string, unknown> {
     const body: Record<string, unknown> = { chat_id: chatId };
     if (silent) body.disable_notification = true;
     if (topicId) body.message_thread_id = topicId;
+    // Set only when the message is a comment: a reply to the post (or to its copy in the
+    // linked discussion group).
+    if (replyTo) body.reply_to_message_id = replyTo;
     return body;
 }
 
@@ -257,9 +260,9 @@ async function appendMediaField(form: FormData, field: string, file: MediaFile):
     else form.append(field, await file.getBlob(), file.name);
 }
 
-async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
+async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
+    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "photo", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -267,9 +270,9 @@ async function sendPhotoBot(token: string, chatId: string, file: MediaFile, capt
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendVideoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
+async function sendVideoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
+    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "video", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -277,9 +280,9 @@ async function sendVideoBot(token: string, chatId: string, file: MediaFile, capt
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendAnimationBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
+async function sendAnimationBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
+    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "animation", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -287,9 +290,9 @@ async function sendAnimationBot(token: string, chatId: string, file: MediaFile, 
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendDocumentBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
+async function sendDocumentBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
+    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "document", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -297,9 +300,9 @@ async function sendDocumentBot(token: string, chatId: string, file: MediaFile, c
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile[], caption: string, silent: boolean, attachUnderText: boolean, topicId?: number): Promise<SendResult> {
+async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile[], caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId)).forEach(([k, v]) => form.append(k, String(v)));
+    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
 
     const mediaArray = await Promise.all(files.map(async (file, idx) => {
         // Remote media is referenced by URL (Telegram fetches it); local media is uploaded
@@ -357,6 +360,83 @@ async function sendRichOrClassicReply(token: string, chatId: string, replyToMess
         return await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
     }
     return await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
+}
+
+// Sends a classic comment that carries its own attachments: the batch goes out as the reply,
+// with the comment text as its caption. Mirrors how a post sends its media, reduced to the
+// single batch a one-message comment can hold (see prepareBotComments). Documents don't
+// support show_caption_above_media, so the caption stays above only for photo/video/animation.
+async function sendMediaReplyBot(
+    token: string, chatId: string, replyToMessageId: number, files: MediaFile[], asDocument: boolean,
+    caption: string, silent: boolean, attachUnderText: boolean, topicId?: number,
+): Promise<number> {
+    if (files.length > 1) {
+        const grouped = await sendMediaGroupBot(token, chatId, files, caption, silent, !asDocument && attachUnderText, topicId, replyToMessageId);
+        return grouped.messageId;
+    }
+    const file = files[0];
+    const sent = asDocument
+        ? await sendDocumentBot(token, chatId, file, caption, silent, false, topicId, replyToMessageId)
+        : file.extension === "gif"
+            ? await sendAnimationBot(token, chatId, file, caption, silent, attachUnderText, topicId, replyToMessageId)
+            : VIDEO_EXTS.has(file.extension)
+                ? await sendVideoBot(token, chatId, file, caption, silent, attachUnderText, topicId, replyToMessageId)
+                : await sendPhotoBot(token, chatId, file, caption, silent, attachUnderText, topicId, replyToMessageId);
+    return sent.messageId;
+}
+
+// A pre-written comment, prepared before its post is sent: the text, the rich form (for the
+// "bot + rich" method) and — for a classic comment — the attachments its own note embeds.
+interface PreparedBotComment {
+    html: string;
+    markdown: string;
+    files: MediaFile[];
+    asDocument: boolean;
+    options?: CommentOptions;
+}
+
+// Reads and prepares the comments a part will publish, before the post goes out, so a comment
+// whose attachments a classic message can't carry refuses the publish rather than landing under
+// an already-published post. Comments the user unselected are dropped, as are empty ones.
+//
+// The single-message rule is the post's: photos and videos group into one album (the Bot API
+// takes them mixed, unlike the User API), each GIF is its own message, documents group into
+// their own album, and an album holds at most ALBUM_LIMIT items.
+async function prepareBotComments(
+    app: App, mdEmbeds: TFile[], commentOptions: CommentOptions[] | undefined, commentsAsRich: boolean
+): Promise<PreparedBotComment[]> {
+    const prepared: PreparedBotComment[] = [];
+    for (let ci = 0; ci < mdEmbeds.length; ci++) {
+        const options = commentOptions?.[ci];
+        if (options && !options.selected) continue;
+        const mdFile = mdEmbeds[ci];
+        const { body: mdBody } = extractFrontmatter(await app.vault.read(mdFile));
+        const html = mdToBotApiHtml(mdBody);
+        const markdown = commentsAsRich ? obsidianToRichMarkdown(mdBody) : "";
+
+        // A rich comment carries its web media inside the markdown; a classic one sends the
+        // note's attachments itself. Nested .md embeds are left out either way: one level of
+        // comments is what the note structure describes.
+        let files: MediaFile[] = [];
+        let asDocument = false;
+        if (!commentsAsRich) {
+            const { attachments } = collectBotMedia(app, mdBody, mdFile);
+            const photoAndVideoFiles = attachments.filter(f =>
+                ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension));
+            const gifFiles = attachments.filter(f => f.extension === "gif");
+            const docFiles = attachments.filter(f => f.extension === "pdf");
+            const messageCount = Math.ceil(photoAndVideoFiles.length / ALBUM_LIMIT) + gifFiles.length
+                + Math.ceil(docFiles.length / ALBUM_LIMIT);
+            if (messageCount > 1) throw new Error("MIXED_MEDIA_CLASSIC");
+            if (photoAndVideoFiles.length > 0) files = photoAndVideoFiles;
+            else if (gifFiles.length > 0) files = gifFiles;
+            else if (docFiles.length > 0) { files = docFiles; asDocument = true; }
+        }
+
+        if (!html.length && !markdown.length && files.length === 0) continue;
+        prepared.push({ html, markdown, files, asDocument, options });
+    }
+    return prepared;
 }
 
 async function getLinkedChatId(token: string, chatId: string): Promise<number | null> {
@@ -418,6 +498,13 @@ async function sendPartViaBotApi(
     const pdfFiles = attachments.filter(f => f.extension === "pdf");
     const mdDocFiles = treatMdEmbedsAsComments ? [] : mdEmbeds.map(f => mdEmbedToMedia(app, f));
     const docFiles = [...pdfFiles, ...mdDocFiles];
+
+    // The comments are read and checked before anything is sent, so a comment carrying
+    // attachments a classic message can't take refuses the publish instead of landing under an
+    // already-published post.
+    const comments = treatMdEmbedsAsComments && mdEmbeds.length > 0
+        ? await prepareBotComments(app, mdEmbeds, commentOptions, commentsAsRich)
+        : [];
 
     // richMarkdown carries the post text AND any HTTP(S) media embeds (as rich media
     // blocks). uploadMedia is only the locally-stored / non-rich files that the Rich
@@ -519,34 +606,34 @@ async function sendPartViaBotApi(
     }
 
     const commentLinks: string[] = [];
-    if (treatMdEmbedsAsComments && result && mdEmbeds.length > 0) {
+    if (result && comments.length > 0) {
         const linkedChatId = await getLinkedChatId(token, chatId).catch(() => null);
-        for (let ci = 0; ci < mdEmbeds.length; ci++) {
-            // Per-comment options from the modal (aligned to this part's embeds): a comment the
-            // user left unselected is skipped, and the rest carry their own silent / link-preview
-            // choices instead of the post's.
-            const copts = commentOptions?.[ci];
-            if (copts && !copts.selected) continue;
-            const mdContent = await app.vault.read(mdEmbeds[ci]);
-            const { body: mdBody } = extractFrontmatter(mdContent);
-            const commentHtml = mdToBotApiHtml(mdBody);
-            const commentMd = commentsAsRich ? obsidianToRichMarkdown(mdBody) : "";
-            if (!commentHtml.length && !commentMd.length) continue;
+        for (const comment of comments) {
+            // Per-comment options from the modal: each comment carries its own silent /
+            // attachment / link-preview choices instead of the post's.
+            const copts = comment.options;
             const commentSilent = copts?.silent ?? silent;
+            // A comment with attachments moves those; a plain text reply moves its link
+            // preview. One flag either way (mirrors sendCommentViaAccount).
+            const commentInvert = !!(copts?.linkPreviewAboveText || copts?.attachUnderText);
+            // Where the reply goes: into the linked discussion group under the post's copy
+            // there, or straight into the chat as a reply to the post itself.
+            const replyIn = async (replyChatId: string, replyToId: number, replyTopicId?: number): Promise<number> =>
+                comment.files.length > 0
+                    ? await sendMediaReplyBot(token, replyChatId, replyToId, comment.files, comment.asDocument, comment.html, commentSilent, commentInvert, replyTopicId)
+                    : await sendRichOrClassicReply(token, replyChatId, replyToId, comment.markdown, comment.html, commentSilent, replyTopicId, copts?.linkPreviewUrl, commentInvert, copts?.linkPreviewDisabled);
 
             // A comment failure must not lose the main post's link, so isolate it.
             try {
                 if (linkedChatId !== null) {
                     const discussionId = await findDiscussionMessageId(token, linkedChatId, result.messageId);
                     if (discussionId !== null) {
-                        const commentMsgId = await sendRichOrClassicReply(token, String(linkedChatId), discussionId, commentMd, commentHtml, commentSilent, undefined, copts?.linkPreviewUrl, copts?.linkPreviewAboveText, copts?.linkPreviewDisabled);
-                        commentLinks.push(buildBotPostLink(String(linkedChatId), commentMsgId));
+                        commentLinks.push(buildBotPostLink(String(linkedChatId), await replyIn(String(linkedChatId), discussionId)));
                     } else {
                         new Notice(t.NOTICE_COMMENT_DISCUSSION_NOT_FOUND);
                     }
                 } else {
-                    const commentMsgId = await sendRichOrClassicReply(token, chatId, result.messageId, commentMd, commentHtml, commentSilent, topicId, copts?.linkPreviewUrl, copts?.linkPreviewAboveText, copts?.linkPreviewDisabled);
-                    commentLinks.push(buildBotPostLink(chatId, commentMsgId));
+                    commentLinks.push(buildBotPostLink(chatId, await replyIn(chatId, result.messageId, topicId)));
                 }
             } catch (err) {
                 new Notice(t.NOTICE_COMMENT_FAILED.replace("{error}", err instanceof Error ? err.message : String(err)));

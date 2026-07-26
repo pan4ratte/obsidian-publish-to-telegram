@@ -494,6 +494,8 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
                 } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                     new Notice(t.NOTICE_ERR_MIXED_MEDIA);
+                } else if (msg.includes("SCHEDULED_COMMENTS_IN_DISCUSSION")) {
+                    new Notice(t.NOTICE_ERR_SCHEDULED_COMMENTS);
                 } else if (msg.includes("SPLIT_LINK_NOT_FOUND")) {
                     new Notice(t.NOTICE_ERR_SPLIT_LINK_NOT_FOUND);
                 } else if (msg.includes("EMOJI")) {
@@ -525,6 +527,8 @@ export default class SendToTelegramPlugin extends Plugin {
                 new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
             } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                 new Notice(t.NOTICE_ERR_MIXED_MEDIA);
+            } else if (msg.includes("SCHEDULED_COMMENTS_IN_DISCUSSION")) {
+                new Notice(t.NOTICE_ERR_SCHEDULED_COMMENTS);
             } else if (msg.includes("SPLIT_LINK_NOT_FOUND")) {
                 new Notice(t.NOTICE_ERR_SPLIT_LINK_NOT_FOUND);
             } else {
