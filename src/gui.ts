@@ -194,6 +194,11 @@ interface CardRow {
     previewMode: "default" | "top" | "off";
     linkPreviewUrl: string | null;
     updateLinkPreviewCard: () => void;
+    // Set while the chosen method is a classic one, which sends attachments as an album rather
+    // than inline — the preview then lays them out that way. Unset for rich methods and while
+    // no method is chosen at all, where the note's own inline layout is what's shown.
+    classicMedia: boolean;
+    updateMediaPlacement: () => void;
     onlineOn: boolean;
     scheduleValue: string;
     // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no active
@@ -483,10 +488,16 @@ export class MultiPresetModal extends Modal {
     // Rich Messages support neither caption positioning nor a message-level link
     // preview. The buttons grey out and visually reset, but their state survives —
     // switching back to a supported method restores the user's choices.
+    //
+    // The same pass settles how the previews lay their media out: a classic method sends
+    // attachments as one album beside the text, a rich one keeps them inline. With no method
+    // chosen there's nothing to predict, so the previews read as the notes do.
     private updateAttachState() {
-        const anyRich = this.activeMethods().some(isRichMethod);
+        const methods = this.activeMethods();
+        const anyRich = methods.some(isRichMethod);
         for (const row of this.allCards()) {
             row.richBlocked = anyRich;
+            row.classicMedia = methods.length > 0 && !anyRich;
             row.applyRichState();
         }
     }
@@ -1101,6 +1112,8 @@ export class MultiPresetModal extends Modal {
             previewMode: "default",
             updateLinkPreviewCard: () => {},
             linkPreviewUrl: null,
+            classicMedia: false,
+            updateMediaPlacement: () => {},
             onlineOn: false,
             scheduleValue: "",
             richBlocked: false,
@@ -1138,7 +1151,12 @@ export class MultiPresetModal extends Modal {
         enableLongPressTooltip(attachBtn);
         setIcon(attachBtn, "image-down");
         setTooltip(attachBtn, t.MULTI_PRESET_ATTACHMENTS_NAME);
-        const applyAttach = () => attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && !row.ignoreBlocked);
+        const applyAttach = () => {
+            attachBtn.toggleClass("is-active", row.attachOn && !row.richBlocked && !row.ignoreBlocked);
+            // Which side of the text the album sits on is this button's doing, so the preview
+            // follows it. Late-bound — a noop until the preview block below is built.
+            row.updateMediaPlacement();
+        };
         attachBtn.addEventListener("click", () => {
             row.attachOn = !row.attachOn;
             applyAttach();
@@ -1292,6 +1310,16 @@ export class MultiPresetModal extends Modal {
         // It lives INSIDE the text flow (previewContentEl) so it clamps and scrolls with
         // the content; hidden until a link is selected, moved above/below the text by mode.
         const linkCardEl = previewContentEl.createDiv("telegram-split-linkpreview is-hidden");
+        // A classic method doesn't keep attachments where the note puts them: they go out as one
+        // album carrying the text as its caption, above the text or below it depending on the
+        // attachment setting. The preview mirrors that by lifting the note's embeds out of the
+        // text into this block. A Rich Message does render its media inline, so its preview is
+        // left reading exactly as the note does — as is a preview with no method chosen yet,
+        // where there's nothing to predict.
+        const mediaEl = previewContentEl.createDiv("telegram-split-media is-hidden");
+        // Every embed, each with an anchor left where it sits in the text so the inline layout
+        // can be restored when the method changes back.
+        const mediaNodes: Array<{ el: HTMLElement; anchor: Comment }> = [];
         const expandBtn = previewEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
         enableLongPressTooltip(expandBtn);
         setIcon(expandBtn, "chevron-down");
@@ -1312,6 +1340,47 @@ export class MultiPresetModal extends Modal {
             expandBtn.toggle(clipped);
             previewEl.toggleClass("no-expand", !clipped);
         };
+        // Finds the embeds Obsidian rendered and anchors each one in place. Run once, after the
+        // markdown is on the page. An <img>/<video> inside a wikilink embed belongs to that
+        // embed rather than being an attachment of its own, and the link-preview card's own
+        // image isn't part of the note at all.
+        const collectMediaNodes = () => {
+            previewContentEl.querySelectorAll<HTMLElement>(".internal-embed, img, video, audio").forEach(el => {
+                if (linkCardEl.contains(el) || mediaEl.contains(el)) return;
+                if (el.parentElement?.closest(".internal-embed")) return;
+                const anchor = document.createComment("tg-media");
+                el.before(anchor);
+                mediaNodes.push({ el, anchor });
+            });
+        };
+
+        // Puts the embeds where the chosen method will: gathered into one album block above or
+        // below the text (classic), or back inline exactly where the note has them (rich, or no
+        // method chosen). Album placement follows the same flag the send path uses — the
+        // attachment button reading "Attachments below the text".
+        row.updateMediaPlacement = () => {
+            if (mediaNodes.length === 0) return;
+            const asAlbum = row.classicMedia;
+            if (asAlbum) {
+                for (const { el } of mediaNodes) mediaEl.appendChild(el);
+                mediaEl.toggleClass("is-album", mediaNodes.length > 1);
+                mediaEl.removeClass("is-hidden");
+                if (row.attachOn && !row.ignoreBlocked) previewContentEl.appendChild(mediaEl);
+                else previewContentEl.insertBefore(mediaEl, previewContentEl.firstChild);
+            } else {
+                for (const { el, anchor } of mediaNodes) anchor.after(el);
+                mediaEl.addClass("is-hidden");
+            }
+            // An embed usually sits alone in its own paragraph. With it lifted into the album
+            // that paragraph would leave a blank gap in the text, so it's hidden for as long as
+            // the album holds its contents.
+            previewContentEl.querySelectorAll("p").forEach(p => p.toggleClass(
+                "is-emptied",
+                asAlbum && !p.textContent?.trim() && !p.querySelector("img, video, audio, .internal-embed"),
+            ));
+            window.requestAnimationFrame(refreshExpand);
+        };
+
         // Renders / repositions the card imitating the chosen link's Telegram preview:
         // hidden with no link chosen (or previews disabled), placed above or below the
         // text to mirror where Telegram will put it. Content is rebuilt only when the
@@ -1331,6 +1400,13 @@ export class MultiPresetModal extends Modal {
             // the card shows the default behaviour, matching the reset mode button.
             const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked ? "default" : row.previewMode;
             const url = row.linkPreviewUrl ?? autoUrl();
+            // A classic message carrying attachments shows those, not a web preview — the media
+            // is what the message's one media slot holds.
+            if (row.classicMedia && mediaNodes.length > 0) {
+                linkCardEl.addClass("is-hidden");
+                window.requestAnimationFrame(refreshExpand);
+                return;
+            }
             if (!url || mode === "off") {
                 linkCardEl.addClass("is-hidden");
                 window.requestAnimationFrame(refreshExpand);
@@ -1388,7 +1464,10 @@ export class MultiPresetModal extends Modal {
                 previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
                     if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.MULTI_PRESET_SPLIT_LINK_TIP);
                 });
-                // Now that the links exist, show Telegram's default preview (first link).
+                // Now that the embeds and links exist, lay the media out for the chosen method
+                // and show Telegram's default preview (first link).
+                collectMediaNodes();
+                row.updateMediaPlacement();
                 row.updateLinkPreviewCard();
                 refreshExpand();
             }));

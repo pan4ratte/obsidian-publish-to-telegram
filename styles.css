@@ -1082,6 +1082,67 @@ body .telegram-split-mode-option .svg-icon {
     display: none;
 }
 
+/* Classic methods send a message's attachments as one album carrying the text as its caption,
+   not inline where the note puts them. The preview gathers them here and places the block above
+   or below the text to match, so the card reads the way the message will. */
+.telegram-split-media {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3px;
+    margin: 6px 0;
+    border-radius: var(--radius-s);
+    overflow: hidden;
+}
+
+/* Several attachments go out as one album, which Telegram tiles rather than stacks. */
+.telegram-split-media.is-album {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.telegram-split-media.is-hidden {
+    display: none;
+}
+
+/* The paragraph an embed was lifted out of, left with nothing in it. */
+.telegram-split-preview-content p.is-emptied,
+.telegram-split-comment-content p.is-emptied {
+    display: none;
+}
+
+/* The embeds are moved in as Obsidian rendered them, so their own spacing has to go: inside the
+   album each one is a tile filling its cell. Obsidian wraps a wikilink embed in its own element,
+   which has to stretch too or the image inside it is sized to the wrapper instead of the cell. */
+.telegram-split-media > * {
+    display: block;
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+}
+
+.telegram-split-media img,
+.telegram-split-media video,
+.telegram-split-media .internal-embed img,
+.telegram-split-media .internal-embed video {
+    display: block;
+    width: 100%;
+    max-height: 180px;
+    object-fit: cover;
+    border-radius: var(--radius-s);
+}
+
+/* A lone attachment isn't tiled: Telegram gives a single photo the full width of the message and
+   lets its own proportions set the height. `height: auto` is what does that — `contain` inside a
+   fixed height would letterbox it, leaving the picture narrower than the card it sits in. The cap
+   is generous, and only a very tall photo reaches it (cropped, as Telegram crops those too). */
+.telegram-split-media:not(.is-album) img,
+.telegram-split-media:not(.is-album) video,
+.telegram-split-media:not(.is-album) .internal-embed img,
+.telegram-split-media:not(.is-album) .internal-embed video {
+    height: auto;
+    max-height: 320px;
+    object-fit: cover;
+}
+
 .telegram-split-linkpreview-text {
     flex: 1;
     min-width: 0;
