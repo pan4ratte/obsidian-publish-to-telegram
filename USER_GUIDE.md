@@ -371,39 +371,51 @@ A couple of notes:
 
 * If you split the note into multiple posts (see above), you can attach the comments to each of the posts. To do that, place .md-embeds before the corresponding marker.
 
-* All comments are published with a slight delay.
+* A comment can carry attachments of its own: media and documents from the comment note are sent together with its text.
 
-* For now, it is not possible to schedule pre-written comments.
+* Comments can be scheduled together with the post when publishing to a personal chat or a group. That is not possible in a channel with a discussion group: until the post is actually published there is nothing to reply to in the discussion, and the plugin will tell you so without sending anything.
+
+* All comments are published with a slight delay.
 
 ## 7. Advanced publishing settings
 
-You can open an advanced publishing settings window with command palette (`Ctrl + P`) by typing "Publish to Telegram: Publish with advanced settings". In that settings window you can choose to:
+You can open an advanced publishing settings window with command palette (`Ctrl + P`) by typing "Publish to Telegram: Publish with advanced settings". The advanced settings let you choose presets, configure the posts and see their preview.
 
-* Make a one-time post without a saved preset.
+### 7.1 Choosing a preset and a method
 
-* Post with notification without sound (the "Always publish silently" option in the plugin settings makes this the default).
+* The "Post without a preset" section lets you make a one-time post by picking the target chats, the author and the publishing method by hand, without saving a preset.
 
-* Post with attached media under the text.
+* Below it is the list of saved presets, and for each of them you can choose the default publishing method or an alternative one.
 
-* Schedule the publication.
+### 7.2 Post previews
 
-* Send the post when the recipient comes online (only for the "Account" publishing methods).
+A preview is shown for the post and for the pre-written comments. If the note is split into several posts, each of them is shown. The preview also lets you fine-tune every publication:
 
-* Move the link preview above the text or disable it.
+* Publish with a soundless notification.
 
-* Preview the posts before publishing. A preview is shown for every post:
+* Move the attachments below the text.
 
-    * When post splitting is used, each post gets its own settings row.
+* Set the link preview placement: below the text, above the text, or disabled.
 
-    * The send button in the row selects which posts will be published. It works only when the note contains a `\split` command.
+* Send the message when the recipient comes online (only for the "Account" publishing methods).
 
-    * Click a link in the preview window to make it the source of Telegram's link preview (while Ctrl+Click opens the link). The resulting preview is shown right in the post.
+* Schedule the publication (only for the "Account" publishing methods). Only comments have no date, they are published together with their post.
 
-* Edit already existing posts or pre-written comments. Links are stored in the `tg_posts` and `tg_comments` properties, that are filled automatically if the corresponding option is enabled in the settings. You can also create them and fill manually. A few things to know about editing:
+The "Comments follow post settings" option in the plugin settings repeats the changes of the post settings on its comments. A setting you change on the comment itself stays individual.
 
-    * The post is always edited **in its original style** — a rich-text post stays rich and a classic post stays classic, regardless of which preset you edit it with (auto-detected for the "Account" methods). A post published in a forum topic can be edited too; when you pick its link, the topic's name is shown next to the group/channel name.
+**The preview** shows the message the way Telegram will render it:
 
-    * Editing a **rich-text** post can add *local* media as well — photos, videos, GIFs and audio are uploaded and appear inline, exactly as when publishing, even if the post was originally text-only. Local *documents* still can't be embedded in a rich message (see the rich-text formatting section above).
+* When one of the classic publishing methods is selected, attachments are lifted out of the text and shown as an album above or below it — depending on the "Attachments below the text" setting.
+
+* Click a link in the preview window to make it the source of Telegram's link preview (while Ctrl+Click opens the link). The resulting link preview is loaded right in the window.
+
+Also, the publishing settings let you specify whether a post will be published, edited or ignored on publication (the last one is only available when there are several posts in one note).
+
+### 7.3 Editing
+
+Links to published messages are stored in the note's `tg_posts` and `tg_comments` properties, that are filled automatically if the corresponding option is enabled in the settings. You can also create them and fill manually.
+
+An important note: a post is always edited *in its original style* — a rich-text post stays rich-text and a classic post stays classic, regardless of which preset you edit it with.
 
 ## 8. Limits
 

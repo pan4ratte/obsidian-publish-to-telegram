@@ -1,5 +1,21 @@
 # Changelog
 
+## 6.1.0
+
+### New features
+
+* **Attachments in comments.** Pre-written classic comments can now contain media and documents as well.
+* **Comments on scheduled posts.** Pre-written comments can now be scheduled along with the post when publishing to personal chats and groups.
+* **New option "Comments follow post settings".** Located in the general plugin settings: changing a post's settings automatically applies them to the comments.
+* **Comment settings.** Comments now have their own post settings bar.
+* **Attachment preview.** If one of the classic publishing methods is selected, the preview shows attachments as an album above or below the text — the way they will appear in Telegram and according to the post settings.
+
+### UI/UX enhancements and bug fixes
+
+* Fixed a bug where empty lines did not appear in rich-text messages.
+* The link preview is no longer shown for rich-text methods or for messages with attachments, and the preview placement setting is disabled in those cases.
+
+
 ## 6.0.0
 
 ### Major update: Custom emoji, post previews and settings
