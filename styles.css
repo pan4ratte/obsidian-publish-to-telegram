@@ -1301,7 +1301,9 @@ body .telegram-split-expand .svg-icon {
     margin-top: 16px;
 }
 
-.telegram-modal-buttons .mod-cta {
+/* Only a lone CTA fills the row. The confirmation modal pairs a cancel button with a
+   destructive CTA, and those two must sit side by side. */
+.telegram-modal-buttons .mod-cta:only-child {
     width: 100%;
 }
 

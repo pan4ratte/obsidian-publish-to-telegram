@@ -361,7 +361,7 @@ class ConfirmationModal extends Modal {
         contentEl.createEl("p", { text: this.message });
         const btnContainer = contentEl.createDiv("telegram-modal-buttons");
         new ButtonComponent(btnContainer).setButtonText(t.CONFIRM_CANCEL_BTN).onClick(() => this.close());
-        new ButtonComponent(btnContainer).setButtonText(this.confirmText).setWarning().onClick(() => {
+        new ButtonComponent(btnContainer).setButtonText(this.confirmText).setDestructive().setCta().onClick(() => {
             void this.onSubmit();
             this.close();
         });
