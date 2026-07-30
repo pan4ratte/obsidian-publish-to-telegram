@@ -7,7 +7,28 @@
     margin-bottom: 20px;
 }
 
-.telegram-bordered-setting.setting-item {
+/* Obsidian 1.13 renders the tab inside a setting group, and `.setting-group
+   .setting-item:not(.setting-item-heading)` strips the border, background, radius and
+   margin off every row inside it — which merges this tab's own cards into one slab. This
+   resets rows back to the flat separator style the layout below is built on. The rules
+   that follow re-assert the tab's own rows; they all outrank this one, so they must stay
+   below it in this file. */
+.telegram-settings-root .setting-item:not(.setting-item-heading) {
+    border: none;
+    border-top: var(--border-width) solid var(--background-modifier-border);
+    background-color: transparent;
+    border-radius: 0;
+    padding: var(--size-4-4) 0;
+    margin-bottom: 0;
+}
+
+/* The group's divider pseudo-element is inset to the group's padding, which does not
+   line up with anything once the group card is gone. */
+.telegram-settings-root .setting-item:not(.setting-item-heading)::before {
+    content: none;
+}
+
+.telegram-settings-root .setting-item.telegram-bordered-setting {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
     background-color: var(--setting-items-background);
@@ -139,23 +160,23 @@ body .telegram-delete-button:hover {
 
 /* ── Preset fields ── */
 
-.telegram-method-setting.setting-item {
+.telegram-settings-root .setting-item.telegram-method-setting {
     padding: 16px 0;
     margin-bottom: 0;
 }
 
-.telegram-account-setting.setting-item {
+.telegram-settings-root .setting-item.telegram-account-setting {
     border-top: none;
     padding: 16px 0;
     margin-bottom: 0;
 }
 
-.telegram-secondary-setting.setting-item {
+.telegram-settings-root .setting-item.telegram-secondary-setting {
     padding: 16px 0;
     margin-bottom: 0;
 }
 
-.setting-item.telegram-bot-token-setting {
+.telegram-settings-root .setting-item.telegram-bot-token-setting {
     padding: 16px 0;
     margin-bottom: 0;
 }
@@ -166,7 +187,7 @@ body .telegram-delete-button:hover {
     min-width: 0;
 }
 
-.telegram-preset-default.setting-item {
+.telegram-settings-root .setting-item.telegram-preset-default {
     padding-top: 16px;
     padding-bottom: 16px;
     padding-left: 0px;
@@ -372,15 +393,30 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
    element, so the row itself is stripped of its setting-item chrome; its stock name and
    description are hidden, since the renderer draws its own heading. The row stays the
    scroll target for the settings search. */
-.telegram-settings-anchor {
+.telegram-settings-group .setting-item.telegram-settings-anchor {
     display: block;
     padding: 0;
-    border: 0;
+    border: none;
+    background-color: transparent;
+    border-radius: 0;
+    margin-bottom: 0;
+}
+
+.telegram-settings-group .setting-item.telegram-settings-anchor::before {
+    content: none;
 }
 
 .telegram-settings-anchor > .setting-item-info,
 .telegram-settings-anchor > .setting-item-control {
     display: none;
+}
+
+/* Obsidian draws a group as a card. This tab draws its own cards inside it, so the
+   group's card is stripped back to a plain container. */
+.telegram-settings-group > .setting-items {
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
 }
 
 /* Narrow screens: tighten padding and stack the action buttons full-width. */
@@ -407,7 +443,7 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     margin-top: -24px;
 }
 
-.telegram-add-token-form .setting-item {
+.telegram-settings-root .telegram-add-token-form .setting-item {
     border: none;
     margin: 0;
     padding: 0;

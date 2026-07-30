@@ -1920,33 +1920,41 @@ export class TelegramSettingTab extends PluginSettingTab {
     // control definitions — a single render escape-hatch reuses the imperative renderer,
     // while name/aliases make the plugin's settings discoverable in the settings search.
     getSettingDefinitions(): SettingDefinitionItem[] {
+        // Wrapped in an explicit group so the group element can be addressed in CSS:
+        // Obsidian styles a group as a card and restyles every .setting-item inside it,
+        // which would flatten the tab's own cards into one slab. The class strips that
+        // treatment back off — see .telegram-settings-group in styles.css.
         return [{
-            name: t.SETTING_HEADER,
-            desc: t.SETTING_DESCRIPTION,
-            aliases: [
-                t.SECTION_GENERAL, t.SECTION_PRESETS, t.SETTING_PRESETS_INTRO_TITLE,
-                t.SETTING_SAVE_POST_LINKS_NAME, t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME,
-                t.SETTING_ALWAYS_SILENT_NAME,
-                t.SETTING_CREATE_PRESET_BTN, t.USER_GUIDE_TITLE,
-                t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
-                t.AUTH_MANAGE_CREDENTIALS_BTN,
-            ],
-            render: (setting) => {
-                // The UI must live INSIDE the definition's own row: after every render
-                // callback Obsidian reconciles the group's list element down to just the
-                // rows it knows about (setChildrenInPlace), so anything appended to
-                // group.listEl is removed again immediately. settingEl's own children are
-                // left alone — Setting.clear() only empties the control element — so the
-                // row doubles as both the search anchor and our render root. The row's
-                // stock name/description elements are hidden in CSS; the imperative
-                // renderer draws its own heading.
-                setting.settingEl.addClass("telegram-settings-anchor");
-                // Obsidian re-invokes this callback on update() without discarding the
-                // row, so reuse the existing root instead of appending a second copy.
-                const existing = setting.settingEl.querySelector<HTMLElement>(":scope > .telegram-settings-root");
-                this.render(existing ?? setting.settingEl.createDiv("telegram-settings-root"));
-                return () => this.disconnectInlineClients();
-            },
+            type: "group",
+            cls: "telegram-settings-group",
+            items: [{
+                name: t.SETTING_HEADER,
+                desc: t.SETTING_DESCRIPTION,
+                aliases: [
+                    t.SECTION_GENERAL, t.SECTION_PRESETS, t.SETTING_PRESETS_INTRO_TITLE,
+                    t.SETTING_SAVE_POST_LINKS_NAME, t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME,
+                    t.SETTING_ALWAYS_SILENT_NAME,
+                    t.SETTING_CREATE_PRESET_BTN, t.USER_GUIDE_TITLE,
+                    t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
+                    t.AUTH_MANAGE_CREDENTIALS_BTN,
+                ],
+                render: (setting) => {
+                    // The UI must live INSIDE the definition's own row: after every render
+                    // callback Obsidian reconciles the group's list element down to just the
+                    // rows it knows about (setChildrenInPlace), so anything appended to
+                    // group.listEl is removed again immediately. settingEl's own children are
+                    // left alone — Setting.clear() only empties the control element — so the
+                    // row doubles as both the search anchor and our render root. The row's
+                    // stock name/description elements are hidden in CSS; the imperative
+                    // renderer draws its own heading.
+                    setting.settingEl.addClass("telegram-settings-anchor");
+                    // Obsidian re-invokes this callback on update() without discarding the
+                    // row, so reuse the existing root instead of appending a second copy.
+                    const existing = setting.settingEl.querySelector<HTMLElement>(":scope > .telegram-settings-root");
+                    this.render(existing ?? setting.settingEl.createDiv("telegram-settings-root"));
+                    return () => this.disconnectInlineClients();
+                },
+            }],
         }];
     }
 
