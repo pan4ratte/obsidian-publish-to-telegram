@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.2.0
+
+### UI/UX enhancements and bug fixes
+
+* The plugin settings were migrated to the declarative Obsidian 1.13.0 API — they are now discoverable through the settings search.
+* The minimum Obsidian version was raised to 1.13.0. Users on older versions still get plugin version 6.1.0.
+
+
 ## 6.1.0
 
 ### New features

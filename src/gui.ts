@@ -1908,14 +1908,14 @@ export class TelegramSettingTab extends PluginSettingTab {
     // Persisted across re-renders so the credentials card stays open after edits.
     private credentialsCardOpen = false;
     // Container the tab last rendered into; re-renders target it so the declarative
-    // wrapper (1.13.0+) or containerEl (older) stays stable. See render()/rerender().
+    // wrapper stays stable. See render()/rerender().
     private renderRoot: HTMLElement | null = null;
 
     constructor(app: App, plugin: SendToTelegramPlugin) { super(app, plugin); this.plugin = plugin; }
 
-    // Declarative settings API (Obsidian 1.13.0+). Returning a non-empty array makes
-    // Obsidian render the tab from these definitions (and index them for the settings
-    // search) instead of calling display(). This tab is fully custom and dynamic
+    // Declarative settings API (Obsidian 1.13.0+, the plugin's minAppVersion). Obsidian
+    // renders the tab from these definitions and indexes them for the settings search;
+    // display() is gone, so this is the only entry point. This tab is fully custom and dynamic
     // (auth cards, preset cards, inline forms), so it can't be expressed as declarative
     // control definitions — a single render escape-hatch reuses the imperative renderer,
     // while name/aliases make the plugin's settings discoverable in the settings search.
@@ -1931,30 +1931,33 @@ export class TelegramSettingTab extends PluginSettingTab {
                 t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
                 t.AUTH_MANAGE_CREDENTIALS_BTN,
             ],
-            render: (setting, group) => {
-                // Keep the definition's own row as a collapsed search anchor (the settings
-                // search still scrolls to it) and build the full imperative UI beneath it,
-                // into a dedicated child container so render()'s empty() never wipes it.
+            render: (setting) => {
+                // The UI must live INSIDE the definition's own row: after every render
+                // callback Obsidian reconciles the group's list element down to just the
+                // rows it knows about (setChildrenInPlace), so anything appended to
+                // group.listEl is removed again immediately. settingEl's own children are
+                // left alone — Setting.clear() only empties the control element — so the
+                // row doubles as both the search anchor and our render root. The row's
+                // stock name/description elements are hidden in CSS; the imperative
+                // renderer draws its own heading.
                 setting.settingEl.addClass("telegram-settings-anchor");
-                this.render(group.listEl.createDiv("telegram-settings-root"));
+                // Obsidian re-invokes this callback on update() without discarding the
+                // row, so reuse the existing root instead of appending a second copy.
+                const existing = setting.settingEl.querySelector<HTMLElement>(":scope > .telegram-settings-root");
+                this.render(existing ?? setting.settingEl.createDiv("telegram-settings-root"));
+                return () => this.disconnectInlineClients();
             },
         }];
     }
 
-    // display() is the fallback for Obsidian < 1.13.0 (minAppVersion 1.11.4), which
-    // does not call getSettingDefinitions().
-    display(): void { this.render(); }
-
-    // Re-renders after a state change into whichever container we last rendered into:
-    // the declarative group's child on 1.13.0+, or this.containerEl on the display()
-    // fallback. This keeps the declarative wrapper and search anchor intact without
-    // touching the 1.13.0-only update() API.
+    // Re-renders after a state change into the child container the render callback
+    // created, keeping the declarative wrapper and search anchor intact without
+    // touching the update() API.
     private rerender(): void {
-        this.render(this.renderRoot ?? this.containerEl);
+        if (this.renderRoot) this.render(this.renderRoot);
     }
 
-    private render(root: HTMLElement = this.containerEl): void {
-        this.renderRoot = root;
+    private disconnectInlineClients(): void {
         if (this.inlineQrClient) {
             this.inlineQrClient.disconnect().catch(() => {});
             this.inlineQrClient = null;
@@ -1963,6 +1966,11 @@ export class TelegramSettingTab extends PluginSettingTab {
             this.inlineLocalClient.disconnect().catch(() => {});
             this.inlineLocalClient = null;
         }
+    }
+
+    private render(root: HTMLElement): void {
+        this.renderRoot = root;
+        this.disconnectInlineClients();
         const containerEl = root;
         containerEl.empty();
 

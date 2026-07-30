@@ -367,14 +367,20 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     display: none;
 }
 
-/* Collapsed anchor row for the declarative settings definition (Obsidian 1.13+):
-   invisible, but kept in the layout so the settings search can scroll to it. */
+/* Host row for the declarative settings definition (Obsidian 1.13+). The whole tab is
+   rendered inside this row because Obsidian strips anything else from the group's list
+   element, so the row itself is stripped of its setting-item chrome; its stock name and
+   description are hidden, since the renderer draws its own heading. The row stays the
+   scroll target for the settings search. */
 .telegram-settings-anchor {
-    height: 0;
-    min-height: 0;
+    display: block;
     padding: 0;
     border: 0;
-    overflow: hidden;
+}
+
+.telegram-settings-anchor > .setting-item-info,
+.telegram-settings-anchor > .setting-item-control {
+    display: none;
 }
 
 /* Narrow screens: tighten padding and stack the action buttons full-width. */
