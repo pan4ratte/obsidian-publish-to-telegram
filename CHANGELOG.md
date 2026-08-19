@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.2.1
+
+### UI/UX enhancements and bug fixes
+
+* The authentication bar has been redesigned: the buttons are now a single card with dividers, and the selected tab is underlined in the accent color.
+* Authentication cards now appear and replace each other with an animation.
+* Options inside presets are separated by horizontal dividers.
+* Toggles and dropdowns in the settings are centered in their row.
+* The settings page no longer scrolls to the top when a preset is created.
+
+
 ## 6.2.0
 
 ### UI/UX enhancements and bug fixes
