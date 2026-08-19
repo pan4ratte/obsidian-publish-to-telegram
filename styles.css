@@ -28,6 +28,16 @@
     content: none;
 }
 
+/* Obsidian 1.13 top-aligns a row's controls (`.setting-item` switched to
+   `align-items: flex-start`), so a toggle or dropdown hangs level with the name while the
+   description runs on below it. Every option row in this tab carries a description, so the
+   control is centred against the whole info block instead. The add-token row is left alone:
+   it stacks its own label / input / buttons on narrow screens, where centring would stop the
+   control from filling the row. */
+.telegram-settings-root .setting-item:not(.setting-item-heading):not(.telegram-add-token-input) > .setting-item-control {
+    align-self: center;
+}
+
 .telegram-settings-root .setting-item.telegram-bordered-setting {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
@@ -117,9 +127,7 @@ body .telegram-link-button:hover {
     display: flex;
     justify-content: space-between;
     align-items: top;
-    margin-bottom: 12px;
     padding-bottom: 8px;
-    border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .telegram-header-title-container {
