@@ -11,7 +11,7 @@ export default {
     AUTH_LOGIN_BTN: "Войти",
     AUTH_ADD_ACCOUNT_BTN: "Добавить аккаунт",
     AUTH_MANAGE_CREDENTIALS_TOOLTIP: "Управление ботами и аккаунтами",
-    AUTH_MANAGE_CREDENTIALS_BTN: "Ваши аккаунты и боты",
+    AUTH_MANAGE_CREDENTIALS_BTN: "Мои аккаунты и боты",
     AUTH_STEP_1: "Авторизация: Шаг 1 из 2",
     AUTH_PHONE_PLACEHOLDER: "+79001234567",
     AUTH_SEND_CODE_BTN: "Отправить код",
