@@ -174,7 +174,6 @@ body .telegram-delete-button:hover {
 }
 
 .telegram-settings-root .setting-item.telegram-account-setting {
-    border-top: none;
     padding: 16px 0;
     margin-bottom: 0;
 }
@@ -197,10 +196,17 @@ body .telegram-delete-button:hover {
 
 .telegram-settings-root .setting-item.telegram-preset-default {
     padding-top: 16px;
-    padding-bottom: 16px;
+    padding-bottom: 8px;
     padding-left: 0px;
     padding-right: 0px;
     margin-bottom: 0px;
+}
+
+/* Every option in a preset is separated from the one above it by the row's own top border.
+   The chat picker is the exception at both ends: its bordered search field already reads as a
+   divider, so the row that follows it drops its border rather than doubling up. */
+.telegram-settings-root .telegram-chat-picker + .setting-item:not(.setting-item-heading) {
+    border-top: none;
 }
 
 /* ─── Settings: chat picker ────────────────────────────────────────────────────── */
