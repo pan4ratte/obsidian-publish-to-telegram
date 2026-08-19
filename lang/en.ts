@@ -77,7 +77,6 @@ export default {
     SETTING_CHAT_LOADING_PLACEHOLDER: "Loading chats…",
     SETTING_CHAT_SEARCH_PLACEHOLDER: "Search target chats or enter @username or ID manually…",
     SETTING_DEFAULT_PRESET_NAME: "Set as the default preset",
-    SETTING_DEFAULT_PRESET_DESC: "Publish with the default preset from the context menu or with a hotkey",
 
     // ─── Advanced settings ────────────────────────────────────────────────────────
     ADVANCED_TITLE: "Advanced publishing settings",

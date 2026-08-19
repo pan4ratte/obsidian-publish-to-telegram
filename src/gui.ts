@@ -2316,7 +2316,7 @@ export class TelegramSettingTab extends PluginSettingTab {
 
             this.renderChatPicker(channelDiv, channel);
 
-            new Setting(channelDiv).setName(t.SETTING_DEFAULT_PRESET_NAME).setDesc(t.SETTING_DEFAULT_PRESET_DESC)
+            new Setting(channelDiv).setName(t.SETTING_DEFAULT_PRESET_NAME)
                 .addToggle(toggle => {
                     toggle.setValue(channel.isDefault || false)
                         .onChange(async (v) => {

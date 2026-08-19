@@ -77,7 +77,6 @@ export default {
     SETTING_CHAT_LOADING_PLACEHOLDER: "Загружаем чаты…",
     SETTING_CHAT_SEARCH_PLACEHOLDER: "Найдите целевые чаты по названию или введите @username или ID вручную…",
     SETTING_DEFAULT_PRESET_NAME: "Установить как пресет по умолчанию",
-    SETTING_DEFAULT_PRESET_DESC: "Позволяет публиковать из контекстного меню или с помощью сочетания клавиш",
 
     // ─── Advanced settings ────────────────────────────────────────────────────────
     ADVANCED_TITLE: "Расширенные настройки публикации",
