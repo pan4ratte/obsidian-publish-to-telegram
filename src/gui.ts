@@ -101,6 +101,16 @@ function voidListener<E extends Event = Event>(handler: (evt: E) => Promise<void
     return (evt: E) => { void handler(evt); };
 }
 
+// The nearest ancestor that actually scrolls `el` — the settings pane, or the modal content
+// when the same UI is drawn inside a modal. Returns null when nothing above it scrolls.
+function scrollParentOf(el: HTMLElement): HTMLElement | null {
+    for (let node = el.parentElement; node; node = node.parentElement) {
+        const overflowY = getComputedStyle(node).overflowY;
+        if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) return node;
+    }
+    return null;
+}
+
 // ─── Channel resolution helpers ───────────────────────────────────────────────
 
 // Resolves the display title and entity type of any Telegram chat from its link.
@@ -1962,7 +1972,17 @@ export class TelegramSettingTab extends PluginSettingTab {
     // created, keeping the declarative wrapper and search anchor intact without
     // touching the update() API.
     private rerender(): void {
-        if (this.renderRoot) this.render(this.renderRoot);
+        const root = this.renderRoot;
+        if (!root) return;
+        // The re-render empties the root before rebuilding it, which momentarily collapses the
+        // tab to nothing and makes the settings pane clamp its scroll offset to the shrunken
+        // content — the view then sits wherever the clamp left it (adding a preset would throw
+        // the user back to the top of the tab). Nothing here is meant to move the page, so the
+        // scroll offset is captured first and put back once the content is whole again.
+        const scroller = scrollParentOf(root);
+        const scrollTop = scroller?.scrollTop ?? 0;
+        this.render(root);
+        if (scroller && scroller.scrollTop !== scrollTop) scroller.scrollTop = scrollTop;
     }
 
     private disconnectInlineClients(): void {
