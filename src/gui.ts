@@ -20,6 +20,10 @@ const REVOKE_TIMEOUT_MS = 8000;
 const IDENTITY_ATTEMPTS = 3;
 const IDENTITY_RETRY_DELAY_MS = 1000;
 
+// How long an auth panel takes to leave before the next one is built in its place. Must match
+// the `telegram-auth-card-out` animation in styles.css.
+const AUTH_PANEL_EXIT_MS = 120;
+
 // Official lucide "link-2-off" path data (24×24, scaled to Obsidian's 100×100 icon
 // viewBox). Registered on demand because Obsidian's bundled lucide set lacks this icon.
 const LINK_2_OFF_ICON = `<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="scale(4.1667)"><path d="M9 17H7A5 5 0 0 1 7 7"/><path d="M15 7h2a5 5 0 0 1 4 8"/><line x1="8" y1="12" x2="12" y2="12"/><line x1="2" y1="2" x2="22" y2="22"/></g>`;
@@ -1917,6 +1921,12 @@ export class TelegramSettingTab extends PluginSettingTab {
     private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
     // Persisted across re-renders so the credentials card stays open after edits.
     private credentialsCardOpen = false;
+    // Pending hand-off between two auth panels: the timer that builds the incoming panel once
+    // the outgoing one has finished leaving. See the auth bar in render().
+    private inlineSwapTimer: number | null = null;
+    // Keeps the sliding tab underline aligned when the bar itself changes size — a resized
+    // settings pane, a bar that rewraps, or the first layout after the tab becomes visible.
+    private authIndicatorObserver: ResizeObserver | null = null;
     // Container the tab last rendered into; re-renders target it so the declarative
     // wrapper stays stable. See render()/rerender().
     private renderRoot: HTMLElement | null = null;
@@ -1986,6 +1996,14 @@ export class TelegramSettingTab extends PluginSettingTab {
     }
 
     private disconnectInlineClients(): void {
+        if (this.inlineSwapTimer !== null) {
+            window.clearTimeout(this.inlineSwapTimer);
+            this.inlineSwapTimer = null;
+        }
+        if (this.authIndicatorObserver) {
+            this.authIndicatorObserver.disconnect();
+            this.authIndicatorObserver = null;
+        }
         if (this.inlineQrClient) {
             this.inlineQrClient.disconnect().catch(() => {});
             this.inlineQrClient = null;
@@ -2039,17 +2057,81 @@ export class TelegramSettingTab extends PluginSettingTab {
         const authStatusEl = containerEl.createDiv({ cls: "telegram-auth-status" });
         const authActionsEl = authStatusEl.createDiv({ cls: "telegram-auth-actions" });
 
+        // The accent underline is one line for the whole bar, not a border per segment, so that
+        // picking another tab slides it across rather than swapping one line for another. It is
+        // positioned against the bar (the only positioned ancestor, so the segments' offsets are
+        // already in its coordinates) and sits on the 2px strip every segment reserves.
+        const indicatorEl = authStatusEl.createDiv({ cls: "telegram-auth-indicator" });
+        const moveIndicator = (btn: HTMLElement | null, instant = false) => {
+            // Appearing is not travelling. A line that isn't on screen yet has no position worth
+            // animating from — it would fly in from wherever it was last left, or from the bar's
+            // top-left corner on the first open — so it is placed outright and only fades in.
+            // Sliding is for a move between two lit tabs.
+            const jump = instant || !indicatorEl.hasClass("is-visible");
+            if (jump) indicatorEl.addClass("is-instant");
+            // With no tab lit the line just fades where it stands — it has nowhere to go, and
+            // sliding it to a corner on the way out would only draw the eye.
+            if (btn) {
+                indicatorEl.style.left = `${btn.offsetLeft}px`;
+                indicatorEl.style.top = `${btn.offsetTop + btn.offsetHeight - 2}px`;
+                indicatorEl.style.width = `${btn.offsetWidth}px`;
+            }
+            indicatorEl.toggleClass("is-visible", btn !== null);
+            if (jump) {
+                // Commit the placement while transitions are still off. Without this read the
+                // browser never computes the intermediate style: it coalesces the move and the
+                // re-enabling into one change and animates the jump after all.
+                indicatorEl.getBoundingClientRect();
+                indicatorEl.removeClass("is-instant");
+            }
+        };
+        const activeTabEl = () => authActionsEl.querySelector<HTMLElement>(".telegram-link-button.is-active");
+
         // Containers rendered just below the bar; revealed on demand by the buttons.
         const addTokenContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
         const loginContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
         const credsContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
-        const closeInline = () => {
-            addTokenContainer.empty(); addTokenContainer.addClass("is-hidden");
-            loginContainer.empty(); loginContainer.addClass("is-hidden");
-            credsContainer.empty(); credsContainer.addClass("is-hidden");
+        const inlineContainers = [addTokenContainer, loginContainer, credsContainer];
+
+        const clearInline = () => {
+            for (const container of inlineContainers) { container.empty(); container.addClass("is-hidden"); }
             this.credentialsCardOpen = false;
+        };
+
+        // Opening, closing and switching all run through here, so a panel already on screen gets
+        // to play its exit before it is replaced. The bar answers the click at once — the
+        // underline retracts from the old tab and grows under the new one — while below it the
+        // open card slides back under the bar; only when it has gone does the incoming one build
+        // and slide out. Waiting is what keeps the two out of each other's way: both panels are
+        // in the layout at once otherwise, and the outgoing card would blink out mid-switch.
+        const swapInline = (activeBtn: ButtonComponent | null, draw: (() => void) | null) => {
+            if (this.inlineSwapTimer !== null) {
+                // Clicked again mid-hand-off: the panel that was still leaving goes now.
+                window.clearTimeout(this.inlineSwapTimer);
+                this.inlineSwapTimer = null;
+                clearInline();
+            }
             authActionsEl.querySelectorAll(".telegram-link-button.is-active")
                 .forEach(el => el.classList.remove("is-active"));
+            activeBtn?.buttonEl.addClass("is-active");
+            moveIndicator(activeBtn?.buttonEl ?? null);
+            // Cleared up front, not with the panel: the flag decides whether a re-render brings
+            // the credentials card back, and the click has already settled that question.
+            this.credentialsCardOpen = false;
+
+            const swap = () => { clearInline(); draw?.(); };
+            const leaving = inlineContainers
+                .map(container => container.firstElementChild as HTMLElement | null)
+                .find((card): card is HTMLElement => card !== null);
+            if (!leaving) { swap(); return; }
+
+            leaving.addClass("is-leaving");
+            this.inlineSwapTimer = window.setTimeout(() => {
+                this.inlineSwapTimer = null;
+                // A re-render during the exit builds fresh containers; this swap would then be
+                // dressing a DOM that is no longer on screen.
+                if (leaving.isConnected) swap();
+            }, AUTH_PANEL_EXIT_MS);
         };
 
         // ButtonComponent's text and icon overwrite each other, so prepend the icon manually.
@@ -2060,13 +2142,13 @@ export class TelegramSettingTab extends PluginSettingTab {
         const loginBtn = new ButtonComponent(authActionsEl)
             .setButtonText(accounts.length > 0 ? t.AUTH_ADD_ACCOUNT_BTN : t.AUTH_LOGIN_BTN)
             .onClick(() => {
-                const wasOpen = !loginContainer.hasClass("is-hidden");
-                closeInline();
-                if (!wasOpen) {
+                // The lit tab is what says which panel is open — it is set the moment a tab is
+                // clicked, while the panels themselves are still changing over.
+                const wasOpen = loginBtn.buttonEl.hasClass("is-active");
+                swapInline(wasOpen ? null : loginBtn, wasOpen ? null : () => {
                     loginContainer.removeClass("is-hidden");
-                    loginBtn.buttonEl.addClass("is-active");
                     this.renderInlinePhoneStep(loginContainer);
-                }
+                });
             });
         loginBtn.buttonEl.addClass("telegram-link-button");
         prependIcon(loginBtn, "user-plus");
@@ -2074,13 +2156,11 @@ export class TelegramSettingTab extends PluginSettingTab {
         const addTokenBtn = new ButtonComponent(authActionsEl)
             .setButtonText(t.AUTH_ADD_BOT_TOKEN_BTN)
             .onClick(() => {
-                const wasOpen = !addTokenContainer.hasClass("is-hidden");
-                closeInline();
-                if (!wasOpen) {
+                const wasOpen = addTokenBtn.buttonEl.hasClass("is-active");
+                swapInline(wasOpen ? null : addTokenBtn, wasOpen ? null : () => {
                     addTokenContainer.removeClass("is-hidden");
-                    addTokenBtn.buttonEl.addClass("is-active");
                     this.renderAddBotTokenForm(addTokenContainer);
-                }
+                });
             });
         addTokenBtn.buttonEl.addClass("telegram-link-button");
         prependIcon(addTokenBtn, "bot-message-square");
@@ -2095,9 +2175,8 @@ export class TelegramSettingTab extends PluginSettingTab {
             .setButtonText(t.AUTH_MANAGE_CREDENTIALS_BTN)
             .setTooltip(t.AUTH_MANAGE_CREDENTIALS_TOOLTIP)
             .onClick(() => {
-                const wasOpen = !credsContainer.hasClass("is-hidden");
-                closeInline();
-                if (!wasOpen) openCredentials();
+                const wasOpen = credsBtn.buttonEl.hasClass("is-active");
+                swapInline(wasOpen ? null : credsBtn, wasOpen ? null : openCredentials);
             });
         credsBtn.buttonEl.addClass("telegram-link-button");
         prependIcon(credsBtn, "key-round");
@@ -2105,6 +2184,16 @@ export class TelegramSettingTab extends PluginSettingTab {
         // Re-open the credentials card after a full re-render (e.g. following a
         // token delete or account logout triggered from inside the card).
         if (this.credentialsCardOpen) openCredentials();
+
+        // The bar has no measurable width until it is laid out — and none at all while the tab
+        // is hidden — so the first observation is what places the line; later ones follow the
+        // segments when the pane is resized, the bar rewraps or a label changes width. The
+        // segments are watched alongside the bar because they can resize without it doing so.
+        // None of these are tab changes, so the line is placed outright rather than sliding.
+        this.authIndicatorObserver = new ResizeObserver(() => moveIndicator(activeTabEl(), true));
+        for (const el of [authStatusEl, loginBtn.buttonEl, addTokenBtn.buttonEl, credsBtn.buttonEl]) {
+            this.authIndicatorObserver.observe(el);
+        }
 
         new Setting(containerEl).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.savePostLinks)

@@ -341,46 +341,117 @@ body .telegram-delete-button:hover {
 
 /* ── Status bar ── */
 
+/* The bar is one segmented card rather than a row of outlined buttons: each action fills the
+   card edge to edge and top to bottom, and the card's own border is the only outline. Nothing
+   is padded here — the segments carry the padding, so their hover fill reaches the card's
+   sides; overflow:hidden keeps it inside the rounded corners. */
 .telegram-auth-status {
     position: relative;
     z-index: 1;
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
     background-color: var(--setting-items-background);
-    padding: 16px 24px;
+    overflow: hidden;
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
+    align-items: stretch;
     margin-bottom: 8px;
+    transition: border-radius 120ms ease;
 }
 
+/* The dividers are this element's background showing through 1px gaps, so the segments stay
+   separated however they wrap — vertical hairlines along a row, horizontal ones between rows —
+   without any segment carrying a border of its own. */
 .telegram-auth-actions {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
+    align-items: stretch;
+    gap: 1px;
+    background-color: var(--background-modifier-border);
     width: 100%;
 }
 
-.telegram-auth-actions .telegram-link-button {
+/* Flat, full-height segments. The shared .telegram-link-button rules put a border back on
+   hover, which would both outline the segment and shift the row by a pixel, so the reset
+   covers the hover state too. */
+body .telegram-auth-actions .telegram-link-button,
+body .telegram-auth-actions .telegram-link-button:hover {
     flex: 1 1 auto;
     min-width: max-content;
     display: flex;
     align-items: center;
     justify-content: center;
     white-space: nowrap;
+    position: relative;
+    height: auto;
+    padding: 16px 12px 14px;
+    border: none;
+    /* The strip the underline occupies is always reserved, so opening a panel never resizes
+       the segment; the underline itself is drawn into it by ::after. */
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    box-shadow: none;
+    transition: background-color 120ms ease, color 120ms ease;
 }
 
-/* Highlight the button whose inline panel is currently open */
-body .telegram-auth-actions .telegram-link-button.is-active {
+/* The accent underline is one element for the whole bar rather than a border on each segment,
+   so switching tabs slides it across instead of swapping one line for another — the eye follows
+   a single line from the old tab to the new one. The renderer measures the active segment and
+   writes left/top/width here (see the auth bar in gui.ts); the reserved 2px strip at the bottom
+   of every segment is exactly where it lands. */
+.telegram-auth-indicator {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 2px;
     background-color: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border-color: var(--interactive-accent);
+    opacity: 0;
+    pointer-events: none;
+    transition: left 200ms ease, top 200ms ease, width 200ms ease, opacity 140ms ease;
 }
 
+.telegram-auth-indicator.is-visible {
+    opacity: 1;
+}
+
+/* Placement that isn't a move between two lit tabs — the first open, a resized pane, a
+   rewrapped bar — puts the line where it belongs instead of travelling there. The fade is kept
+   so it still arrives softly. */
+.telegram-auth-indicator.is-instant {
+    transition: opacity 140ms ease;
+}
+
+/* Opaque, so the divider background only shows in the gaps between segments. */
+body .telegram-auth-actions .telegram-link-button {
+    background-color: var(--setting-items-background);
+}
+
+/* Hover tints the label (and its icon, which inherits the colour) accent over a soft fill. */
+body .telegram-auth-actions .telegram-link-button:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-accent);
+}
+
+/* The segment whose inline panel is open is marked by that underline instead of a fill, so it
+   reads as the tab the panel below belongs to. The fill is pinned back to the card's own colour
+   so hovering the open segment doesn't shade it either. */
+body .telegram-auth-actions .telegram-link-button.is-active,
 body .telegram-auth-actions .telegram-link-button.is-active:hover {
-    background-color: var(--interactive-accent-hover);
-    border-color: var(--interactive-accent-hover);
+    background-color: var(--setting-items-background);
+    color: var(--text-accent);
+}
+
+/* With a panel open the bar runs straight into it, so the bottom corners square off — timed
+   with the panel sliding out from under it. */
+.telegram-auth-status:has(.telegram-link-button.is-active) {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* The segments drop their box-shadow, which is also what Obsidian draws focus rings with, so
+   keyboard focus is redrawn inset — an outer ring would be clipped by the card. */
+body .telegram-auth-actions .telegram-link-button:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--background-modifier-border-focus);
 }
 
 .telegram-btn-icon {
@@ -433,14 +504,10 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
     border-radius: 0;
 }
 
-/* Narrow screens: tighten padding and stack the action buttons full-width. */
+/* Narrow screens: stack the segments, which turns the hairlines between them horizontal. */
 @media (max-width: 520px) {
-    .telegram-auth-status {
-        padding: 12px;
-    }
-
-    .telegram-auth-actions .telegram-link-button {
-        flex: 1 1 100%;
+    .telegram-auth-actions {
+        flex-direction: column;
     }
 }
 
@@ -721,6 +788,68 @@ body .telegram-auth-submit:disabled {
     font-family: inherit;
     display: block;
     width: 100%;
+}
+
+/* ── Motion ── */
+
+/* Panels slide out from under the bar instead of snapping into place. Each one builds a fresh
+   card when it opens — and the login flow builds one per step — so the animation plays on
+   insertion: opening a segment, switching between segments, and stepping through the login all
+   get the same slide. The cards sit behind the bar (z-index 0 against its 1), so the offset
+   start is hidden underneath it. */
+@keyframes telegram-auth-card-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.telegram-auth-card,
+.telegram-add-token-form,
+.telegram-credentials-card {
+    animation: telegram-auth-card-in 180ms ease-out;
+}
+
+/* Switching tabs with a panel already open is a hand-off, so the panel on screen leaves the way
+   it came — back under the bar — before the next one is built. The renderer holds the swap for
+   exactly as long as this runs (AUTH_PANEL_EXIT_MS in gui.ts); `forwards` keeps the card gone
+   for the last frames, and nothing on a card that is leaving is clickable any more. */
+@keyframes telegram-auth-card-out {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+}
+
+.telegram-auth-inline .is-leaving {
+    animation: telegram-auth-card-out 120ms ease-in forwards;
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .telegram-auth-card,
+    .telegram-add-token-form,
+    .telegram-credentials-card,
+    .telegram-auth-inline .is-leaving {
+        animation: none;
+    }
+
+    .telegram-auth-status,
+    .telegram-auth-indicator,
+    .telegram-auth-indicator.is-instant,
+    body .telegram-auth-actions .telegram-link-button {
+        transition: none;
+    }
 }
 
 /* ─── Advanced publishing modal ────────────────────────────────────────────────── */
