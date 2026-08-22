@@ -1,6 +1,6 @@
 # Changelog
 
-## 6.2.1
+## 6.3.0
 
 ### UI/UX enhancements and bug fixes
 
