@@ -1358,12 +1358,19 @@ img.telegram-split-linkpreview-image {
     flex-shrink: 0;
 }
 
-/* The link chosen as the message's link-preview source (post or comment). */
+/* The link chosen as the message's link-preview source (post or comment). The highlight
+   is widened with side box-shadows rather than padding: padding would override the right
+   padding Obsidian reserves on `.external-link` for its icon (squeezing the icon into the
+   text) and would shift the text following the link every time a choice is made. The
+   shadows are offset sideways only — a spread would grow the highlight vertically too,
+   which reads as a heavy block behind a single line of text. */
 body .telegram-split-preview-content a.is-preview-source,
 body .telegram-split-comment-content a.is-preview-source {
     background-color: var(--text-highlight-bg);
     border-radius: var(--radius-s);
-    padding: 0 2px;
+    box-shadow: 2px 0 0 var(--text-highlight-bg), -2px 0 0 var(--text-highlight-bg);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
 }
 
 .telegram-split-preview-content > :first-child {
