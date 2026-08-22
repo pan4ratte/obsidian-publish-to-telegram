@@ -4,11 +4,13 @@
 
 ### UI/UX enhancements and bug fixes
 
-* The authentication bar has been redesigned: the buttons are now a single card with dividers, and the selected tab is underlined in the accent color.
-* Authentication cards now appear and replace each other with an animation.
-* Options inside presets are separated by horizontal dividers.
-* Toggles and dropdowns in the settings are centered in their row.
-* The settings page no longer scrolls to the top when a preset is created.
+* The authentication bar has been visually redesigned, and new animations were added.
+* The post preview has been improved: it now better reflects how a post will look after publishing, depending on the selected publishing method.
+* Animations were added to various elements of the advanced publishing menu.
+* The appearance of presets has been improved.
+* Fixed a bug when a link selected in the preview window squeezed the link icon into the text.
+* Fixed a bug when the settings page scrolled when a preset was created.
+* Fixed the vertical centering of the vanilla Obsidian options.
 
 
 ## 6.2.0
