@@ -20,9 +20,10 @@ const REVOKE_TIMEOUT_MS = 8000;
 const IDENTITY_ATTEMPTS = 3;
 const IDENTITY_RETRY_DELAY_MS = 1000;
 
-// How long an auth panel takes to leave before the next one is built in its place. Must match
-// the `telegram-auth-card-out` animation in styles.css.
-const AUTH_PANEL_EXIT_MS = 120;
+// How long a leaving auth panel stays on screen fading out. Must match the
+// `telegram-auth-card-out` animation in styles.css. It no longer holds anything up — the panel
+// replacing it is built at once — so it only decides when the spent card is thrown away.
+const AUTH_PANEL_EXIT_MS = 90;
 
 // Official lucide "link-2-off" path data (24×24, scaled to Obsidian's 100×100 icon
 // viewBox). Registered on demand because Obsidian's bundled lucide set lacks this icon.
@@ -2069,6 +2070,8 @@ export class TelegramSettingTab extends PluginSettingTab {
     // Keeps the sliding tab underline aligned when the bar itself changes size — a resized
     // settings pane, a bar that rewraps, or the first layout after the tab becomes visible.
     private authIndicatorObserver: ResizeObserver | null = null;
+    // Animates the height of the area the auth panels open into. See openAuthStage.
+    private authStageObserver: ResizeObserver | null = null;
     // Container the tab last rendered into; re-renders target it so the declarative
     // wrapper stays stable. See render()/rerender().
     private renderRoot: HTMLElement | null = null;
@@ -2145,6 +2148,10 @@ export class TelegramSettingTab extends PluginSettingTab {
         if (this.authIndicatorObserver) {
             this.authIndicatorObserver.disconnect();
             this.authIndicatorObserver = null;
+        }
+        if (this.authStageObserver) {
+            this.authStageObserver.disconnect();
+            this.authStageObserver = null;
         }
         if (this.inlineQrClient) {
             this.inlineQrClient.disconnect().catch(() => {});
@@ -2229,10 +2236,16 @@ export class TelegramSettingTab extends PluginSettingTab {
         };
         const activeTabEl = () => authActionsEl.querySelector<HTMLElement>(".telegram-link-button.is-active");
 
-        // Containers rendered just below the bar; revealed on demand by the buttons.
-        const addTokenContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
-        const loginContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
-        const credsContainer = containerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        // Containers rendered just below the bar; revealed on demand by the buttons. They sit
+        // inside a stage whose height follows whatever they hold, so the settings below never
+        // jump: the area grows as a panel opens, shrinks as it closes, and travels between the
+        // two heights when one panel replaces another. The inner element is what keeps its
+        // natural height and is measured; the stage is what animates.
+        const stageEl = containerEl.createDiv("telegram-auth-stage");
+        const stageInnerEl = stageEl.createDiv("telegram-auth-stage-inner");
+        const addTokenContainer = stageInnerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const loginContainer = stageInnerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const credsContainer = stageInnerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
         const inlineContainers = [addTokenContainer, loginContainer, credsContainer];
 
         const clearInline = () => {
@@ -2240,18 +2253,25 @@ export class TelegramSettingTab extends PluginSettingTab {
             this.credentialsCardOpen = false;
         };
 
-        // Opening, closing and switching all run through here, so a panel already on screen gets
-        // to play its exit before it is replaced. The bar answers the click at once — the
-        // underline retracts from the old tab and grows under the new one — while below it the
-        // open card slides back under the bar; only when it has gone does the incoming one build
-        // and slide out. Waiting is what keeps the two out of each other's way: both panels are
-        // in the layout at once otherwise, and the outgoing card would blink out mid-switch.
+        // Opening, closing and switching all run through here. Everything happens on the click:
+        // the bar answers it — the underline retracts from the old tab and grows under the new
+        // one — the panel on screen starts fading out, and the one taking its place is built
+        // straight away. The stage travels from the height of the one to the height of the
+        // other in a single move (watchAuthStage), which is what a hand-off should look like;
+        // holding the new panel back until the old one had finished leaving made two short
+        // animations read as one long wait.
+        //
+        // The card on its way out is taken out of the flow first, so it can overlap its
+        // replacement instead of stacking above it and doubling the height of the stage. Moving
+        // it to the top of the stage keeps it exactly where it was — an absolutely positioned
+        // box with no offsets of its own stays at the position it would have had — and puts it
+        // out of reach of the panel containers, which are emptied and rebuilt underneath it.
         const swapInline = (activeBtn: ButtonComponent | null, draw: (() => void) | null) => {
             if (this.inlineSwapTimer !== null) {
                 // Clicked again mid-hand-off: the panel that was still leaving goes now.
                 window.clearTimeout(this.inlineSwapTimer);
                 this.inlineSwapTimer = null;
-                clearInline();
+                stageInnerEl.querySelectorAll(".is-leaving").forEach(el => el.remove());
             }
             authActionsEl.querySelectorAll(".telegram-link-button.is-active")
                 .forEach(el => el.classList.remove("is-active"));
@@ -2261,19 +2281,32 @@ export class TelegramSettingTab extends PluginSettingTab {
             // the credentials card back, and the click has already settled that question.
             this.credentialsCardOpen = false;
 
-            const swap = () => { clearInline(); draw?.(); };
             const leaving = inlineContainers
                 .map(container => container.firstElementChild as HTMLElement | null)
-                .find((card): card is HTMLElement => card !== null);
-            if (!leaving) { swap(); return; }
+                .find((card): card is HTMLElement => card !== null) ?? null;
+            if (leaving) {
+                leaving.addClass("is-leaving");
+                // A card being replaced fades where it stands; one closing for good goes back
+                // under the bar it came out from.
+                if (draw) leaving.addClass("is-crossfade");
+                stageInnerEl.prepend(leaving);
+                this.inlineSwapTimer = window.setTimeout(() => {
+                    this.inlineSwapTimer = null;
+                    leaving.remove();
+                }, AUTH_PANEL_EXIT_MS);
+            }
 
-            leaving.addClass("is-leaving");
-            this.inlineSwapTimer = window.setTimeout(() => {
-                this.inlineSwapTimer = null;
-                // A re-render during the exit builds fresh containers; this swap would then be
-                // dressing a DOM that is no longer on screen.
-                if (leaving.isConnected) swap();
-            }, AUTH_PANEL_EXIT_MS);
+            clearInline();
+            draw?.();
+            // A panel that replaces another arrives in place rather than sliding out from under
+            // the bar: there is no bar to come out from when the space is already open, and the
+            // slide reads as the card being pushed in from somewhere it never was.
+            if (leaving && draw) {
+                inlineContainers
+                    .map(container => container.firstElementChild as HTMLElement | null)
+                    .find((card): card is HTMLElement => card !== null)
+                    ?.addClass("is-switched");
+            }
         };
 
         // ButtonComponent's text and icon overwrite each other, so prepend the icon manually.
@@ -2336,6 +2369,8 @@ export class TelegramSettingTab extends PluginSettingTab {
         for (const el of [authStatusEl, loginBtn.buttonEl, addTokenBtn.buttonEl, credsBtn.buttonEl]) {
             this.authIndicatorObserver.observe(el);
         }
+
+        this.watchAuthStage(stageEl, stageInnerEl);
 
         new Setting(containerEl).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.savePostLinks)
@@ -2848,13 +2883,55 @@ export class TelegramSettingTab extends PluginSettingTab {
         return entry;
     }
 
+    // Gives the auth panel area a height of its own that follows its contents. Every way the
+    // area can change size goes through the same animation: a panel opening, closing, one panel
+    // replacing another, a step of the login flow replacing the one before it, and the changes
+    // that arrive unprompted — a QR code finishing loading, an error note appearing.
+    //
+    // Watching the size rather than hooking the places that change it is what makes that hold:
+    // there is one place to get right instead of a dozen call sites, and a panel that resizes
+    // itself is covered without knowing anything about it. The observer watches the inner
+    // element, which is always its natural height, and drives the outer one — so the height
+    // being animated is never the height being measured, and there is no feedback loop.
+    //
+    // The stage's height is held explicit from the first measurement on, which is what makes a
+    // change measurable at all: a resize callback runs after the layout that caused it, so a
+    // stage left to size itself would already have taken the new height, and animating it to
+    // the height it is at does nothing. Pinned, it still holds the height it had, and setting
+    // the new one is the whole animation — a transition already running is picked up from
+    // wherever it had reached.
+    //
+    // Nothing here reads back from the DOM. The new height comes out of the observer's own
+    // measurement, which is taken before the callback and costs nothing; asking the document
+    // for it instead would force a synchronous layout of the settings pane at the start of
+    // every change, and that pause is exactly what the animation is trying not to look like.
+    private watchAuthStage(stageEl: HTMLElement, innerEl: HTMLElement): void {
+        this.authStageObserver?.disconnect();
+        // The stage's height covers its padding as well as its contents (border-box), and that
+        // padding is fixed by the stylesheet — read once rather than measured per change.
+        const padding = parseFloat(getComputedStyle(stageEl).paddingTop) || 0;
+        this.authStageObserver = new ResizeObserver(entries => {
+            const box = entries[entries.length - 1].borderBoxSize?.[0];
+            const content = box ? box.blockSize : innerEl.offsetHeight;
+            // The first pin is the state the tab renders in: the height it names is the height
+            // the stage already has, so it settles there without animating.
+            stageEl.style.height = `${content + padding}px`;
+        });
+        this.authStageObserver.observe(innerEl);
+    }
+
     private buildAuthCard(
         container: HTMLElement,
         title: string,
         onBack?: () => void
     ): { fields: HTMLElement; submitEl: HTMLButtonElement; noteEl: HTMLParagraphElement; extraEl: HTMLElement } {
+        // Each step of the login flow replaces the step before it in the same panel, which is
+        // the same hand-off as switching panels and arrives the same way: in place, not from
+        // under the bar. Only the first card of a flow is an opening.
+        const replacing = container.firstElementChild !== null;
         container.empty();
         const card = container.createDiv({ cls: "telegram-auth-card" });
+        if (replacing) card.addClass("is-switched");
 
         const header = card.createDiv({ cls: "telegram-auth-header" });
         const backBtn = header.createEl("button", { cls: "telegram-auth-back" });
