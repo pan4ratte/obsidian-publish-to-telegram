@@ -847,7 +847,9 @@ body .telegram-auth-submit:disabled {
     .telegram-auth-status,
     .telegram-auth-indicator,
     .telegram-auth-indicator.is-instant,
-    body .telegram-auth-actions .telegram-link-button {
+    body .telegram-auth-actions .telegram-link-button,
+    .telegram-multi-preset-methods,
+    .telegram-multi-preset-methods.is-open {
         transition: none;
     }
 }
@@ -895,18 +897,63 @@ body .telegram-auth-submit:disabled {
     color: var(--text-normal);
 }
 
-/* Per-preset method picker, revealed under the row when the preset is toggled on. */
+/* Per-preset method picker, revealed under the row when the preset is toggled on.
+   Only one preset can be on at a time, so toggling one plays both halves at once: the
+   picker under the preset just switched off folds away while the new one opens.
+
+   The reveal is a single-row grid whose track goes 0fr → 1fr. That is what lets a block
+   of unknown height be transitioned at all — `height: auto` is not interpolable, and a
+   max-height guess either clips a long list or slows a short one down. Everything that
+   separates the picker from the row above it (the top margin, padding and rule) collapses
+   on the same curve, so a closed picker takes up no space and leaves no stray line.
+
+   The options live in the inner element: it is the one that clips, and its own height stays
+   at its natural value throughout, so the toggles inside never reflow mid-animation. */
 .telegram-multi-preset-methods {
+    display: grid;
+    grid-template-rows: 0fr;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0 solid var(--background-modifier-border);
+    opacity: 0;
+    /* Discrete, so it holds until the fold has finished: a closed picker is out of the tab
+       order, which `overflow: hidden` alone would not do. */
+    visibility: hidden;
+    transition:
+        grid-template-rows 180ms ease,
+        margin-top 180ms ease,
+        padding-top 180ms ease,
+        border-top-width 180ms ease,
+        opacity 120ms ease,
+        visibility 0s linear 180ms;
+}
+
+.telegram-multi-preset-methods.is-open {
+    grid-template-rows: 1fr;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top-width: 1px;
+    opacity: 1;
+    visibility: visible;
+    /* Opening, the fade waits for the fold to be under way — the options read as arriving
+       in the space that opened for them rather than through the row above. */
+    transition:
+        grid-template-rows 180ms ease,
+        margin-top 180ms ease,
+        padding-top 180ms ease,
+        border-top-width 180ms ease,
+        opacity 140ms ease 60ms,
+        visibility 0s;
+}
+
+.telegram-multi-preset-methods-inner {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px solid var(--background-modifier-border);
-}
-
-.telegram-multi-preset-methods.is-hidden {
-    display: none;
+    overflow: hidden;
+    /* A grid item's automatic minimum size is its content, which would keep the row from
+       ever shrinking below full height. */
+    min-height: 0;
 }
 
 .telegram-preset-method-option {
@@ -980,6 +1027,21 @@ body .telegram-split-circle-btn {
     color: var(--icon-color, var(--text-muted));
     cursor: pointer;
     box-shadow: none;
+    /* Every state these buttons report — on, off, unavailable — is a colour change, so they
+       all cross-fade on one curve. Short: the row is a set of switches, and a switch that
+       takes its time reads as lag rather than as polish. */
+    transition:
+        background-color 130ms ease,
+        border-color 130ms ease,
+        color 130ms ease,
+        opacity 130ms ease,
+        transform 90ms ease;
+}
+
+/* Presses give a little under the finger, and spring back faster than they went in. */
+body .telegram-split-circle-btn:active {
+    transform: scale(0.9);
+    transition-duration: 60ms;
 }
 
 /* Pin the icon size too, so it never depends on Obsidian's platform-varying --icon-size. */
@@ -1016,6 +1078,46 @@ body .telegram-split-circle-btn.is-active {
 body .telegram-split-circle-btn.is-disabled {
     opacity: 0.35;
     pointer-events: none;
+}
+
+/* A button whose icon reports its state swaps that icon outright (swapIcon in gui.ts). The
+   incoming one grows in from just under full size — enough to catch the eye at a glance down
+   the row, not so much that it reads as a bounce. */
+@keyframes telegram-icon-swap {
+    from {
+        opacity: 0;
+        transform: scale(0.55);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+body .telegram-split-circle-btn .svg-icon.telegram-icon-swap {
+    animation: telegram-icon-swap 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body .telegram-split-circle-btn {
+        transition: none;
+    }
+
+    body .telegram-split-circle-btn:active {
+        transform: none;
+    }
+
+    body .telegram-split-circle-btn .svg-icon.telegram-icon-swap {
+        animation: none;
+    }
+
+    body .telegram-split-mode-option,
+    .telegram-split-linkpreview,
+    .telegram-split-linkpreview.is-hidden,
+    body .telegram-split-preview-content a[href],
+    body .telegram-split-comment-content a[href] {
+        transition: none;
+    }
 }
 
 /* Scheduling is a round button like its neighbours; position:relative anchors the native
@@ -1116,6 +1218,14 @@ body .telegram-split-mode-option {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     cursor: pointer;
+    /* The mode is a setting like the ones in the row above, so its selection settles on the
+       same curve. The accent bar is the slower of the two: it grows out of nothing (box-shadow
+       animates up from `none`), which needs a beat longer to read as a bar sliding in than the
+       tint does to read as a tint. Weight is left out — it steps rather than interpolates. */
+    transition:
+        background-color 130ms ease,
+        color 130ms ease,
+        box-shadow 170ms ease;
 }
 
 /* One hairline between neighbours — never on the outer edges, which the card supplies. */
@@ -1247,19 +1357,57 @@ body .telegram-split-mode-option .svg-icon {
 
 /* ── In-preview link-preview card (imitates Telegram's webpage preview) ── */
 
+/* Choosing a link unfolds the card the same way the preset method picker unfolds: a single-row
+   grid going 0fr → 1fr, which is what lets a card of unknown height (its description and image
+   arrive later, over the network) be animated without measuring it. The outer element only
+   folds; the card itself is the inner one. */
+/* The card the whole way out: everything that gives it a box — the padding, the accent bar,
+   the background — belongs to this element, and the inner one only holds the content.
+   Padding and border on the INNER element would be the one thing this fold cannot close over:
+   a grid item's minimum contribution counts its own padding and border, so the track could
+   never size below them, leaving an empty strip of card sitting in the text. Out here they
+   are the container's own, and they collapse with everything else. */
 .telegram-split-linkpreview {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
+    display: grid;
+    grid-template-rows: 1fr;
     margin: 6px 0;
     padding: 6px 10px;
     border-left: 3px solid var(--interactive-accent);
     border-radius: var(--radius-s);
     background-color: var(--background-secondary);
+    opacity: 1;
+    transition:
+        grid-template-rows 200ms ease,
+        margin 200ms ease,
+        padding 200ms ease,
+        border-left-width 200ms ease,
+        opacity 150ms ease 50ms;
 }
 
 .telegram-split-linkpreview.is-hidden {
-    display: none;
+    grid-template-rows: 0fr;
+    margin: 0;
+    padding: 0;
+    border-left-width: 0;
+    opacity: 0;
+    /* Folding away, the fade leads instead of trailing: the card is gone before the gap it
+       leaves finishes closing, so the text closes over nothing. */
+    transition:
+        grid-template-rows 200ms ease,
+        margin 200ms ease,
+        padding 200ms ease,
+        border-left-width 200ms ease,
+        opacity 120ms ease;
+}
+
+.telegram-split-linkpreview-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    overflow: hidden;
+    /* A grid item's automatic minimum size is its content, which would stop the row from
+       shrinking below the card's full height. */
+    min-height: 0;
 }
 
 /* Classic methods send a message's attachments as one album carrying the text as its caption,
@@ -1466,6 +1614,13 @@ img.telegram-split-linkpreview-image {
    text) and would shift the text following the link every time a choice is made. The
    shadows are offset sideways only — a spread would grow the highlight vertically too,
    which reads as a heavy block behind a single line of text. */
+/* Every web link in a preview is selectable, so they all carry the highlight's transition —
+   the one being chosen fades in as the previous one fades out. */
+body .telegram-split-preview-content a[href],
+body .telegram-split-comment-content a[href] {
+    transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
 body .telegram-split-preview-content a.is-preview-source,
 body .telegram-split-comment-content a.is-preview-source {
     background-color: var(--text-highlight-bg);

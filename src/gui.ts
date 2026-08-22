@@ -99,6 +99,24 @@ function enableLongPressTooltip(el: HTMLElement): void {
     el.addEventListener("touchcancel", cancel, { passive: true });
 }
 
+// setIcon replaces an element's SVG outright, so a button whose icon reports its state — the
+// bell that becomes a struck-through bell, the link preview that becomes a broken link — would
+// swap it with a hard cut. This animates the incoming icon instead.
+//
+// The class goes on the SVG setIcon has just created, which is a brand-new element every time,
+// so the animation replays on its own: no removing a class and forcing a reflow to restart it.
+// The icon already in place is left untouched — the appliers that call this run on every repaint
+// of the settings row (a neighbouring button changing, a method being picked), and re-animating
+// an unchanged icon would make the whole row flicker. The first icon a button is given is its
+// initial state rather than a change, so it arrives unannounced too.
+function swapIcon(el: HTMLElement, icon: string): void {
+    const previous = el.dataset.tgIcon;
+    if (previous === icon) return;
+    el.dataset.tgIcon = icon;
+    setIcon(el, icon);
+    if (previous !== undefined) el.querySelector("svg")?.classList.add("telegram-icon-swap");
+}
+
 // Wraps an async handler so it can be used where a void-returning callback is
 // expected (e.g. addEventListener); the returned promise is explicitly discarded.
 function voidListener<E extends Event = Event>(handler: (evt: E) => Promise<void>): (evt: E) => void {
@@ -546,7 +564,7 @@ export class MultiPresetModal extends Modal {
         for (const r of this.channelRows) {
             const on = r.id === id;
             r.toggle.setValue(on);
-            r.methodsEl.toggleClass("is-hidden", !on);
+            r.methodsEl.toggleClass("is-open", on);
         }
         this.updatingPresets = false;
         this.updateScheduleState();
@@ -1199,7 +1217,7 @@ export class MultiPresetModal extends Modal {
         enableLongPressTooltip(silentBtn);
         const applySilent = () => {
             const effective = row.silentOn && !row.editBlocked && !row.ignoreBlocked;
-            setIcon(silentBtn, effective ? "bell-off" : "bell");
+            swapIcon(silentBtn, effective ? "bell-off" : "bell");
             silentBtn.toggleClass("is-active", effective);
         };
         applySilent(); // reflects the "Always publish silently" default
@@ -1236,7 +1254,7 @@ export class MultiPresetModal extends Modal {
         const applyPreviewMode = () => {
             const mode = row.richBlocked || row.editBlocked || row.ignoreBlocked || row.hasMedia
                 ? "default" : row.previewMode;
-            setIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
+            swapIcon(previewModeBtn, mode === "off" ? "link-2-off" : "panel-top-close");
             setTooltip(previewModeBtn, mode === "top" ? t.ADVANCED_CARD_PREVIEW_TOP_TOOLTIP
                 : mode === "off" ? t.ADVANCED_CARD_PREVIEW_OFF_TOOLTIP
                 : t.ADVANCED_CARD_PREVIEW_DEFAULT_TOOLTIP);
@@ -1381,6 +1399,16 @@ export class MultiPresetModal extends Modal {
         // It lives INSIDE the text flow (previewContentEl) so it clamps and scrolls with
         // the content; hidden until a link is selected, moved above/below the text by mode.
         const linkCardEl = previewContentEl.createDiv("telegram-split-linkpreview is-hidden");
+        // Two elements again, for the same reason the preset method picker needs two: the outer
+        // one is the single-row grid that folds (see styles.css), the inner one is the card
+        // itself and does the clipping. Everything the card is built from goes in the inner one,
+        // which is also what gets emptied when the chosen link changes.
+        const linkCardBodyEl = linkCardEl.createDiv("telegram-split-linkpreview-body");
+        // The fold changes the content height over its whole run, so the clamp is measured
+        // again once it has settled — the check at the start of the fold reads the old height.
+        linkCardEl.addEventListener("transitionend", evt => {
+            if (evt.target === linkCardEl && evt.propertyName === "grid-template-rows") refreshExpand();
+        });
         // A classic method doesn't keep attachments where the note puts them: they go out as one
         // album carrying the text as its caption, above the text or below it depending on the
         // attachment setting. The preview mirrors that by lifting the note's embeds out of the
@@ -1552,16 +1580,41 @@ export class MultiPresetModal extends Modal {
                 window.requestAnimationFrame(refreshExpand);
                 return;
             }
-            linkCardEl.removeClass("is-hidden");
             // In the text flow: first child of the content in "top" mode, last otherwise —
             // so it scrolls (and clamps) together with the text.
-            if (mode === "top") previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
-            else previewContentEl.appendChild(linkCardEl);
+            //
+            // Positioned before it is unfolded, and only when it is not already in place.
+            // Moving a node is a remove and a re-insert, which throws away any transition
+            // running on it: unfolding first would have the move that follows cut the fold off
+            // at its first frame — which is every time the card is shown after being hidden
+            // somewhere else in the text.
+            const wantTop = mode === "top";
+            let moved = false;
+            if (wantTop && previewContentEl.firstChild !== linkCardEl) {
+                previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
+                moved = true;
+            } else if (!wantTop && previewContentEl.lastChild !== linkCardEl) {
+                previewContentEl.appendChild(linkCardEl);
+                moved = true;
+            }
+            // The card always arrives with a fold, wherever it arrives from. A move is a remove
+            // and a re-insert, which leaves the element with no previously computed style — and
+            // a transition needs a value to start from, so on its own the card would simply be
+            // there at full height. So it is put into the collapsed state (already the case
+            // when it was hidden, the point of it when the move is a change of side while it is
+            // on screen), its geometry is read back to have that state computed, and only then
+            // is it unfolded. Reading is skipped when nothing moved: the card has been sitting
+            // in the layout for frames already and transitions from where it is.
+            if (moved) {
+                linkCardEl.addClass("is-hidden");
+                linkCardEl.getBoundingClientRect();
+            }
+            linkCardEl.removeClass("is-hidden");
             window.requestAnimationFrame(refreshExpand);
             if (cardUrl === url) return;
             cardUrl = url;
-            linkCardEl.empty();
-            const textEl = linkCardEl.createDiv("telegram-split-linkpreview-text");
+            linkCardBodyEl.empty();
+            const textEl = linkCardBodyEl.createDiv("telegram-split-linkpreview-text");
             const siteEl = textEl.createDiv({ cls: "telegram-split-linkpreview-site", text: new URL(url).hostname.replace(/^www\./, "") });
             const titleEl = textEl.createDiv({ cls: "telegram-split-linkpreview-title", text: url });
             void this.fetchLinkPreview(url).then(data => {
@@ -1570,7 +1623,7 @@ export class MultiPresetModal extends Modal {
                 if (data.title) titleEl.setText(data.title);
                 if (data.description) textEl.createDiv({ cls: "telegram-split-linkpreview-desc", text: data.description });
                 if (data.image) {
-                    const img = linkCardEl.createEl("img", { cls: "telegram-split-linkpreview-image" });
+                    const img = linkCardBodyEl.createEl("img", { cls: "telegram-split-linkpreview-image" });
                     img.src = data.image;
                     img.addEventListener("error", () => img.remove());
                 }
@@ -1772,7 +1825,11 @@ export class MultiPresetModal extends Modal {
             // like a radio group — exactly one method stays selected — and is revealed only
             // while the preset itself is toggled on. The preset's configured method is
             // labelled "Default (…)", pinned to the top of the list, and selected initially.
+            // Two elements, because the reveal is animated: the outer one is a single-row grid
+            // whose track grows from 0fr to 1fr (see styles.css), and the inner one holds the
+            // options and does the clipping while that track is short of full height.
             const methodsEl = itemEl.createDiv("telegram-multi-preset-methods");
+            const methodsInnerEl = methodsEl.createDiv("telegram-multi-preset-methods-inner");
             const row = { id: channel.id, container: itemEl, toggle: null as unknown as ToggleComponent, method: defaultMethod, methodsEl };
 
             const allowedMethods = availableMethods(channel);
@@ -1794,7 +1851,7 @@ export class MultiPresetModal extends Modal {
 
             for (const [value, label] of orderedMethods) {
                 const isDefault = value === defaultMethod;
-                const optEl = methodsEl.createDiv("telegram-preset-method-option");
+                const optEl = methodsInnerEl.createDiv("telegram-preset-method-option");
                 optEl.createSpan({
                     text: isDefault ? t.ADVANCED_METHOD_DEFAULT.replace("{method}", label) : label,
                     cls: "telegram-preset-method-label",
@@ -1811,7 +1868,7 @@ export class MultiPresetModal extends Modal {
                 methodToggles.push({ method: value, toggle: mToggle });
             }
 
-            methodsEl.toggleClass("is-hidden", !isPreToggled);
+            methodsEl.toggleClass("is-open", isPreToggled);
 
             // Only one preset can be selected at a time: toggling one on clears the rest.
             const toggle = new ToggleComponent(headerEl.createDiv("telegram-multi-preset-control"))
