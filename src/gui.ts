@@ -208,15 +208,19 @@ interface CardRow {
     previewMode: "default" | "top" | "off";
     linkPreviewUrl: string | null;
     updateLinkPreviewCard: () => void;
-    // Set while the chosen method is a classic one, which sends attachments as an album rather
-    // than inline — the preview then lays them out that way. Unset for rich methods and while
-    // no method is chosen at all, where the note's own inline layout is what's shown.
-    classicMedia: boolean;
+    // Set while the chosen method is a classic one, which differs from a Rich Message in two
+    // ways the preview mirrors: attachments go out as an album rather than inline, and headings
+    // are downgraded to bold text. Unset for rich methods and while no method is chosen at all,
+    // where the note's own layout is what's shown.
+    classicMethod: boolean;
     // Whether this message carries attachments at all, known once its preview has rendered.
     // A message with media has no room for a web preview — the media is what its one media
     // slot holds — so the link-preview options don't apply to it.
     hasMedia: boolean;
     updateMediaPlacement: () => void;
+    // Repaints the previewed text for the chosen method — currently the heading downgrade a
+    // classic method applies. Late-bound, like the other preview updaters.
+    updateTextStyle: () => void;
     onlineOn: boolean;
     scheduleValue: string;
     // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no active
@@ -515,7 +519,7 @@ export class MultiPresetModal extends Modal {
         const anyRich = methods.some(isRichMethod);
         for (const row of this.allCards()) {
             row.richBlocked = anyRich;
-            row.classicMedia = methods.length > 0 && !anyRich;
+            row.classicMethod = methods.length > 0 && !anyRich;
             row.applyRichState();
         }
     }
@@ -1077,7 +1081,10 @@ export class MultiPresetModal extends Modal {
                 links: this.splitPosts.length === 1 ? this.storedPostLinks : post.links,
                 previewCls: "telegram-split-preview",
                 contentCls: "telegram-split-preview-content",
-                render: contentEl => MarkdownRenderer.render(this.app, cleaned, contentEl, this.file.path, this.splitRenderComponent),
+                render: async contentEl => {
+                    await MarkdownRenderer.render(this.app, cleaned, contentEl, this.file.path, this.splitRenderComponent);
+                    return cleaned;
+                },
             });
 
             // A comment's header numbers it within its post and, on a split note, names that
@@ -1119,13 +1126,15 @@ export class MultiPresetModal extends Modal {
                     contentCls: "telegram-split-comment-content",
                     render: async contentEl => {
                         const raw = await this.app.vault.cachedRead(commentFile);
+                        const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
                         await MarkdownRenderer.render(
                             this.app,
-                            raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ""),
+                            body,
                             contentEl,
                             commentFile.path,
                             this.splitRenderComponent,
                         );
+                        return body;
                     },
                 }));
             }
@@ -1146,7 +1155,9 @@ export class MultiPresetModal extends Modal {
         previewCls: string;
         contentCls: string;
         embedIndex?: number;
-        render: (contentEl: HTMLElement) => Promise<void>;
+        // Renders the message's markdown into the element and returns that markdown: the
+        // classic preview needs the source to size its thematic breaks (collectPlainSwaps).
+        render: (contentEl: HTMLElement) => Promise<string>;
     }): CardRow {
         const { parent, kind, links } = params;
         const isPost = kind === "post";
@@ -1164,9 +1175,10 @@ export class MultiPresetModal extends Modal {
             previewMode: "default",
             updateLinkPreviewCard: () => {},
             linkPreviewUrl: null,
-            classicMedia: false,
+            classicMethod: false,
             hasMedia: false,
             updateMediaPlacement: () => {},
+            updateTextStyle: () => {},
             onlineOn: false,
             scheduleValue: "",
             richBlocked: false,
@@ -1331,6 +1343,9 @@ export class MultiPresetModal extends Modal {
             previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked || row.ignoreBlocked || row.hasMedia);
             applyAttach();
             applyPreviewMode();
+            // The method also decides how the text itself reads (headings). Late-bound —
+            // a noop until the preview block below is built.
+            row.updateTextStyle();
         };
         // A scheduled date is the one option a comment genuinely can't hold: it is sent as a
         // reply to its post, so it goes out when the post does. "Send when online" is a
@@ -1376,6 +1391,10 @@ export class MultiPresetModal extends Modal {
         // Every embed, each with an anchor left where it sits in the text so the inline layout
         // can be restored when the method changes back.
         const mediaNodes: Array<{ el: HTMLElement; anchor: Comment }> = [];
+        // Every block a classic method sends as ordinary text — a table, a thematic break —
+        // paired with the plain-text twin that stands in for it while such a method is chosen.
+        // The two swap places on every method change; see collectPlainSwaps.
+        const plainSwaps: Array<{ el: HTMLElement; plain: HTMLElement }> = [];
         const expandBtn = previewEl.createEl("button", { cls: "telegram-split-expand", attr: { type: "button" } });
         enableLongPressTooltip(expandBtn);
         setIcon(expandBtn, "chevron-down");
@@ -1411,13 +1430,59 @@ export class MultiPresetModal extends Modal {
             row.hasMedia = mediaNodes.length > 0;
         };
 
+        // Builds the plain-text stand-ins, once, after the markdown is on the page. Two blocks
+        // come out of mdToTelegramHtml as text rather than as structure:
+        //
+        //   - a table matches none of its rules at all, so the note's markdown reaches Telegram
+        //     verbatim and reads there as the pipes and dashes it was written with. The twin
+        //     rebuilds those lines from the rendered cells, header delimiter row included — that
+        //     row is not a row of the table, it is what made the first one a header.
+        //   - a thematic break becomes a run of box-drawing characters exactly as long as the
+        //     marker the note wrote (`---` is three, `*****` is five), sitting in the text rather
+        //     than spanning the message. An <hr> carries no length of its own, so the lengths are
+        //     read off the source in order; a rule the scan does not reach falls back to three.
+        const collectPlainSwaps = (source: string) => {
+            const swap = (el: HTMLElement, cls: string, text: string) => {
+                el.addClass("telegram-split-realblock");
+                const plain = createDiv({ cls: `${cls} is-hidden`, text });
+                el.after(plain);
+                plainSwaps.push({ el, plain });
+            };
+
+            previewContentEl.querySelectorAll("table").forEach(table => {
+                if (linkCardEl.contains(table)) return;
+                const lines: string[] = [];
+                Array.from(table.rows).forEach((tr, i) => {
+                    const cells = Array.from(tr.cells).map(c => (c.textContent ?? "").trim());
+                    lines.push(`| ${cells.join(" | ")} |`);
+                    if (i === 0 && tr.cells[0]?.tagName === "TH") {
+                        lines.push(`| ${cells.map(() => "---").join(" | ")} |`);
+                    }
+                });
+                // Obsidian may wrap the table in a scroll shell, which has to go with it —
+                // hiding the table alone would leave the wrapper's own box behind.
+                swap(table.closest<HTMLElement>(".table-wrapper") ?? table, "telegram-split-plaintable", lines.join("\n"));
+            });
+
+            // The marker lengths, in the order the rules appear. Fenced code is dropped first:
+            // the converter stashes it away before rewriting thematic breaks, and Obsidian
+            // renders no rule for it either, so a dashed line inside a fence counts for neither.
+            const ruleLengths = Array.from(
+                source.replace(/```[\s\S]*?```/g, "").matchAll(/^[ \t]*([-_*])\1{2,}[ \t]*$/gm),
+                m => m[0].trim().length,
+            );
+            previewContentEl.querySelectorAll("hr").forEach((hr, i) => {
+                swap(hr, "telegram-split-plainrule", "\u2500".repeat(ruleLengths[i] ?? 3));
+            });
+        };
+
         // Puts the embeds where the chosen method will: gathered into one album block above or
         // below the text (classic), or back inline exactly where the note has them (rich, or no
         // method chosen). Album placement follows the same flag the send path uses — the
         // attachment button reading "Attachments below the text".
         row.updateMediaPlacement = () => {
             if (mediaNodes.length === 0) return;
-            const asAlbum = row.classicMedia;
+            const asAlbum = row.classicMethod;
             if (asAlbum) {
                 for (const { el } of mediaNodes) mediaEl.appendChild(el);
                 mediaEl.toggleClass("is-album", mediaNodes.length > 1);
@@ -1435,6 +1500,23 @@ export class MultiPresetModal extends Modal {
                 "is-emptied",
                 asAlbum && !p.textContent?.trim() && !p.querySelector("img, video, audio, .internal-embed"),
             ));
+            window.requestAnimationFrame(refreshExpand);
+        };
+
+        // Telegram's classic message formats carry no block structure beyond line breaks, so
+        // mdToTelegramHtml flattens all of it: every heading level becomes bold text on a line
+        // of its own (`# Title` and `#### Title` come out identical), unordered markers become a
+        // literal "• ", ordered ones stay as the plain numbers the note wrote, and a table is
+        // passed through untouched as its own pipe-and-dash text. The preview reproduces the
+        // first three with styling (see styles.css) and the last by swapping each table for its
+        // plain-text twin. A Rich Message keeps all of it, and with no method chosen there is
+        // nothing to predict, so both are left reading as the note does.
+        row.updateTextStyle = () => {
+            previewContentEl.toggleClass("is-classic-text", row.classicMethod);
+            for (const { el, plain } of plainSwaps) {
+                el.toggleClass("is-hidden", row.classicMethod);
+                plain.toggleClass("is-hidden", !row.classicMethod);
+            }
             window.requestAnimationFrame(refreshExpand);
         };
 
@@ -1521,7 +1603,7 @@ export class MultiPresetModal extends Modal {
         }, { capture: true });
 
         void params.render(previewContentEl)
-            .then(() => window.requestAnimationFrame(() => {
+            .then(source => window.requestAnimationFrame(() => {
                 // Explain the click behaviour on every selectable web link.
                 previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
                     if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.ADVANCED_CARD_LINK_TOOLTIP);
@@ -1530,6 +1612,9 @@ export class MultiPresetModal extends Modal {
                 // settled — which decides both how the media is laid out and whether the
                 // link-preview options apply at all, so the whole state is re-applied.
                 collectMediaNodes();
+                // Same for the blocks a classic method flattens to text — they are read off
+                // the rendered markdown and the source it came from.
+                collectPlainSwaps(source);
                 row.applyRichState();
                 refreshExpand();
             }));

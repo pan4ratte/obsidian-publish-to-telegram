@@ -1358,6 +1358,108 @@ img.telegram-split-linkpreview-image {
     flex-shrink: 0;
 }
 
+/* Classic methods have no headings: every level is sent as bold text on a line of its own, so
+   `# Title` and `#### Title` arrive identical. The preview drops its headings to plain bold body
+   text to match — same size, weight and spacing as a paragraph, with the heading decoration some
+   themes add (rules, small-caps, accent colours) taken back off. Rich Messages keep real
+   headings, so the class is only on the content while a classic method is chosen. */
+.telegram-split-preview-content.is-classic-text :is(h1, h2, h3, h4, h5, h6),
+.telegram-split-comment-content.is-classic-text :is(h1, h2, h3, h4, h5, h6) {
+    font-family: inherit;
+    font-size: inherit;
+    font-style: inherit;
+    font-variant: inherit;
+    font-weight: var(--bold-weight, 600);
+    line-height: inherit;
+    letter-spacing: inherit;
+    text-transform: none;
+    color: var(--text-normal);
+    border: none;
+    padding: 0;
+    margin: var(--p-spacing, 1rem) 0;
+}
+
+/* Lists: a classic message has no list markup either. mdToTelegramHtml rewrites every
+   unordered marker to a literal "• ", leaves ordered items as the plain numbers the note
+   wrote, and keeps a task item's brackets as text — so what arrives is ordinary lines at
+   the note's own indentation, with no hanging indent and no theme bullet. */
+.telegram-split-preview-content.is-classic-text :is(ul, ol),
+.telegram-split-comment-content.is-classic-text :is(ul, ol) {
+    padding-inline-start: 0;
+    list-style: none;
+}
+
+/* Nested levels: classic sends the note's leading whitespace as literal spaces, which is a
+   far smaller step in than the hanging indent a rendered list uses. */
+.telegram-split-preview-content.is-classic-text li > :is(ul, ol),
+.telegram-split-comment-content.is-classic-text li > :is(ul, ol) {
+    padding-inline-start: 2ch;
+}
+
+.telegram-split-preview-content.is-classic-text ul > li::before,
+.telegram-split-comment-content.is-classic-text ul > li::before {
+    content: "• ";
+}
+
+/* An ordered list keeps its numbers, but flush with the text the way a typed "1." is —
+   `inside` puts the marker in the line box instead of the margin. */
+.telegram-split-preview-content.is-classic-text ol,
+.telegram-split-comment-content.is-classic-text ol {
+    list-style: decimal inside;
+}
+
+/* Task items: the checkbox is Obsidian's rendering of `- [ ]`, which classic sends as those
+   literal characters. Obsidian marks the state on the item as data-task ("x", "/", any
+   custom status); the base rule covers the unchecked item, whose value is blank. */
+.telegram-split-preview-content.is-classic-text .task-list-item-checkbox,
+.telegram-split-comment-content.is-classic-text .task-list-item-checkbox {
+    display: none;
+}
+
+.telegram-split-preview-content.is-classic-text li.task-list-item::before,
+.telegram-split-comment-content.is-classic-text li.task-list-item::before {
+    content: "• [ ] ";
+}
+
+.telegram-split-preview-content.is-classic-text li.task-list-item[data-task]:not([data-task=""]):not([data-task=" "])::before,
+.telegram-split-comment-content.is-classic-text li.task-list-item[data-task]:not([data-task=""]):not([data-task=" "])::before {
+    content: "• [" attr(data-task) "] ";
+}
+
+/* A loose list item wraps its text in a paragraph, which would drop the marker onto a line of
+   its own. Only the first one joins the marker; the rest keep their own lines, as the message
+   will have them. */
+.telegram-split-preview-content.is-classic-text li > p,
+.telegram-split-comment-content.is-classic-text li > p {
+    display: inline;
+    margin: 0;
+}
+
+.telegram-split-preview-content.is-classic-text li > p + p,
+.telegram-split-comment-content.is-classic-text li > p + p {
+    display: block;
+}
+
+/* Blocks a classic message carries as plain text rather than as structure, each swapped in
+   for the rendered original while such a method is chosen (see collectPlainSwaps in gui.ts):
+
+     - a table, whose markdown goes out untouched and reads as the pipes and dashes it was
+       typed with;
+     - a divider, which becomes a run of box-drawing characters as long as the marker written
+       — a few characters sitting in the text, not a rule spanning the message. */
+.telegram-split-plaintable,
+.telegram-split-plainrule {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: var(--p-spacing, 1rem) 0;
+}
+
+.telegram-split-plaintable.is-hidden,
+.telegram-split-plainrule.is-hidden,
+.telegram-split-realblock.is-hidden {
+    display: none;
+}
+
 /* The link chosen as the message's link-preview source (post or comment). The highlight
    is widened with side box-shadows rather than padding: padding would override the right
    padding Obsidian reserves on `.external-link` for its icon (squeezing the icon into the
