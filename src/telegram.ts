@@ -12,7 +12,6 @@ import {
     type InputText,
     type InputMediaLike,
     type Message,
-    type tl,
 } from "@mtcute/web";
 import { thtml } from "@mtcute/html-parser";
 import wasmBytes from "@mtcute/wasm/mtcute.wasm";
@@ -227,27 +226,13 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
     return InputMedia.video(file, { fileName: item.file.name });
 }
 
-// Uploads local rich media and returns the `files` entries for a raw inputRichMessage*.
-// Sending goes through sendRichMessage, which does this internally from its `attachments`
-// map; editing has to use the raw messages.editMessage (no rich support in the high-level
-// editMessage), so it builds the same structures here. Each file keeps the id its
-// `tg://<kind>?id=…` reference in the markdown points at.
-async function uploadRichFiles(
-    client: TelegramClient, peer: string | number, media: RichMediaItem[]
-): Promise<tl.TypeInputRichFile[] | undefined> {
-    if (media.length === 0) return undefined;
-    return Promise.all(media.map(async (item): Promise<tl.TypeInputRichFile> => {
-        const uploaded = await client.uploadMedia(await toRichAttachment(item), { peer });
-        return uploaded.type === "photo"
-            ? { _: "inputRichFilePhoto", id: item.id, photo: uploaded.inputPhoto }
-            : { _: "inputRichFileDocument", id: item.id, document: uploaded.inputDocument };
-    }));
-}
-
 // Builds a rich message's markdown + uploaded-media attachments from a note body: local
 // media embeds become tg://…?id= references backed by the `attachments` map, web embeds
 // stay as URLs. `hasUnsupportedLocal` flags a local document (PDF) the caller may refuse.
-// Used for both the main post and md-embed comments (each resolved against its own file).
+// Both sendRichMessage and editMessage take this `attachments` map directly — each entry's
+// key is the id its `tg://<kind>?id=…` reference in the markdown points at — so the same
+// content build serves sending and editing, for the main post and for md-embed comments
+// (each resolved against its own file).
 async function buildRichMessageContent(app: App, body: string, sourceFile: TFile): Promise<{ markdown: string; attachments?: Record<string, RichAttachment>; hasUnsupportedLocal: boolean }> {
     const { body: richBody, media, hasUnsupportedLocal } = collectRichMedia(app, body, sourceFile);
     const markdown = obsidianToRichMarkdown(richBody);
@@ -933,23 +918,18 @@ export async function sendNoteToTelegram(
                 } catch { /* couldn't fetch — keep the preset's method */ }
                 try {
                     if (editAsRich) {
-                        // High-level editMessage has no rich support; the raw messages.editMessage
-                        // carries a richMessage field (inputRichMessageMarkdown) — use it directly.
-                        // Web-media embeds ride inside the markdown (Telegram renders them inline);
-                        // local media is uploaded and passed as `files`, the same structure
-                        // sendRichMessage builds from its `attachments` map, so media can be added
-                        // to a post that was sent without any. A local document is still refused up
-                        // front, as on send — there's no rich reference kind for one.
-                        const { body: richBody, media: localMedia, hasUnsupportedLocal } = collectRichMedia(app, editBody, file);
+                        // Built exactly as on the send path: web-media embeds ride inside the
+                        // markdown (Telegram renders them inline), local media becomes tg://…?id=
+                        // refs backed by the attachments map, which editMessage uploads and binds
+                        // by key — so media can be added to a post that was sent without any. A
+                        // local document is still refused up front, as on send — there's no rich
+                        // reference kind for one.
+                        const { markdown, attachments, hasUnsupportedLocal } = await buildRichMessageContent(app, editBody, file);
                         if (hasUnsupportedLocal) throw new Error("RICH_LOCAL_DOC");
-                        // richBody carries the tg://…?id= refs that the uploaded files bind to.
-                        const richMarkdown = obsidianToRichMarkdown(richBody);
-                        const files = await uploadRichFiles(client, peer, localMedia);
-                        await client.call({
-                            _: "messages.editMessage",
-                            peer: await client.resolvePeer(peer),
-                            id: messageId,
-                            richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown, files },
+                        await client.editMessage({
+                            chatId: peer,
+                            message: messageId,
+                            richMessage: { type: "markdown", content: markdown, attachments },
                         });
                     } else {
                         // Classic edit: attach the note's media so adding a photo (or other single
@@ -1078,10 +1058,12 @@ export async function editNoteCommentsOnly(
             const mdContent = await app.vault.read(mdEmbeds[i + embedOffset]);
             const { body: mdBody } = extractFrontmatter(mdContent);
             const formattedContent = mdToTelegramHtml(mdBody);
-            // As on the post path, local embeds become tg://…?id= refs backed by uploaded
-            // files; each comment resolves its embeds against its own note.
-            const rich = postAsRich ? collectRichMedia(app, mdBody, mdEmbeds[i + embedOffset]) : null;
-            const richMarkdown = rich ? obsidianToRichMarkdown(rich.body) : "";
+            // As on the post path, local embeds become tg://…?id= refs backed by the
+            // attachments map; each comment resolves its embeds against its own note. An
+            // unembeddable local document is dropped rather than refused, matching the way
+            // comments are sent — they're best-effort.
+            const rich = postAsRich ? await buildRichMessageContent(app, mdBody, mdEmbeds[i + embedOffset]) : null;
+            const richMarkdown = rich?.markdown ?? "";
             if (!formattedContent.length && !richMarkdown.length) continue;
 
             const parsed = parseLinkComponents(storedLinks[i]);
@@ -1089,14 +1071,10 @@ export async function editNoteCommentsOnly(
 
             try {
                 if (richMarkdown.length > 0) {
-                    // Rich comment edit: raw messages.editMessage carries the richMessage field.
-                    const peer = peerFor(parsed.chatId);
-                    const files = await uploadRichFiles(client, peer, rich?.media ?? []);
-                    await client.call({
-                        _: "messages.editMessage",
-                        peer: await client.resolvePeer(peer),
-                        id: parsed.messageId,
-                        richMessage: { _: "inputRichMessageMarkdown", markdown: richMarkdown, files },
+                    await client.editMessage({
+                        chatId: peerFor(parsed.chatId),
+                        message: parsed.messageId,
+                        richMessage: { type: "markdown", content: richMarkdown, attachments: rich?.attachments },
                     });
                 } else {
                     await client.editMessage({ chatId: peerFor(parsed.chatId), message: parsed.messageId, text: htmlText(formattedContent) });
