@@ -1,15 +1,15 @@
 # Changelog
 
-## 6.3.0
+## 6.2.1
 
 ### UI/UX enhancements and bug fixes
 
-* The authentication bar has been visually redesigned, and new animations were added.
+* The authentication bar has been redesigned, and new animations were added.
 * The post preview has been improved: it now better reflects how a post will look after publishing, depending on the selected publishing method.
 * Animations were added to various elements of the advanced publishing menu.
-* The design of presets has been improved.
+* The UI of presets has been improved.
 * Fixed a bug when a link selected in the preview window squeezed the link icon into the text.
-* Fixed a bug when the settings page scrolled when a preset was created.
+* Fixed a bug when the settings page scrolled automatically when a preset was created.
 * Fixed the vertical centering of the vanilla Obsidian options.
 
 

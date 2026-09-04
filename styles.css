@@ -38,16 +38,20 @@
     align-self: center;
 }
 
-/* A toggle row's control block grows with the row (`flex: 1 1 auto`), so a switch a few
-   dozen pixels wide sits in a container taking half the row — the name and description are
-   squeezed into the other half and wrap early. On a toggle row the control is pinned to the
-   row's right edge and sized to the switch, leaving the rest of the width to the text. */
-.telegram-settings-root .setting-item:not(.setting-item-heading) > .setting-item-control:has(> .checkbox-container) {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 0;
-    margin-left: auto;
-    justify-content: flex-end;
+/* Obsidian gives a row's control block the same `flex: 1 1 auto` as the name/description
+   block beside it, so a switch a few dozen pixels wide ends up in a container that claims an
+   even share of the row's spare width — half of it on a wide pane — while the text wraps early
+   in what's left. Pinning the container's flex basis to its own content sizes it to the switch
+   and hands the rest back to the text; the switch stays at the row's right edge, where the
+   built-in `justify-content: flex-end` already puts it.
+
+   `max-content` rather than the shorter `flex: 0 0 auto`, and the shrink factor stays at 1:
+   this tab renders inside a `.setting-item` (the search anchor), and rows nested there resolve
+   their flex base sizes intrinsically — a control that cannot shrink then takes the whole row
+   and squeezes the name and description to zero width, leaving an empty card with a switch
+   floating in it. `mod-toggle` is Obsidian's own marker for a row built with addToggle(). */
+.telegram-settings-root .setting-item.mod-toggle > .setting-item-control {
+    flex: 0 1 max-content;
 }
 
 .telegram-settings-root .setting-item.telegram-bordered-setting {
@@ -455,7 +459,7 @@ body .telegram-auth-actions .telegram-link-button.is-active:hover {
 
 /* With a panel open the bar runs straight into it, so the bottom corners square off — timed
    with the panel sliding out from under it. */
-.telegram-auth-status:has(.telegram-link-button.is-active) {
+.telegram-auth-status.is-open {
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 }

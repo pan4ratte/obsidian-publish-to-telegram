@@ -2276,6 +2276,10 @@ export class TelegramSettingTab extends PluginSettingTab {
             authActionsEl.querySelectorAll(".telegram-link-button.is-active")
                 .forEach(el => el.classList.remove("is-active"));
             activeBtn?.buttonEl.addClass("is-active");
+            // The bar squares off its bottom corners while a panel hangs below it, and this
+            // flag is what the stylesheet reads: the lit segment is a descendant, and CSS
+            // can't select an ancestor from it.
+            authStatusEl.toggleClass("is-open", activeBtn !== null);
             moveIndicator(activeBtn?.buttonEl ?? null);
             // Cleared up front, not with the panel: the flag decides whether a re-render brings
             // the credentials card back, and the click has already settled that question.
@@ -2344,6 +2348,9 @@ export class TelegramSettingTab extends PluginSettingTab {
             this.credentialsCardOpen = true;
             credsContainer.removeClass("is-hidden");
             credsBtn.buttonEl.addClass("is-active");
+            // Reached without swapInline() when a re-render restores the card, so the bar's
+            // own flag is set here too.
+            authStatusEl.addClass("is-open");
             this.renderCredentialsCard(credsContainer);
         };
         const credsBtn = new ButtonComponent(authActionsEl)
