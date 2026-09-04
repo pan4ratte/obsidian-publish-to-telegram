@@ -233,6 +233,11 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
 // key is the id its `tg://<kind>?id=…` reference in the markdown points at — so the same
 // content build serves sending and editing, for the main post and for md-embed comments
 // (each resolved against its own file).
+//
+// The markdown here is parsed SERVER-side (type: "markdown"). That's what buys headings,
+// tables, task lists, <tg-collage> and the rest for free — and it's also why a rich post
+// can't carry inline buttons, those living only in the mutually exclusive blocks form. See
+// "Inline buttons under a post" in CONTRIBUTING.md before reaching for Rich.buttonRow().
 async function buildRichMessageContent(app: App, body: string, sourceFile: TFile): Promise<{ markdown: string; attachments?: Record<string, RichAttachment>; hasUnsupportedLocal: boolean }> {
     const { body: richBody, media, hasUnsupportedLocal } = collectRichMedia(app, body, sourceFile);
     const markdown = obsidianToRichMarkdown(richBody);
