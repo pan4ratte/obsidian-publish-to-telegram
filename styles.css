@@ -38,6 +38,18 @@
     align-self: center;
 }
 
+/* A toggle row's control block grows with the row (`flex: 1 1 auto`), so a switch a few
+   dozen pixels wide sits in a container taking half the row — the name and description are
+   squeezed into the other half and wrap early. On a toggle row the control is pinned to the
+   row's right edge and sized to the switch, leaving the rest of the width to the text. */
+.telegram-settings-root .setting-item:not(.setting-item-heading) > .setting-item-control:has(> .checkbox-container) {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    margin-left: auto;
+    justify-content: flex-end;
+}
+
 .telegram-settings-root .setting-item.telegram-bordered-setting {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
