@@ -1,18 +1,20 @@
 # Publish to Telegram plugin
 
-English | [Русский](https://github.com/pan4ratte/obsidian-publish-to-telegram/blob/main/README_RU.md)
-
-Post notes directly to Telegram channels, groups, forum topics and personal messages, as your own account or as a bot. Standard and rich-text Telegram formatting, media and document attachments, and custom emoji are supported. Advanced publishing settings let you preview every message, schedule it, split a note into several posts, and edit what you already published.
-
 <div align="center">
   <img src="media/1-cover.png"width="100%" />
 </div>
 
 <div align="center">
 <br>
-<a href="https://github.com/pan4ratte/obsidian-publish-to-telegram/releases"><img alt="badge" src="https://shieldcn.dev/github/pan4ratte/obsidian-publish-to-telegram/release.svg?color=8a75f0"></a>
 <a href="https://github.com/pan4ratte/obsidian-publish-to-telegram/releases"><img alt="badge" src="https://shieldcn.dev/github/pan4ratte/obsidian-publish-to-telegram/downloads.svg?color=8a75f0"></a>
 <a href="https://github.com/mtcute/mtcute"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/built%20with-mtcute-8a75f0.svg?logo=data%3Aimage%2Fsvg%2Bxml%2C%3Csvg+xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27+viewBox%3D%270+0+24+24%27%3E%3Cpath+fill%3D%27%2523de6fbe%27+d%3D%27M18+1.6a3.6+3.6+0+0+1+1.3+5l-1+1.8h2.1a3.6+3.6+0+0+1+0+7.2h-2.2l1.1+1.9a3.6+3.6+0+1+1-6.2+3.6L4.7+6.5A3.6+3.6+0+0+1+10.9+3L12+4.8l1-1.9a3.6+3.6+0+0+1+5-1.3%27%2F%3E%3Cpath+fill%3D%27%2523f69ddc%27+d%3D%27M15.1+13.8a3.6+3.6+0+0+0-3.3-5.4H3.6a3.6+3.6+0+0+0+0+7.2h2.2l-1.1+1.9a3.6+3.6+0+0+0+6.2+3.6z%27%2F%3E%3C%2Fsvg%3E&amp;mode=dark"><img alt="badge" src="https://shieldcn.dev/badge/built%20with-mtcute-8a75f0.svg?logo=data%3Aimage%2Fsvg%2Bxml%2C%3Csvg+xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27+viewBox%3D%270+0+24+24%27%3E%3Cpath+fill%3D%27%2523de6fbe%27+d%3D%27M18+1.6a3.6+3.6+0+0+1+1.3+5l-1+1.8h2.1a3.6+3.6+0+0+1+0+7.2h-2.2l1.1+1.9a3.6+3.6+0+1+1-6.2+3.6L4.7+6.5A3.6+3.6+0+0+1+10.9+3L12+4.8l1-1.9a3.6+3.6+0+0+1+5-1.3%27%2F%3E%3Cpath+fill%3D%27%2523f69ddc%27+d%3D%27M15.1+13.8a3.6+3.6+0+0+0-3.3-5.4H3.6a3.6+3.6+0+0+0+0+7.2h2.2l-1.1+1.9a3.6+3.6+0+0+0+6.2+3.6z%27%2F%3E%3C%2Fsvg%3E&amp;mode=light"></picture></a>
+<a href="https://pay.cloudtips.ru/p/c0e8eac4"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C%20%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83-(RU%20%D0%BA%D0%B0%D1%80%D1%82%D1%8B)-8a75f0.svg?logo=ri%3AFaHeart&amp;mode=dark"><img alt="badge" src="https://shieldcn.dev/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C%20%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83-(RU%20%D0%BA%D0%B0%D1%80%D1%82%D1%8B)-8a75f0.svg?logo=ri%3AFaHeart&amp;mode=light"></picture></a>
+<br>
+<p>Post notes to Telegram channels, groups, forum topics and personal messages as your own account or as a bot. Standard and rich-text Telegram formatting, media and document attachments, and custom emoji are supported. Advanced publishing settings let you preview every message, schedule it, split a note into several posts, and edit what you already published.</p>
+</div>
+
+<div align="center">
+English | <a href="https://github.com/pan4ratte/obsidian-publish-to-telegram/blob/main/README_RU.md">Русский</a>
 </div>
 
 
