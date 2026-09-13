@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { parseLinkComponents, linksMatch } from '../src/split';
+import { parseLinkComponents, linksMatch, parseChatTargetInput } from '../src/split';
 
 test('parses a supergroup/channel private link and marks it -100', () => {
   assert.deepStrictEqual(
@@ -52,4 +52,20 @@ test('accepts the bare t.me form written into split markers', () => {
 test('basic-group links match regardless of the https prefix', () => {
   assert.ok(linksMatch('https://t.me/c/-123456789/5', 't.me/c/-123456789/5'));
   assert.ok(!linksMatch('https://t.me/c/-123456789/5', 'https://t.me/c/-123456789/6'));
+});
+
+test('manual chat entry: plain ids and usernames carry no topic', () => {
+  assert.deepStrictEqual(parseChatTargetInput(' -1003882881032 '), { id: '-1003882881032' });
+  assert.deepStrictEqual(parseChatTargetInput('@mygroup'), { id: '@mygroup' });
+});
+
+test('manual chat entry: "<id>/<topic>" and "@username/<topic>" set the topic', () => {
+  assert.deepStrictEqual(parseChatTargetInput('-1003882881032/11'), { id: '-1003882881032', topicId: 11 });
+  assert.deepStrictEqual(parseChatTargetInput('@mygroup/11'), { id: '@mygroup', topicId: 11 });
+});
+
+test('manual chat entry: topic links and message-in-topic links set the topic', () => {
+  assert.deepStrictEqual(parseChatTargetInput('https://t.me/c/3882881032/11'), { id: '-1003882881032', topicId: 11 });
+  assert.deepStrictEqual(parseChatTargetInput('t.me/c/3882881032/11/345/'), { id: '-1003882881032', topicId: 11 });
+  assert.deepStrictEqual(parseChatTargetInput('https://t.me/mygroup/11'), { id: '@mygroup', topicId: 11 });
 });

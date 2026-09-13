@@ -1,5 +1,10 @@
 # Changelog
 
+## 6.2.2
+
+* **Hotfix.** A forum topic can now be entered manually as `ID/topic ID` or a topic link — previously such a post went to the General topic.
+
+
 ## 6.2.1
 
 ### UI/UX enhancements and bug fixes

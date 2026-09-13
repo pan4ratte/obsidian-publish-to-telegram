@@ -35,6 +35,29 @@ export function parseLinkComponents(link: string): { chatId: string; messageId: 
     return null;
 }
 
+// Parses a manually typed chat target. Besides a plain `@username`/ID it accepts a forum
+// topic as `<@username or ID>/<topicId>`, or a pasted topic link — `t.me/c/<id>/<topicId>`
+// (Telegram's "Copy link" on a topic) or a link to a message inside the topic
+// (`t.me/c/<id>/<topicId>/<messageId>`). Anything else is kept verbatim as the chat id.
+export function parseChatTargetInput(value: string): { id: string; topicId?: number } {
+    const trimmed = value.trim();
+    if (/t\.me\//i.test(trimmed)) {
+        const link = trimmed.replace(/\/+$/, "");
+        const privateTopic = link.match(/t\.me\/c\/([+-]?\d+)\/(\d+)(?:\/\d+)?$/i);
+        if (privateTopic) {
+            const rawId = privateTopic[1];
+            const id = rawId.startsWith("+") ? rawId.slice(1) : rawId.startsWith("-") ? rawId : `-100${rawId}`;
+            return { id, topicId: parseInt(privateTopic[2], 10) };
+        }
+        const publicTopic = link.match(/t\.me\/([A-Za-z]\w+)\/(\d+)(?:\/\d+)?$/i);
+        if (publicTopic) return { id: `@${publicTopic[1]}`, topicId: parseInt(publicTopic[2], 10) };
+        return { id: trimmed };
+    }
+    const withTopic = trimmed.match(/^(@?\w+|-?\d+)\/(\d+)$/);
+    if (withTopic) return { id: withTopic[1], topicId: parseInt(withTopic[2], 10) };
+    return { id: trimmed };
+}
+
 // Normalizes a chat id for comparison so "@Channel", "channel" compare consistently.
 function normChatId(id: string): string {
     return id.trim().toLowerCase().replace(/^@/, "");

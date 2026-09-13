@@ -6,7 +6,7 @@ import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
 import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions } from "./types";
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
-import { parseSplitPosts, linksMatch, type SplitPost } from "./split";
+import { parseSplitPosts, linksMatch, parseChatTargetInput, type SplitPost } from "./split";
 import { stripComments } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
 import { errMessage, retry, withTimeout } from "./util";
@@ -132,6 +132,13 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
         if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) return node;
     }
     return null;
+}
+
+// Chip text for a chat target. Picked chats carry a resolved title; a manually entered
+// forum topic has none, so show it in the same `<id>/<topicId>` form it was typed in.
+function chatTargetLabel(target: ChatTarget): string {
+    if (target.title) return target.title;
+    return target.topicId ? `${target.id}/${target.topicId}` : target.id;
 }
 
 // ─── Channel resolution helpers ───────────────────────────────────────────────
@@ -781,7 +788,7 @@ export class MultiPresetModal extends Modal {
 
         for (const target of this.adhocTargets) {
             const chip = fieldEl.createSpan({ cls: "telegram-chat-chip" });
-            chip.createSpan({ text: target.title || target.id, cls: "telegram-chat-chip-text" });
+            chip.createSpan({ text: chatTargetLabel(target), cls: "telegram-chat-chip-text" });
             const removeBtn = chip.createEl("button", { cls: "telegram-chat-chip-remove" });
             setIcon(removeBtn, "x");
             removeBtn.addEventListener("mouseenter", () => chip.classList.add("remove-hover"));
@@ -860,10 +867,10 @@ export class MultiPresetModal extends Modal {
         // keydown so it fires second (if the suggest picked an item, input.value is empty).
         input.addEventListener("keydown", (e: KeyboardEvent) => {
             if (e.key !== "Enter") return;
-            const id = input.value.trim();
-            if (!id) return;
+            if (!input.value.trim()) return;
             e.preventDefault();
-            if (!this.adhocTargets.some(x => x.id === id)) this.adhocTargets.push({ id });
+            const target = parseChatTargetInput(input.value);
+            if (!this.adhocTargets.some(x => x.id === target.id && x.topicId === target.topicId)) this.adhocTargets.push(target);
             this.renderAdhocPickerField();
             this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
         });
@@ -2764,7 +2771,7 @@ export class TelegramSettingTab extends PluginSettingTab {
             // Chips for each target
             for (const target of (channel.chatTargets ?? [])) {
                 const chip = fieldEl.createSpan({ cls: "telegram-chat-chip" });
-                chip.createSpan({ text: target.title || target.id, cls: "telegram-chat-chip-text" });
+                chip.createSpan({ text: chatTargetLabel(target), cls: "telegram-chat-chip-text" });
                 const removeBtn = chip.createEl("button", { cls: "telegram-chat-chip-remove" });
                 setIcon(removeBtn, "x");
                 // Mirror the X-button hover onto the chip text (replaces a :has() selector)
@@ -2775,6 +2782,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                     channel.chatTargets = (channel.chatTargets ?? []).filter(t => !(t.id === target.id && t.topicId === target.topicId));
                     channel.chatId = channel.chatTargets[0]?.id ?? "";
                     channel.chatTitle = channel.chatTargets[0]?.title;
+                    channel.topicId = channel.chatTargets[0]?.topicId;
                     await this.plugin.saveSettings();
                     renderField();
                 }));
@@ -2840,14 +2848,15 @@ export class TelegramSettingTab extends PluginSettingTab {
             // cleared the input, so input.value is empty here and we skip.
             input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
                 if (e.key !== "Enter") return;
-                const id = input.value.trim();
-                if (!id) return;
+                if (!input.value.trim()) return;
                 e.preventDefault();
-                if ((channel.chatTargets ?? []).some(t => t.id === id)) { renderField(); return; }
+                const target = parseChatTargetInput(input.value);
+                if ((channel.chatTargets ?? []).some(t => t.id === target.id && t.topicId === target.topicId)) { renderField(); return; }
                 if (!channel.chatTargets) channel.chatTargets = [];
-                channel.chatTargets.push({ id });
+                channel.chatTargets.push(target);
                 channel.chatId = channel.chatTargets[0]?.id ?? "";
                 channel.chatTitle = channel.chatTargets[0]?.title;
+                channel.topicId = channel.chatTargets[0]?.topicId;
                 await this.plugin.saveSettings();
                 renderField();
                 fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
