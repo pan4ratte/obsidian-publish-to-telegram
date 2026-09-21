@@ -1,5 +1,12 @@
 # Changelog
 
+## 6.2.3
+
+### UI/UX enhancements and bug fixes
+
+* The mtcute library was updated to 0.32.2 — logging in to an account with a QR code is now more reliable.
+
+
 ## 6.2.2
 
 * **Hotfix.** A forum topic can now be entered manually as `ID/topic ID` or a topic link — previously such a post went to the General topic.
