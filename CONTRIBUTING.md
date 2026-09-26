@@ -4,11 +4,28 @@
 
 ```
 npm install
-npm run dev     # watch build
-npm run build   # production build
+npm run dev       # watch build
+npm run build     # production build
 npm run lint
 npm test
+npx tsc --noEmit  # type-check (esbuild does not)
 ```
+
+Clone the repository into `<vault>/.obsidian/plugins/` of a test vault: both builds write
+`main.js` in place, so reloading the plugin in Obsidian picks up the change.
+
+## Tests
+
+Tests live in `tests/` and run under Node with no Obsidian runtime, so they can only cover
+modules that don't import `obsidian` at runtime (`markdown.ts`, `split.ts`, `util.ts`,
+`emoji-search.ts`, `emoji-cache.ts`). The `test` script in `package.json` lists every test
+file explicitly — add a new `*.test.ts` file there, or it won't run.
+
+## Translations
+
+The plugin ships in English and Russian. Every UI string goes into both `lang/en.ts` and
+`lang/ru.ts` under the same key, and user-facing documentation changes go into both the
+English and the `_RU` file.
 
 ## Deferred ideas
 
@@ -19,7 +36,8 @@ interest.
 
 ### Inline buttons under a post
 
-**Status:** deferred (investigated against mtcute 0.32.1, layer 229).
+**Status:** deferred (investigated against mtcute 0.32.1, layer 229; rechecked against 0.32.2,
+layer 229 — unchanged).
 
 mtcute 0.32.0 added `Rich.buttonRow()`, `Rich.button()` and `Rich.textButton()`, which build
 `pageBlockButtonRow` / `pageButton` / `textButton` objects. It is tempting to use them to put
