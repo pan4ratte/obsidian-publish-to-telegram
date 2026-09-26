@@ -7,7 +7,10 @@
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
     "test": "esbuild tests/*.test.ts --bundle --platform=node --format=cjs --outdir=tests/.tmp --out-extension:.js=.cjs && node --test tests/.tmp/convert.test.cjs tests/.tmp/util.test.cjs tests/.tmp/split.test.cjs tests/.tmp/emoji.test.cjs",
-    "lint": "eslint ."
+    "lint": "npm run lint:ts && npm run lint:css",
+    "lint:ts": "eslint .",
+    "lint:css": "stylelint \"**/*.css\" --ignore-disables",
+    "lint:fix": "eslint --fix . && stylelint \"**/*.css\" --fix"
   },
   "keywords": [],
   "author": "pan4ratte",
@@ -21,6 +24,8 @@
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.4.1",
     "obsidian": "^1.13.1",
+    "stylelint": "^17.15.0",
+    "stylelint-config-obsidianmd": "^0.1.0",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.60.1"
   },

@@ -1075,7 +1075,7 @@ export class MultiPresetModal extends Modal {
         if (!getIcon("ban")) addIcon("ban", BAN_ICON);
         const sectionEl = container.createDiv("telegram-split-section");
         // A lone previewed post gets a taller collapsed clamp than a multi-post split.
-        if (this.splitPosts.length === 1) sectionEl.addClass("telegram-split-section--single");
+        if (this.splitPosts.length === 1) sectionEl.addClass("telegram-split-section-single");
 
         // Headers only need to say which post is which once the note actually splits; a
         // single-post note has one of each, so numbering them would say nothing.

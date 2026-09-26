@@ -22,7 +22,8 @@ and channels. It has four publishing methods (`PostMethod` in `src/types.ts`):
 ```
 npm run dev       # watch build → main.js
 npm run build     # production build
-npm run lint      # eslint (type-aware, eslint-plugin-obsidianmd)
+npm run lint      # eslint (TypeScript) + stylelint (styles.css)
+npm run lint:fix  # autofix both
 npm test          # esbuild-bundles tests/*.test.ts, runs them with node --test
 npx tsc --noEmit  # type-check — esbuild does not
 ```
@@ -67,14 +68,21 @@ haven't added type errors. The repository is checked out inside a development va
 - **Secrets never go in `data.json`.** Account sessions, API credentials and bot tokens live in
   `app.secretStorage`; settings only hold ids that reference them. `data.json` is gitignored
   and contains real settings — never commit it.
-- **Lint rules come from `eslint-plugin-obsidianmd`**: use `window.setTimeout` and friends,
-  `void` or handle promises, no inline styles, etc. Fix the code rather than disabling a rule.
+- **Lint rules are the ones Obsidian's community plugin review runs.** ESLint uses
+  `eslint-plugin-obsidianmd` (use `window.setTimeout` and friends, `void` or handle promises,
+  no inline styles, etc.); stylelint uses `stylelint-config-obsidianmd`, checking browser
+  support against Electron 39 (see `stylelint.config.mjs`). Fix the code rather than
+  disabling a rule.
 - **Settings tab:** custom DOM in a declarative-settings `render` callback must go inside
   `setting.settingEl`. Anything appended to `group.listEl` is removed by Obsidian after render.
 - **`AbstractInputSuggest`:** return a `Promise` from `getSuggestions` instead of calling
   `open()` after async work — `open()` is a no-op once the suggest has opened empty.
 - **Icons:** `setIcon` takes Lucide icon names only; an unknown name renders an empty button.
-- **CSS:** all classes are prefixed `telegram-` and live in `styles.css`.
+- **CSS:** all classes are prefixed `telegram-` and live in `styles.css`. Rules that end in the
+  same element (`svg`, `img`, `p`, `ol`, `.setting-item-control`…) must run from least to most
+  specific across the whole file, so the least specific ones sit in the "Least-specific rules"
+  block at the top. Keep the `-webkit-` prefixes on `user-select` and `box-decoration-break`, and
+  `max-width` media queries rather than range syntax: iOS Safari needs both.
 
 ## Localisation and documentation
 

@@ -6,7 +6,7 @@
 npm install
 npm run dev       # watch build
 npm run build     # production build
-npm run lint
+npm run lint      # eslint + stylelint
 npm test
 npx tsc --noEmit  # type-check (esbuild does not)
 ```

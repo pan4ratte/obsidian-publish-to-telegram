@@ -1,3 +1,87 @@
+/* ─── Least-specific rules ─────────────────────────────────────────────────────── */
+
+/* Obsidian's review ruleset (stylelint no-descending-specificity) wants every rule that ends
+   in the same element — svg, img, p, ol, .setting-item-control — to run from least to most
+   specific across the whole file. These rules are the least specific of their kind, so they
+   come first instead of sitting in their own sections, which point back here. Keep new rules
+   of these kinds in that order: a less specific one placed below a more specific one fails
+   the lint. */
+
+.telegram-settings-anchor > .setting-item-info,
+.telegram-settings-anchor > .setting-item-control {
+    display: none;
+}
+
+.telegram-add-token-input .setting-item-control {
+    flex: 1;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.telegram-qr-wrap svg {
+    width: 200px;
+    height: 200px;
+    border-radius: var(--radius-s);
+}
+
+.telegram-changelog-icon svg {
+    width: var(--icon-s);
+    height: var(--icon-s);
+}
+
+.telegram-emoji-search-icon svg {
+    width: 15px;
+    height: 15px;
+}
+
+.telegram-changelog-modal p,
+.telegram-changelog-modal li {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    line-height: var(--line-height-normal);
+}
+
+.telegram-changelog-modal ul,
+.telegram-changelog-modal ol {
+    padding-left: 20px;
+    margin-bottom: 12px;
+}
+
+.telegram-formatting-help-modal p {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.telegram-formatting-help-modal ul,
+.telegram-formatting-help-modal ol {
+    padding-left: 20px;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+
+.telegram-split-media img,
+.telegram-split-media video {
+    display: block;
+    width: 100%;
+    max-height: 180px;
+    object-fit: cover;
+    border-radius: var(--radius-s);
+}
+
+.telegram-inline-emoji img,
+.telegram-inline-emoji video {
+    width: 1.25em;
+    height: 1.25em;
+    object-fit: contain;
+    vertical-align: text-bottom;
+}
+
+.telegram-inline-emoji.is-placeholder img {
+    opacity: 0.75;
+}
+
 /* ─── Settings: general & presets ─────────────────────────────────────────────── */
 
 /* Obsidian 1.13 renders the tab inside a setting group, and `.setting-group
@@ -27,7 +111,7 @@
    control is centred against the whole info block instead. The add-token row is left alone:
    it stacks its own label / input / buttons on narrow screens, where centring would stop the
    control from filling the row. */
-.telegram-settings-root .setting-item:not(.setting-item-heading):not(.telegram-add-token-input) > .setting-item-control {
+.telegram-settings-root .setting-item:not(.setting-item-heading, .telegram-add-token-input) > .setting-item-control {
     align-self: center;
 }
 
@@ -108,8 +192,7 @@
 
 .telegram-add-preset-button-row {
     display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
+    flex-flow: row wrap;
     gap: 12px;
     margin-top: 12px;
 }
@@ -143,14 +226,12 @@ body .telegram-link-button:hover {
 .telegram-channel-item {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
-    padding-left: 24px;
-    padding-right: 24px;
-    padding-bottom: 24px;
-    padding-top: 12px;
+    padding: 12px 24px 24px 24px;
     margin-bottom: 16px;
     background-color: var(--setting-items-background);
     display: flex;
     flex-direction: column;
+
     /* Anchors the glow of a new preset (see below), and leaves room for it when the
        card is scrolled into view. */
     position: relative;
@@ -193,7 +274,6 @@ body .telegram-link-button:hover {
 .telegram-channel-header {
     display: flex;
     justify-content: space-between;
-    align-items: top;
     padding-bottom: 8px;
 }
 
@@ -262,11 +342,17 @@ body .telegram-delete-button:hover {
 }
 
 .telegram-settings-root .setting-item.telegram-preset-default {
-    padding-top: 16px;
-    padding-bottom: 8px;
-    padding-left: 0px;
-    padding-right: 0px;
-    margin-bottom: 0px;
+    padding: 16px 0 8px 0;
+    margin-bottom: 0;
+}
+
+/* The add-token form (see "Add bot token form") lays its rows out flat. It ties with the row
+   reset at the top of this section, so it stays below that, and it has to come before the more
+   specific row rule that follows. */
+.telegram-settings-root .telegram-add-token-form .setting-item {
+    border: none;
+    margin: 0;
+    padding: 0;
 }
 
 /* Every option in a preset is separated from the one above it by the row's own top border.
@@ -437,6 +523,12 @@ body .telegram-delete-button:hover {
     width: 100%;
 }
 
+/* Opaque, so the divider background only shows in the gaps between segments. */
+
+body .telegram-auth-actions .telegram-link-button {
+    background-color: var(--setting-items-background);
+}
+
 /* Flat, full-height segments. The shared .telegram-link-button rules put a border back on
    hover, which would both outline the segment and shift the row by a pixel, so the reset
    covers the hover state too. */
@@ -452,6 +544,7 @@ body .telegram-auth-actions .telegram-link-button:hover {
     height: auto;
     padding: 16px 12px 14px;
     border: none;
+
     /* The strip the underline occupies is always reserved, so opening a panel never resizes
        the segment; the underline itself is drawn into it by ::after. */
     border-bottom: 2px solid transparent;
@@ -486,11 +579,6 @@ body .telegram-auth-actions .telegram-link-button:hover {
    so it still arrives softly. */
 .telegram-auth-indicator.is-instant {
     transition: opacity 140ms ease;
-}
-
-/* Opaque, so the divider background only shows in the gaps between segments. */
-body .telegram-auth-actions .telegram-link-button {
-    background-color: var(--setting-items-background);
 }
 
 /* Hover tints the label (and its icon, which inherits the colour) accent over a soft fill. */
@@ -547,15 +635,18 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     margin-top: -24px;
     padding-top: 24px;
     overflow: hidden;
+
     /* Its own stacking context, so a card on its way out can be lifted above the one replacing
        it without also rising above the bar the panels tuck under. */
     position: relative;
     z-index: 0;
+
     /* The contents are laid out once and only clipped differently from frame to frame, so
        containment lets the browser skip re-laying them out as the height runs. What is below
        the stage still reflows — that is what growing a box in the flow means — which is the
        reason this is kept short. */
     contain: layout paint;
+
     /* Decelerating, but without the long crawl at the end that reads as the panel still
        catching up after it should have arrived. */
     transition: height 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -594,10 +685,8 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     content: none;
 }
 
-.telegram-settings-anchor > .setting-item-info,
-.telegram-settings-anchor > .setting-item-control {
-    display: none;
-}
+/* The anchor row's own name and control blocks are hidden under "Least-specific rules" at the
+   top of the file. */
 
 /* Obsidian draws a group as a card. This tab draws its own cards inside it, so the
    group's card is stripped back to a plain container. */
@@ -627,11 +716,8 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     margin-top: -24px;
 }
 
-.telegram-settings-root .telegram-add-token-form .setting-item {
-    border: none;
-    margin: 0;
-    padding: 0;
-}
+/* The form's rows are laid out flat by a rule in "Preset fields" above, which has to come
+   before a more specific row rule there. */
 
 /* Keep the label compact so the token input + Save button fill the row */
 .telegram-add-token-input .setting-item-info {
@@ -639,11 +725,7 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     margin-right: 16px;
 }
 
-.telegram-add-token-input .setting-item-control {
-    flex: 1;
-    gap: 8px;
-    flex-wrap: wrap;
-}
+/* The row's control block is laid out under "Least-specific rules" at the top of the file. */
 
 .telegram-add-token-input .setting-item-control input[type="password"],
 .telegram-add-token-input .setting-item-control input[type="text"] {
@@ -690,7 +772,7 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
 }
 
 .telegram-credentials-heading {
-    margin: 16px 0px 12px;
+    margin: 16px 0 12px;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
@@ -864,11 +946,7 @@ body .telegram-auth-submit:disabled {
     height: 200px;
 }
 
-.telegram-qr-wrap svg {
-    width: 200px;
-    height: 200px;
-    border-radius: var(--radius-s);
-}
+/* The QR code's svg is sized under "Least-specific rules" at the top of the file. */
 
 .telegram-qr-loading {
     font-size: var(--font-ui-smaller);
@@ -877,7 +955,6 @@ body .telegram-auth-submit:disabled {
 }
 
 .telegram-auth-card .telegram-auth-link-btn {
-    background-color: transparent;
     background: transparent;
     border: none;
     outline: none;
@@ -1061,6 +1138,7 @@ body .telegram-auth-submit:disabled {
     padding-top: 0;
     border-top: 0 solid var(--background-modifier-border);
     opacity: 0;
+
     /* Discrete, so it holds until the fold has finished: a closed picker is out of the tab
        order, which `overflow: hidden` alone would not do. */
     visibility: hidden;
@@ -1080,6 +1158,7 @@ body .telegram-auth-submit:disabled {
     border-top-width: 1px;
     opacity: 1;
     visibility: visible;
+
     /* Opening, the fade waits for the fold to be under way — the options read as arriving
        in the space that opened for them rather than through the row above. */
     transition:
@@ -1096,6 +1175,7 @@ body .telegram-auth-submit:disabled {
     flex-direction: column;
     gap: 6px;
     overflow: hidden;
+
     /* A grid item's automatic minimum size is its content, which would keep the row from
        ever shrinking below full height. */
     min-height: 0;
@@ -1172,6 +1252,7 @@ body .telegram-split-circle-btn {
     color: var(--icon-color, var(--text-muted));
     cursor: pointer;
     box-shadow: none;
+
     /* Every state these buttons report — on, off, unavailable — is a colour change, so they
        all cross-fade on one curve. Short: the row is a set of switches, and a switch that
        takes its time reads as lag rather than as polish. */
@@ -1206,7 +1287,7 @@ body .telegram-split-expand .svg-icon,
 .telegram-emoji-panel .telegram-emoji-tab svg,
 .telegram-emoji-panel .telegram-emoji-search-icon svg {
     flex-shrink: 0;
-    stroke: currentColor;
+    stroke: currentcolor;
     stroke-width: 2px;
 }
 
@@ -1233,6 +1314,7 @@ body .telegram-split-circle-btn.is-disabled {
         opacity: 0;
         transform: scale(0.55);
     }
+
     to {
         opacity: 1;
         transform: scale(1);
@@ -1300,7 +1382,7 @@ input.telegram-split-schedule-input:focus {
     position: relative;
     min-width: 0;
     border-top: 1px solid var(--background-modifier-border);
-    padding: 16px 16px 0px 16px;
+    padding: 16px 16px 0 16px;
     background-color: var(--background-primary);
 }
 
@@ -1315,7 +1397,7 @@ input.telegram-split-schedule-input:focus {
     overflow: hidden;
 }
 
-.telegram-split-section--single .telegram-split-preview-content {
+.telegram-split-section-single .telegram-split-preview-content {
     max-height: calc(13.5em * var(--line-height-normal, 1.5));
 }
 
@@ -1329,6 +1411,7 @@ input.telegram-split-schedule-input:focus {
     flex-direction: column;
     align-items: stretch;
     border-top: 1px solid var(--background-modifier-border);
+
     /* Containing block for the hint, which slides out from behind the bar. */
     position: relative;
 }
@@ -1363,6 +1446,7 @@ body .telegram-split-mode-option {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     cursor: pointer;
+
     /* The mode is a setting like the ones in the row above, so its selection settles on the
        same curve. The accent bar is the slower of the two: it grows out of nothing (box-shadow
        animates up from `none`), which needs a beat longer to read as a bar sliding in than the
@@ -1416,7 +1500,7 @@ body .telegram-split-mode-option .svg-icon {
     width: 16px;
     height: 16px;
     flex-shrink: 0;
-    stroke: currentColor;
+    stroke: currentcolor;
     stroke-width: 2px;
 }
 
@@ -1471,7 +1555,7 @@ body .telegram-split-mode-option .svg-icon {
     position: relative;
     min-width: 0;
     border-top: 1px solid var(--background-modifier-border);
-    padding: 16px 16px 0px 16px;
+    padding: 16px 16px 0 16px;
     background-color: var(--background-primary);
 }
 
@@ -1506,6 +1590,7 @@ body .telegram-split-mode-option .svg-icon {
    grid going 0fr → 1fr, which is what lets a card of unknown height (its description and image
    arrive later, over the network) be animated without measuring it. The outer element only
    folds; the card itself is the inner one. */
+
 /* The card the whole way out: everything that gives it a box — the padding, the accent bar,
    the background — belongs to this element, and the inner one only holds the content.
    Padding and border on the INNER element would be the one thing this fold cannot close over:
@@ -1535,6 +1620,7 @@ body .telegram-split-mode-option .svg-icon {
     padding: 0;
     border-left-width: 0;
     opacity: 0;
+
     /* Folding away, the fade leads instead of trailing: the card is gone before the gap it
        leaves finishes closing, so the text closes over nothing. */
     transition:
@@ -1550,6 +1636,7 @@ body .telegram-split-mode-option .svg-icon {
     align-items: flex-start;
     gap: 10px;
     overflow: hidden;
+
     /* A grid item's automatic minimum size is its content, which would stop the row from
        shrinking below the card's full height. */
     min-height: 0;
@@ -1592,8 +1679,9 @@ body .telegram-split-mode-option .svg-icon {
     max-width: 100%;
 }
 
-.telegram-split-media img,
-.telegram-split-media video,
+/* Media outside an embed (`.telegram-split-media img` / `video`) gets the same sizing under
+   "Least-specific rules" at the top of the file. Keep the two rules in sync. */
+
 .telegram-split-media .internal-embed img,
 .telegram-split-media .internal-embed video {
     display: block;
@@ -1714,8 +1802,8 @@ img.telegram-split-linkpreview-image {
     content: "• [ ] ";
 }
 
-.telegram-split-preview-content.is-classic-text li.task-list-item[data-task]:not([data-task=""]):not([data-task=" "])::before,
-.telegram-split-comment-content.is-classic-text li.task-list-item[data-task]:not([data-task=""]):not([data-task=" "])::before {
+.telegram-split-preview-content.is-classic-text li.task-list-item[data-task]:not([data-task=""], [data-task=" "])::before,
+.telegram-split-comment-content.is-classic-text li.task-list-item[data-task]:not([data-task=""], [data-task=" "])::before {
     content: "• [" attr(data-task) "] ";
 }
 
@@ -1759,6 +1847,7 @@ img.telegram-split-linkpreview-image {
    text) and would shift the text following the link every time a choice is made. The
    shadows are offset sideways only — a spread would grow the highlight vertically too,
    which reads as a heavy block behind a single line of text. */
+
 /* Every web link in a preview is selectable, so they all carry the highlight's transition —
    the one being chosen fades in as the previous one fades out. */
 body .telegram-split-preview-content a[href],
@@ -1922,10 +2011,7 @@ body .telegram-split-expand .svg-icon {
     color: var(--text-accent);
 }
 
-.telegram-changelog-icon svg {
-    width: var(--icon-s);
-    height: var(--icon-s);
-}
+/* The icon's svg is sized under "Least-specific rules" at the top of the file. */
 
 /* Right-aligned whether beside the text or wrapped under it. */
 .telegram-changelog-actions {
@@ -2003,18 +2089,8 @@ body .telegram-split-expand .svg-icon {
     color: var(--text-normal);
 }
 
-.telegram-changelog-modal p,
-.telegram-changelog-modal li {
-    font-size: var(--font-ui-small);
-    color: var(--text-muted);
-    line-height: var(--line-height-normal);
-}
-
-.telegram-changelog-modal ul,
-.telegram-changelog-modal ol {
-    padding-left: 20px;
-    margin-bottom: 12px;
-}
+/* Paragraph, list-item and list styles are under "Least-specific rules" at the top of the
+   file. */
 
 .telegram-changelog-modal hr {
     margin: 20px 0;
@@ -2025,6 +2101,7 @@ body .telegram-split-expand .svg-icon {
 
 .telegram-formatting-help-modal {
     max-width: 680px;
+
     /* Obsidian disables text selection inside modals; re-enable it here so the
        user guide can be selected and copied. */
     user-select: text;
@@ -2077,19 +2154,7 @@ body .telegram-split-expand .svg-icon {
     color: var(--text-normal);
 }
 
-.telegram-formatting-help-modal p {
-    font-size: var(--font-ui-small);
-    color: var(--text-muted);
-    margin-bottom: 8px;
-}
-
-.telegram-formatting-help-modal ul,
-.telegram-formatting-help-modal ol {
-    padding-left: 20px;
-    font-size: var(--font-ui-small);
-    color: var(--text-muted);
-    margin-bottom: 12px;
-}
+/* Paragraph and list styles are under "Least-specific rules" at the top of the file. */
 
 .telegram-formatting-help-modal code {
     background-color: var(--code-background);
@@ -2133,10 +2198,7 @@ body .telegram-split-expand .svg-icon {
     color: var(--text-faint);
 }
 
-.telegram-emoji-search-icon svg {
-    width: 15px;
-    height: 15px;
-}
+/* The icon's svg is sized under "Least-specific rules" at the top of the file. */
 
 .telegram-emoji-panel .telegram-emoji-search-input {
     flex: 1;
@@ -2176,6 +2238,19 @@ body .telegram-split-expand .svg-icon {
 
 .telegram-emoji-tabs::-webkit-scrollbar {
     display: none;
+}
+
+/* Some emoji are built from legacy text-default symbols (☺️ U+263A, ☹️, ✌️, ☝️, ✍️ …): even
+   with their U+FE0F selector, Chromium can pick the interface font's monochrome glyph over
+   the colour-emoji one, so a tile like ☺️ shows as a black outline among the colour emoji —
+   looking, misleadingly, like a Lucide icon. Forcing emoji presentation and putting a
+   colour-emoji font first makes every tile (and the emoji-glyph tabs) render in colour. */
+
+.telegram-emoji-panel .telegram-emoji-btn,
+.telegram-emoji-panel .telegram-emoji-tab,
+.telegram-inline-emoji {
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", var(--font-interface, sans-serif);
+    font-variant-emoji: emoji;
 }
 
 /* Tabs carry either the category's first emoji or (for "Recent") a lucide clock icon,
@@ -2222,6 +2297,7 @@ body .telegram-split-expand .svg-icon {
 /* Sticky heading, as in Telegram: the current category stays visible while its rows scroll. */
 .telegram-emoji-section-title {
     position: sticky;
+
     /* -1px, not 0: sub-pixel rounding of the sticky header otherwise leaves a hairline of the
        scrolling grid showing between it and the tabs' bottom border. The overlap is swallowed
        by the title's own top padding, so nothing visible is clipped. */
@@ -2236,6 +2312,7 @@ body .telegram-split-expand .svg-icon {
 
 .telegram-emoji-grid {
     display: grid;
+
     /* minmax(0, 1fr) rather than 1fr: a plain 1fr is minmax(auto, 1fr), whose auto floor is
        the tile's min-content — and a wide emoji glyph then stretches its column past an even
        eighth, so on a narrow (mobile) panel the eight columns no longer add up to the width.
@@ -2263,18 +2340,6 @@ body .telegram-split-expand .svg-icon {
 
 .telegram-emoji-panel .telegram-emoji-btn:hover {
     background-color: var(--background-modifier-hover);
-}
-
-/* Some emoji are built from legacy text-default symbols (☺️ U+263A, ☹️, ✌️, ☝️, ✍️ …): even
-   with their U+FE0F selector, Chromium can pick the interface font's monochrome glyph over
-   the colour-emoji one, so a tile like ☺️ shows as a black outline among the colour emoji —
-   looking, misleadingly, like a Lucide icon. Forcing emoji presentation and putting a
-   colour-emoji font first makes every tile (and the emoji-glyph tabs) render in colour. */
-.telegram-emoji-panel .telegram-emoji-btn,
-.telegram-emoji-panel .telegram-emoji-tab,
-.telegram-inline-emoji {
-    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", var(--font-interface, sans-serif);
-    font-variant-emoji: emoji;
 }
 
 /* Custom emoji (Premium) tiles: the pack's own artwork once its preview has been
@@ -2315,17 +2380,8 @@ body .telegram-split-expand .svg-icon {
     line-height: 1;
 }
 
-.telegram-inline-emoji img,
-.telegram-inline-emoji video {
-    width: 1.25em;
-    height: 1.25em;
-    object-fit: contain;
-    vertical-align: text-bottom;
-}
-
-.telegram-inline-emoji.is-placeholder img {
-    opacity: 0.75;
-}
+/* The artwork's img/video sizing and the placeholder dimming are under "Least-specific rules"
+   at the top of the file. */
 
 /* Obsidian's Live Preview marks the reference's URL (`tg://emoji?id=…`) as an external link
    and paints its external-link icon on an empty formatting span left sitting right after our
