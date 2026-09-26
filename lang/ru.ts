@@ -2,8 +2,10 @@ export default {
     // ─── Settings ────────────────────────────────────────────────────────────────
     SETTING_HEADER: "Настройки Publish to Telegram",
     SETTING_DESCRIPTION: "Публикуйте заметки напрямую в каналы, группы, темы в группах и личные сообщения Telegram — от имени вашего аккаунта или бота. Поддерживается стандартное и rich-text форматирование Telegram, вложения медиа и документов, а также кастомные эмодзи. Расширенные настройки публикации позволяют увидеть предпросмотр каждого сообщения, запланировать его, разделить заметку на несколько постов и отредактировать уже опубликованное.",
-    CHANGELOG_BANNER_PREFIX: "Что нового в версии ",
-    CHANGELOG_BANNER_DISMISS: "Скрыть до следующего обновления",
+    CHANGELOG_UPDATED: "Publish to Telegram обновлён до версии {version}",
+    CHANGELOG_SEE_WHATS_NEW: "Что нового",
+    CHANGELOG_DISMISS: "Скрыть",
+    CHANGELOG_DISMISS_TOOLTIP: "Скрыть до следующего обновления",
     SECTION_GENERAL: "Основные",
     AUTH_NOT_CONNECTED: "Нет авторизованных Telegram-аккаунтов",
     AUTH_LOGOUT_BTN: "Выйти",

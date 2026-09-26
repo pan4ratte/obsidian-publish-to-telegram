@@ -1,12 +1,5 @@
 /* ─── Settings: general & presets ─────────────────────────────────────────────── */
 
-.telegram-plugin-description {
-    font-size: var(--font-smallest);
-    margin-left: 16px;
-    margin-right: 16px;
-    margin-bottom: 20px;
-}
-
 /* Obsidian 1.13 renders the tab inside a setting group, and `.setting-group
    .setting-item:not(.setting-item-heading)` strips the border, background, radius and
    margin off every row inside it — which merges this tab's own cards into one slab. This
@@ -54,12 +47,33 @@
     flex: 0 1 max-content;
 }
 
-.telegram-settings-root .setting-item.telegram-bordered-setting {
+/* Shared card for the general options, as in the sibling Tags Color Files plugin: the
+   card draws the outline and the background, its rows only the dividers between them.
+   The row rule ties with the reset above at 0,3,0, so it MUST stay below it. */
+.telegram-settings-root .telegram-settings-card {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
     background-color: var(--setting-items-background);
-    padding: 20px 24px;
     margin-bottom: 8px;
+}
+
+/* Padded like Obsidian's own group rows. */
+.telegram-settings-root .telegram-settings-card > .setting-item {
+    position: relative;
+    padding: var(--setting-items-padding-y) var(--setting-items-padding-x);
+    border: none;
+}
+
+/* Divider drawn the way Obsidian's own `.setting-group` draws it: inset by the row's
+   horizontal padding rather than running to the card's edges. Scores 0,4,1, so it beats
+   the reset's `::before { content: none }` at 0,3,1. */
+.telegram-settings-root .telegram-settings-card > .setting-item + .setting-item::before {
+    content: '';
+    position: absolute;
+    top: calc(-1 * var(--border-width));
+    left: var(--setting-items-padding-x);
+    right: var(--setting-items-padding-x);
+    border-top: var(--setting-items-divider-width) solid var(--background-modifier-border);
 }
 
 /* ── Preset creation panel ── */
@@ -137,6 +151,43 @@ body .telegram-link-button:hover {
     background-color: var(--setting-items-background);
     display: flex;
     flex-direction: column;
+    /* Anchors the glow of a new preset (see below), and leaves room for it when the
+       card is scrolled into view. */
+    position: relative;
+    scroll-margin-block: var(--size-4-6);
+}
+
+/* A preset just created: as the pane scrolls to it (see revealNewPreset in gui.ts), the
+   card lights up with an accent glow, holds it for a moment, then lets it fade away.
+   The glow is an overlay faded by its opacity: a box-shadow animated on the card itself
+   is not interpolated smoothly by Chromium, which switches it on and off instead. */
+.telegram-channel-item::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border: 1px solid var(--interactive-accent);
+    border-radius: inherit;
+    box-shadow:
+        0 0 0 1px var(--interactive-accent),
+        0 0 24px 4px color-mix(in srgb, var(--interactive-accent) 50%, transparent);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.telegram-channel-item.is-just-created::after {
+    animation: telegram-preset-created 2.6s ease-in-out;
+}
+
+@keyframes telegram-preset-created {
+    0%,
+    100% {
+        opacity: 0;
+    }
+
+    12%,
+    35% {
+        opacity: 1;
+    }
 }
 
 .telegram-channel-header {
@@ -1816,67 +1867,121 @@ body .telegram-split-expand .svg-icon {
 
 /* ─── Changelog ────────────────────────────────────────────────────────────────── */
 
-/* ── Banner ── */
+/* ── Notice ──
+   Shared with the sibling Tags Color Files plugin, so the notices of the plugins
+   read alike. */
 
-.telegram-changelog-banner {
+/* What this release brought, as a card at the head of the settings, until it is
+   dismissed. `overflow` is for the closing: the card is animated down to no
+   height, and what stands in it is cut rather than spilling over what's below. */
+.telegram-changelog-notice {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    padding: 16px 24px;
-    margin-bottom: 8px;
-    border: 1px solid var(--setting-items-border-color);
+    gap: var(--size-4-2);
+    margin-bottom: 16px;
+    padding: var(--size-4-2) var(--size-4-4);
+    border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
-    background-color: var(--setting-items-background);
-    font-size: var(--font-ui-small);
-    color: var(--text-normal);
-}
-
-.telegram-changelog-banner-text {
-    flex: 1;
-}
-
-body .telegram-changelog-version-link {
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    box-shadow: none;
-    outline: none;
-    color: var(--text-accent);
-    cursor: pointer;
-    text-decoration: underline;
-    font-size: inherit;
-    font-family: inherit;
-    font-weight: var(--font-semibold);
-    height: auto;
-}
-
-body .telegram-changelog-version-link:hover {
-    color: var(--text-accent-hover);
-    background: none;
-    box-shadow: none;
-}
-
-body .telegram-changelog-close {
-    background: none;
-    box-shadow: none;
-    border: none;
-    padding: 2px;
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    background: var(--setting-items-background);
+    overflow: hidden;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
-    cursor: pointer;
-    border-radius: var(--radius-s);
-    flex-shrink: 0;
-    margin-left: 8px;
 }
 
-body .telegram-changelog-close:hover {
-    background-color: var(--background-modifier-hover);
-    color: var(--text-normal);
+/* The icon and the text. Grows to fill the row, but wants at least ~16em: when
+   there isn't that much room beside the buttons, the buttons wrap under it
+   instead of squeezing it. */
+.telegram-changelog-message {
+    display: flex;
+    flex: 1 1 16em;
+    align-items: center;
+    gap: var(--size-4-2);
+    min-width: 0;
+}
+
+/* With the buttons wrapped onto their own line (see gui.ts), the message is
+   centered above them and given room above and below, so it stands as the
+   card's heading. Only the alignment and the height change, never the
+   message's width, which decides the wrapping. */
+.telegram-changelog-notice.is-stacked .telegram-changelog-message {
+    justify-content: center;
+    padding-block: var(--size-4-2);
+    text-align: center;
+}
+
+.telegram-changelog-notice-text {
+    min-width: 0;
+    color: var(--text-accent);
+}
+
+/* Marks the card as an announcement rather than another settings note. */
+.telegram-changelog-icon {
+    display: flex;
+    flex: none;
+    color: var(--text-accent);
+}
+
+.telegram-changelog-icon svg {
+    width: var(--icon-s);
+    height: var(--icon-s);
+}
+
+/* Right-aligned whether beside the text or wrapped under it. */
+.telegram-changelog-actions {
+    display: flex;
+    gap: var(--size-4-2);
+    margin-left: auto;
+}
+
+/* The two buttons, both plain at rest. */
+.telegram-changelog-open,
+.telegram-changelog-dismiss {
+    flex: none;
+    font-size: var(--font-ui-smaller);
+}
+
+/* On a phone the smallest text size reads as cramped: the text steps up a size,
+   with the icon to match and more space around it. */
+.is-phone .telegram-changelog-notice {
+    gap: var(--size-4-3);
+    padding: var(--size-4-3) var(--size-4-4);
+}
+
+.is-phone .telegram-changelog-notice-text {
+    font-size: var(--font-ui-small);
+    line-height: var(--line-height-normal);
+}
+
+.is-phone .telegram-changelog-icon svg {
+    width: var(--icon-m);
+    height: var(--icon-m);
+}
+
+/* On a phone the two buttons get a line of their own and share it equally. */
+.is-phone .telegram-changelog-actions {
+    flex: 1 1 100%;
+    margin-left: 0;
+}
+
+.is-phone .telegram-changelog-open,
+.is-phone .telegram-changelog-dismiss {
+    flex: 1 1 0;
+}
+
+/* "See what's new" takes the accent only under the pointer (or keyboard focus).
+   Scoped under the card to out-rank Obsidian's own button:hover. The hover half
+   is kept to devices with a real pointer, so a tapped button isn't left accented. */
+@media (hover: hover) {
+    .telegram-changelog-notice .telegram-changelog-open:hover {
+        background-color: var(--interactive-accent-hover);
+        color: var(--text-on-accent);
+    }
+}
+
+.telegram-changelog-notice .telegram-changelog-open:focus-visible {
+    background-color: var(--interactive-accent-hover);
+    color: var(--text-on-accent);
 }
 
 /* ── Modal ── */

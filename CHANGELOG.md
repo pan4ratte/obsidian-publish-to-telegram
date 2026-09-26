@@ -1,5 +1,15 @@
 # Changelog
 
+## 6.2.4
+
+### UI/UX enhancements and bug fixes
+
+* The plugin update notice in the settings has been redesigned.
+* The plugin title and description were removed from the settings.
+* The options of the "General" section were united into one group.
+* After a preset is created, the settings window smoothly scrolls to it, and the preset is highlighted.
+
+
 ## 6.2.3
 
 ### UI/UX enhancements and bug fixes

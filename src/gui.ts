@@ -2117,8 +2117,8 @@ export class TelegramSettingTab extends PluginSettingTab {
                     // group.listEl is removed again immediately. settingEl's own children are
                     // left alone — Setting.clear() only empties the control element — so the
                     // row doubles as both the search anchor and our render root. The row's
-                    // stock name/description elements are hidden in CSS; the imperative
-                    // renderer draws its own heading.
+                    // stock name/description elements are hidden in CSS: they feed the
+                    // settings search only, and the tab carries no title or description.
                     setting.settingEl.addClass("telegram-settings-anchor");
                     // Obsidian re-invokes this callback on update() without discarding the
                     // row, so reuse the existing root instead of appending a second copy.
@@ -2147,6 +2147,38 @@ export class TelegramSettingTab extends PluginSettingTab {
         if (scroller && scroller.scrollTop !== scrollTop) scroller.scrollTop = scrollTop;
     }
 
+    /**
+     * Shows a freshly created preset: the card lights up with an accent glow that fades away
+     * (see `.is-just-created` in styles.css) while the pane scrolls smoothly to the card:
+     * centred when it fits the pane, at its top when it does not.
+     */
+    private revealNewPreset(card: HTMLElement): void {
+        card.addClass("is-just-created");
+        // Only the glow's own end clears it: animations inside the card bubble up here too.
+        const onEnd = (e: AnimationEvent) => {
+            if (e.target !== card || e.animationName !== "telegram-preset-created") return;
+            card.removeEventListener("animationend", onEnd);
+            card.removeClass("is-just-created");
+        };
+        card.addEventListener("animationend", onEnd);
+
+        const scroller = scrollParentOf(card);
+        if (!scroller) return;
+        // A card that fits the pane (with its scroll-margin, the room its glow needs) is centred
+        // in it; a taller one is brought to the top, so it is read from its start. Either way
+        // only as far as the pane can scroll.
+        const margin = parseFloat(card.win.getComputedStyle(card).scrollMarginTop) || 0;
+        const cardRect = card.getBoundingClientRect();
+        const cardTop = scroller.scrollTop + cardRect.top - scroller.getBoundingClientRect().top;
+        const view = scroller.clientHeight;
+        const wanted = cardRect.height + 2 * margin <= view
+            ? cardTop + cardRect.height / 2 - view / 2
+            : cardTop - margin;
+        const target = Math.max(0, Math.min(wanted, scroller.scrollHeight - view));
+        const reduceMotion = card.win.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        scroller.scrollTo({ top: target, behavior: reduceMotion ? "instant" : "smooth" });
+    }
+
     private disconnectInlineClients(): void {
         if (this.inlineSwapTimer !== null) {
             window.clearTimeout(this.inlineSwapTimer);
@@ -2170,39 +2202,81 @@ export class TelegramSettingTab extends PluginSettingTab {
         }
     }
 
+    /**
+     * What this release brought, as a card at the head of the settings, until it is
+     * dismissed. Shared with the sibling Tags Color Files plugin, so the notices of the
+     * plugins read alike. Dismissing closes the space up behind the card rather than
+     * blinking it out of a gap.
+     */
+    private renderChangelogNotice(parent: HTMLElement, version: string): void {
+        const card = parent.createDiv({ cls: "telegram-changelog-notice" });
+        // The icon and the text travel together, so they can be centered as one.
+        const message = card.createDiv({ cls: "telegram-changelog-message" });
+        setIcon(message.createSpan({ cls: "telegram-changelog-icon" }), "sparkles");
+        message.createSpan({
+            cls: "telegram-changelog-notice-text",
+            text: t.CHANGELOG_UPDATED.replace("{version}", version),
+        });
+        // The buttons share a wrapper so that, on a narrow pane, they drop together onto
+        // a line of their own under the text rather than squeezing it.
+        const actions = card.createDiv({ cls: "telegram-changelog-actions" });
+        const openBtn = actions.createEl("button", {
+            cls: "telegram-changelog-open",
+            text: t.CHANGELOG_SEE_WHATS_NEW,
+        });
+        openBtn.addEventListener("click", () => {
+            new ChangelogModal(this.app, getChangelogContent()).open();
+        });
+
+        const dismissBtn = actions.createEl("button", {
+            cls: "telegram-changelog-dismiss",
+            text: t.CHANGELOG_DISMISS,
+        });
+        setTooltip(dismissBtn, t.CHANGELOG_DISMISS_TOOLTIP);
+
+        // Once the buttons have wrapped onto a line of their own, the message is centered
+        // above them. Where they wrap depends on how long the translated labels are, so it
+        // is measured, not guessed from a width. Centering changes only the alignment inside
+        // the message, never its width, so it cannot make the buttons fit back beside it.
+        const stacking = new ResizeObserver(() => {
+            card.toggleClass(
+                "is-stacked",
+                actions.offsetTop >= message.offsetTop + message.offsetHeight,
+            );
+        });
+        stacking.observe(card);
+
+        dismissBtn.addEventListener("click", () => {
+            stacking.disconnect();
+            this.plugin.settings.dismissedChangelogVersion = version;
+            void this.plugin.saveSettings();
+            if (card.win.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                card.remove();
+                return;
+            }
+            const style = card.win.getComputedStyle(card);
+            const animation = card.animate(
+                {
+                    height: [`${card.getBoundingClientRect().height}px`, "0px"],
+                    marginBottom: [style.marginBottom, "0px"],
+                    opacity: [1, 0],
+                },
+                { duration: 180, easing: "ease-in-out" },
+            );
+            animation.onfinish = () => card.remove();
+        });
+    }
+
     private render(root: HTMLElement): void {
         this.renderRoot = root;
         this.disconnectInlineClients();
         const containerEl = root;
         containerEl.empty();
 
-        new Setting(containerEl).setHeading().setName(t.SETTING_HEADER);
-
-        containerEl.createEl("p", { text: t.SETTING_DESCRIPTION, cls: "telegram-plugin-description" });
-
-        // ── Changelog banner ──
+        // ── Changelog notice ──
         const currentVersion = this.plugin.manifest.version;
         if (this.plugin.settings.dismissedChangelogVersion !== currentVersion) {
-            const bannerEl = containerEl.createDiv({ cls: "telegram-changelog-banner" });
-            const textEl = bannerEl.createSpan({ cls: "telegram-changelog-banner-text" });
-            textEl.appendText(t.CHANGELOG_BANNER_PREFIX);
-            const versionBtn = textEl.createEl("button", {
-                text: currentVersion,
-                cls: "telegram-changelog-version-link",
-            });
-            versionBtn.addEventListener("click", () => {
-                new ChangelogModal(this.app, getChangelogContent()).open();
-            });
-            const closeBtn = bannerEl.createEl("button", {
-                cls: "clickable-icon telegram-changelog-close",
-                attr: { "aria-label": t.CHANGELOG_BANNER_DISMISS },
-            });
-            setIcon(closeBtn, "x");
-            closeBtn.addEventListener("click", () => {
-                this.plugin.settings.dismissedChangelogVersion = currentVersion;
-                void this.plugin.saveSettings();
-                bannerEl.remove();
-            });
+            this.renderChangelogNotice(containerEl, currentVersion);
         }
 
 
@@ -2386,25 +2460,25 @@ export class TelegramSettingTab extends PluginSettingTab {
 
         this.watchAuthStage(stageEl, stageInnerEl);
 
-        new Setting(containerEl).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
+        // The general options share one card, split by dividers, instead of each drawing
+        // its own — see `.telegram-settings-card` in styles.css.
+        const generalCard = containerEl.createDiv({ cls: "telegram-settings-card" });
+
+        new Setting(generalCard).setName(t.SETTING_SAVE_POST_LINKS_NAME).setDesc(t.SETTING_SAVE_POST_LINKS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.savePostLinks)
-                .onChange(async (v) => { this.plugin.settings.savePostLinks = v; await this.plugin.saveSettings(); }))
-            .settingEl.addClass("telegram-bordered-setting");
+                .onChange(async (v) => { this.plugin.settings.savePostLinks = v; await this.plugin.saveSettings(); }));
 
-        new Setting(containerEl).setName(t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME).setDesc(t.SETTING_MD_EMBEDS_AS_COMMENTS_DESC)
+        new Setting(generalCard).setName(t.SETTING_MD_EMBEDS_AS_COMMENTS_NAME).setDesc(t.SETTING_MD_EMBEDS_AS_COMMENTS_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.treatMdEmbedsAsComments)
-                .onChange(async (v) => { this.plugin.settings.treatMdEmbedsAsComments = v; await this.plugin.saveSettings(); }))
-            .settingEl.addClass("telegram-bordered-setting");
+                .onChange(async (v) => { this.plugin.settings.treatMdEmbedsAsComments = v; await this.plugin.saveSettings(); }));
 
-        new Setting(containerEl).setName(t.SETTING_COMMENTS_FOLLOW_POST_NAME).setDesc(t.SETTING_COMMENTS_FOLLOW_POST_DESC)
+        new Setting(generalCard).setName(t.SETTING_COMMENTS_FOLLOW_POST_NAME).setDesc(t.SETTING_COMMENTS_FOLLOW_POST_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.commentsFollowPostSettings)
-                .onChange(async (v) => { this.plugin.settings.commentsFollowPostSettings = v; await this.plugin.saveSettings(); }))
-            .settingEl.addClass("telegram-bordered-setting");
+                .onChange(async (v) => { this.plugin.settings.commentsFollowPostSettings = v; await this.plugin.saveSettings(); }));
 
-        new Setting(containerEl).setName(t.SETTING_ALWAYS_SILENT_NAME).setDesc(t.SETTING_ALWAYS_SILENT_DESC)
+        new Setting(generalCard).setName(t.SETTING_ALWAYS_SILENT_NAME).setDesc(t.SETTING_ALWAYS_SILENT_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.alwaysSilent)
-                .onChange(async (v) => { this.plugin.settings.alwaysSilent = v; await this.plugin.saveSettings(); }))
-            .settingEl.addClass("telegram-bordered-setting");
+                .onChange(async (v) => { this.plugin.settings.alwaysSilent = v; await this.plugin.saveSettings(); }));
 
         // ── Presets ──
         new Setting(containerEl).setHeading().setName(t.SECTION_PRESETS);
@@ -2441,13 +2515,16 @@ export class TelegramSettingTab extends PluginSettingTab {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
                 while (existingNames.has(`${t.PRESET_DEFAULT_NAME} ${idx}`)) idx++;
-                this.plugin.settings.channels.unshift({ id: Date.now().toString(), name: `${t.PRESET_DEFAULT_NAME} ${idx}`, defaultMethod: "account", chatTargets: [], chatId: "", isDefault: false });
+                const id = Date.now().toString();
+                this.plugin.settings.channels.unshift({ id, name: `${t.PRESET_DEFAULT_NAME} ${idx}`, defaultMethod: "account", chatTargets: [], chatId: "", isDefault: false });
                 await this.plugin.saveSettings();
                 this.rerender();
+                const card = this.renderRoot?.querySelector<HTMLElement>(`.telegram-channel-item[data-preset-id="${CSS.escape(id)}"]`);
+                if (card) this.revealNewPreset(card);
             }).buttonEl.addClass("telegram-add-button");
 
         this.plugin.settings.channels.forEach((channel, index) => {
-            const channelDiv = containerEl.createDiv("telegram-channel-item");
+            const channelDiv = containerEl.createDiv({ cls: "telegram-channel-item", attr: { "data-preset-id": channel.id } });
             const header = channelDiv.createDiv("telegram-channel-header");
             const titleContainer = header.createDiv("telegram-header-title-container");
             titleContainer.createSpan({ text: channel.name || t.PRESET_DEFAULT_NAME, cls: "telegram-header-name" });

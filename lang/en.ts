@@ -2,8 +2,10 @@ export default {
     // ─── Settings ────────────────────────────────────────────────────────────────
     SETTING_HEADER: "Publish to Telegram Settings",
     SETTING_DESCRIPTION: "Post notes directly to Telegram channels, groups, forum topics and personal messages, as your own account or as a bot. Standard and rich-text Telegram formatting, media and document attachments, and custom emoji are supported. Advanced publishing settings let you preview every message, schedule it, split a note into several posts, and edit what you already published.",
-    CHANGELOG_BANNER_PREFIX: "What's new in version ",
-    CHANGELOG_BANNER_DISMISS: "Dismiss until the next update",
+    CHANGELOG_UPDATED: "Publish to Telegram was updated to {version}",
+    CHANGELOG_SEE_WHATS_NEW: "See what's new",
+    CHANGELOG_DISMISS: "Dismiss",
+    CHANGELOG_DISMISS_TOOLTIP: "Dismiss until the next update",
     SECTION_GENERAL: "General",
     AUTH_NOT_CONNECTED: "No authorized Telegram accounts",
     AUTH_LOGOUT_BTN: "Log out",
