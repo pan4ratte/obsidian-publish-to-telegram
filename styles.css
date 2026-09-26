@@ -289,6 +289,34 @@ body .telegram-link-button:hover {
     font-size: var(--font-ui-medium);
 }
 
+/* In-place rename: the input takes the title's exact type and footprint, so the header doesn't
+   shift, and only an accent underline (a shadow, so it adds no height) marks it as editable.
+   At 0,4,1 it outranks every bare `input[type='text']` rule in Obsidian's stylesheet, whose
+   highest is the hover state at 0,3,1, so one rule holds in every state. */
+.telegram-settings-root .telegram-channel-header .telegram-header-title-container input.telegram-header-name-input {
+    flex: 0 1 auto;
+    field-sizing: content;
+    min-width: 6ch;
+    max-width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-normal);
+    font-family: inherit;
+    font-weight: var(--font-medium);
+    font-size: var(--font-ui-medium);
+    line-height: inherit;
+    outline: none;
+    box-shadow: 0 1.5px 0 0 var(--interactive-accent);
+}
+
+.telegram-settings-root .telegram-channel-header .telegram-header-title-container input.telegram-header-name-input::placeholder {
+    color: var(--text-faint);
+}
+
 body .telegram-edit-button {
     background-color: var(--setting-items-background);
     box-shadow: none;
@@ -369,9 +397,12 @@ body .telegram-delete-button:hover {
     margin-bottom: 12px;
 }
 
+/* Styled as Obsidian's own text inputs (and .multi-select-container): the form-field fill at
+   rest, not only on hover — the chips' translucent tag tint needs it to stand out against. */
 .telegram-chat-picker .telegram-chat-picker-field {
     border: 1px solid var(--setting-items-border-color);
-    background-color: transparent;
+    background-color: var(--background-modifier-form-field);
+    transition: border-color var(--anim-duration-fast) ease-in-out, box-shadow var(--anim-duration-fast) ease-in-out;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -407,6 +438,36 @@ body .telegram-delete-button:hover {
 
 .telegram-chat-picker .telegram-chat-picker-field .telegram-chat-search::placeholder {
     color: var(--text-faint);
+}
+
+/* The bordered field is what reads as the input, so it takes Obsidian's hover state as a whole.
+   Obsidian's own `input[type='text']:not(:disabled):hover` (0,3,1) would otherwise tint only
+   the bare input inside it; the search rule re-asserts transparency above that. */
+@media (hover: hover) {
+    .telegram-chat-picker .telegram-chat-picker-field:hover {
+        background-color: var(--background-modifier-form-field-hover);
+        border-color: var(--background-modifier-border-hover);
+    }
+
+    .telegram-chat-picker .telegram-chat-picker-field .telegram-chat-search:hover {
+        background-color: transparent;
+    }
+}
+
+/* The chat suggestion list is placed inside the scrolling pane so it scrolls with the field
+   (see ChatSuggest.pinToScroller); its absolute position needs a positioned container. Only
+   added to a pane that isn't positioned already, and only while the list is open. */
+.telegram-suggest-host {
+    position: relative;
+}
+
+/* Focus lands on the inner input, but the bordered field is what reads as the input. Below the
+   hover rule it ties with, so a focused field keeps its accent border under the pointer. The
+   inset shadow thickens the border to 1.5px without shifting the chips, and can't be clipped by an
+   overflow-hidden ancestor the way an outer ring could. */
+.telegram-chat-picker .telegram-chat-picker-field:focus-within {
+    border-color: var(--interactive-accent);
+    box-shadow: inset 0 0 0 0.5px var(--interactive-accent);
 }
 
 .telegram-chat-picker .telegram-chat-chip {

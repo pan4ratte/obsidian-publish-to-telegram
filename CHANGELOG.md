@@ -8,6 +8,11 @@
 * The plugin title and description were removed from the settings.
 * The options of the "General" section were united into one group.
 * After a preset is created, the settings window smoothly scrolls to it, and the preset is highlighted.
+* The chat search field is now highlighted as a whole on hover and gets an accent border when focused.
+* Target chats in the chat search field are now clearly visible without hovering.
+* Target chats can now be removed with Backspace.
+* The loaded chat list no longer lags behind the search field when scrolling, and hides when the field scrolls out of view.
+* A preset name is now edited in place, without the font changing or the header shifting.
 
 
 ## 6.2.3

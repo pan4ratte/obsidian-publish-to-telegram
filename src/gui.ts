@@ -874,6 +874,16 @@ export class MultiPresetModal extends Modal {
             this.renderAdhocPickerField();
             this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
         });
+
+        // Backspace in the empty input removes the last chip; held-down repeats are ignored.
+        input.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key !== "Backspace" || e.repeat || e.isComposing || input.value) return;
+            if (this.adhocTargets.length === 0) return;
+            e.preventDefault();
+            this.adhocTargets = this.adhocTargets.slice(0, -1);
+            this.renderAdhocPickerField();
+            this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+        });
     }
 
     // Returns (creating + caching on first use) the dialog-fetch state for an account, so the
@@ -2023,9 +2033,26 @@ export class MultiPresetModal extends Modal {
 
 // ─── Chat suggest ─────────────────────────────────────────────────────────────
 
+// Obsidian internals the chat suggest builds on, absent from the public typings: the list
+// element, and the base reposition() that keeps it next to the input. Read defensively, so
+// if they change the list simply keeps Obsidian's default placement.
+type SuggestInternals = { suggestEl?: HTMLElement };
+const baseReposition = (AbstractInputSuggest.prototype as unknown as { reposition?: (rect: unknown) => void }).reposition;
+
+// Gap between the field and the list, as in Obsidian's own placement.
+const SUGGEST_GAP = 5;
+
 class ChatSuggest extends AbstractInputSuggest<DialogData> {
     private loader: () => Promise<DialogData[]>;
     private excluded: () => Array<{ id: string; topicId?: number }>;
+    private searchInputEl: HTMLInputElement;
+    private visibilityObserver: IntersectionObserver | null = null;
+    private listOpen = false;
+    private fieldVisible = true;       // last visibility the observer reported
+    private hiddenOffscreen = false;   // closed because the field scrolled out of view
+    private closingOffscreen = false;  // set while that close runs, so close() keeps watching
+    private scroller: HTMLElement | null | undefined;  // undefined: not looked up since opening
+    private positionedScroller = false;                // we made the scroller a positioned box
     onPick: (dialog: DialogData) => Promise<void> = async () => {};
 
     constructor(
@@ -2038,6 +2065,116 @@ class ChatSuggest extends AbstractInputSuggest<DialogData> {
         this.limit = 300;
         this.loader = loader;
         this.excluded = excluded;
+        this.searchInputEl = inputEl;
+    }
+
+    // Obsidian keeps the open list pinned inside the window, so once the field scrolls out of
+    // view the list would hang at the window's top or bottom edge, detached from it. Close it
+    // instead, but leave the field focused: if it scrolls back into view while still focused,
+    // the query runs again and the list returns. The observer's intersection is clipped by the
+    // scrolling settings pane or modal, so it tracks that area, not only the window.
+    open(): void {
+        super.open();
+        this.listOpen = true;
+        this.hiddenOffscreen = false;
+        if (this.visibilityObserver) {
+            // Typing into the focused field while it is still out of view reopens the list;
+            // visibility hasn't changed, so the observer won't fire — close it here.
+            if (!this.fieldVisible) this.closeOffscreen();
+            return;
+        }
+        this.fieldVisible = true;
+        this.visibilityObserver = new IntersectionObserver((entries) => {
+            const visible = entries[entries.length - 1].isIntersecting;
+            this.fieldVisible = visible;
+            if (!visible && this.listOpen) {
+                this.closeOffscreen();
+            } else if (visible && this.hiddenOffscreen) {
+                this.hiddenOffscreen = false;
+                // Obsidian's own input handler re-runs getSuggestions and reopens the list.
+                if (this.searchInputEl.isActiveElement()) this.searchInputEl.dispatchEvent(new Event("input"));
+                else this.stopWatching();
+            }
+        });
+        this.visibilityObserver.observe(this.searchInputEl);
+    }
+
+    // Any other close (a pick, Escape, blur, the field being rebuilt) ends the watch.
+    close(): void {
+        super.close();
+        this.listOpen = false;
+        if (this.positionedScroller) this.scroller?.removeClass("telegram-suggest-host");
+        this.positionedScroller = false;
+        this.scroller = undefined;
+        if (!this.closingOffscreen) {
+            this.hiddenOffscreen = false;
+            this.stopWatching();
+        }
+    }
+
+    // Obsidian attaches the list to <body> and moves it after the input from a scroll listener.
+    // Chromium scrolls on the compositor, so the pane moves first and the list catches up a
+    // frame later — it visibly trails the field. Placing the list inside the pane's own scroll
+    // container instead lets the compositor move both together. Obsidian's reposition still
+    // runs (it records the rect its scroll listener compares against); the placement below
+    // then overrides its window-based coordinates in the same task, before anything paints.
+    reposition(rect: unknown): void {
+        baseReposition?.call(this, rect);
+        this.pinToScroller();
+    }
+
+    private pinToScroller(): void {
+        const listEl = (this as unknown as SuggestInternals).suggestEl;
+        if (!listEl) return;
+        if (this.scroller === undefined) this.scroller = scrollParentOf(this.searchInputEl);
+        const scroller = this.scroller;
+        if (!scroller) return;  // nothing scrolls, so nothing can trail
+
+        if (listEl.parentElement !== scroller) {
+            if (getComputedStyle(scroller).position === "static") {
+                scroller.addClass("telegram-suggest-host");
+                this.positionedScroller = true;
+            }
+            scroller.appendChild(listEl);
+        }
+
+        // Anchor to the whole bordered field rather than the bare input inside it.
+        const anchor = this.searchInputEl.closest<HTMLElement>(".telegram-chat-picker-field") ?? this.searchInputEl;
+        const a = anchor.getBoundingClientRect();
+        const s = scroller.getBoundingClientRect();
+        // Offsets inside the scroller's padding box, in its scrolled content coordinates.
+        const originTop = s.top + scroller.clientTop - scroller.scrollTop;
+        const originLeft = s.left + scroller.clientLeft - scroller.scrollLeft;
+        const viewTop = s.top + scroller.clientTop;
+        const viewBottom = viewTop + scroller.clientHeight;
+
+        listEl.setCssStyles({ maxHeight: "", bottom: "", right: "" });
+        const height = listEl.offsetHeight;
+        const below = viewBottom - a.bottom - SUGGEST_GAP;
+        const above = a.top - viewTop - SUGGEST_GAP;
+        const placeAbove = below < height && above > below;
+        const room = placeAbove ? above : below;
+        const shown = Math.min(height, Math.max(room, 0));
+        if (room < height) listEl.setCssStyles({ maxHeight: `${Math.max(room, 0)}px` });
+        const top = placeAbove ? a.top - SUGGEST_GAP - shown : a.bottom + SUGGEST_GAP;
+
+        // Left-aligned with the field, kept inside the scroller's visible width.
+        const maxLeft = s.left + scroller.clientLeft + scroller.clientWidth - listEl.offsetWidth;
+        const left = Math.max(Math.min(a.left, maxLeft), s.left + scroller.clientLeft);
+
+        listEl.setCssStyles({ top: `${top - originTop}px`, left: `${left - originLeft}px` });
+    }
+
+    private closeOffscreen(): void {
+        this.hiddenOffscreen = true;
+        this.closingOffscreen = true;
+        this.close();
+        this.closingOffscreen = false;
+    }
+
+    private stopWatching(): void {
+        this.visibilityObserver?.disconnect();
+        this.visibilityObserver = null;
     }
 
     async getSuggestions(query: string): Promise<DialogData[]> {
@@ -2527,30 +2664,48 @@ export class TelegramSettingTab extends PluginSettingTab {
             const channelDiv = containerEl.createDiv({ cls: "telegram-channel-item", attr: { "data-preset-id": channel.id } });
             const header = channelDiv.createDiv("telegram-channel-header");
             const titleContainer = header.createDiv("telegram-header-title-container");
-            titleContainer.createSpan({ text: channel.name || t.PRESET_DEFAULT_NAME, cls: "telegram-header-name" });
+            const nameEl = titleContainer.createSpan({ text: channel.name || t.PRESET_DEFAULT_NAME, cls: "telegram-header-name" });
 
-            new ButtonComponent(titleContainer.createDiv("telegram-edit-container"))
-                .setIcon("pencil").onClick(() => {
-                    titleContainer.empty();
-                    const input = new TextComponent(titleContainer)
-                        .setValue(channel.name)
-                        .setPlaceholder(t.SETTING_PRESET_NAME_PLACEHOLDER);
-                    input.inputEl.focus();
+            // Renaming edits the title in place: the name becomes an input with the same type
+            // and position, marked only by an accent underline, and the pencil turns into a
+            // check mark. The caret starts at the end of the name. Enter or leaving the field
+            // saves; Escape cancels.
+            let renaming = false;
+            const editButton = new ButtonComponent(titleContainer.createDiv("telegram-edit-container"))
+                .setIcon("pencil");
+            editButton.buttonEl.addClass("telegram-edit-button");
+            editButton.onClick(() => {
+                // While renaming, the check button's mousedown already blurred the input, which
+                // saved; there is nothing left for the click to do.
+                if (renaming) return;
+                renaming = true;
+                const input = createEl("input", {
+                    cls: "telegram-header-name-input",
+                    attr: { type: "text", placeholder: t.SETTING_PRESET_NAME_PLACEHOLDER },
+                });
+                input.value = channel.name;
+                nameEl.replaceWith(input);
+                editButton.setIcon("check");
+                input.focus();
+                input.setSelectionRange(input.value.length, input.value.length);
 
-                    let saved = false;
-                    const save = async () => {
-                        if (saved) return;
-                        saved = true;
-                        channel.name = input.getValue();
+                let done = false;
+                const finish = async (commit: boolean) => {
+                    if (done) return;
+                    done = true;
+                    if (commit) {
+                        channel.name = input.value.trim();
                         await this.plugin.saveSettings();
-                        this.rerender();
-                    };
+                    }
+                    this.rerender();
+                };
 
-                    input.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-                        if (e.key === "Enter") { e.preventDefault(); void save(); }
-                    });
-                    input.inputEl.addEventListener("blur", voidListener(save));
-                }).buttonEl.addClass("telegram-edit-button");
+                input.addEventListener("keydown", (e: KeyboardEvent) => {
+                    if (e.key === "Enter") { e.preventDefault(); void finish(true); }
+                    else if (e.key === "Escape") { e.preventDefault(); void finish(false); }
+                });
+                input.addEventListener("blur", () => void finish(true));
+            });
 
             new ButtonComponent(header.createDiv("telegram-delete-container"))
                 .setIcon("trash").onClick(async () => {
@@ -2840,6 +2995,15 @@ export class TelegramSettingTab extends PluginSettingTab {
         const fieldEl = pickerEl.createDiv("telegram-chat-picker-field");
         let activeSuggest: ChatSuggest | null = null;
 
+        const removeTarget = async (target: ChatTarget) => {
+            channel.chatTargets = (channel.chatTargets ?? []).filter(t => !(t.id === target.id && t.topicId === target.topicId));
+            channel.chatId = channel.chatTargets[0]?.id ?? "";
+            channel.chatTitle = channel.chatTargets[0]?.title;
+            channel.topicId = channel.chatTargets[0]?.topicId;
+            await this.plugin.saveSettings();
+            renderField();
+        };
+
         const renderField = () => {
             activeSuggest?.close();
             activeSuggest = null;
@@ -2856,12 +3020,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                 removeBtn.addEventListener("mouseleave", () => chip.classList.remove("remove-hover"));
                 removeBtn.addEventListener("click", voidListener(async (e: MouseEvent) => {
                     e.stopPropagation();
-                    channel.chatTargets = (channel.chatTargets ?? []).filter(t => !(t.id === target.id && t.topicId === target.topicId));
-                    channel.chatId = channel.chatTargets[0]?.id ?? "";
-                    channel.chatTitle = channel.chatTargets[0]?.title;
-                    channel.topicId = channel.chatTargets[0]?.topicId;
-                    await this.plugin.saveSettings();
-                    renderField();
+                    await removeTarget(target);
                 }));
             }
 
@@ -2936,6 +3095,17 @@ export class TelegramSettingTab extends PluginSettingTab {
                 channel.topicId = channel.chatTargets[0]?.topicId;
                 await this.plugin.saveSettings();
                 renderField();
+                fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+            }));
+
+            // Backspace in the empty input removes the last chip. Held-down repeats are ignored
+            // so a long press can't clear every target at once.
+            input.addEventListener("keydown", voidListener(async (e: KeyboardEvent) => {
+                if (e.key !== "Backspace" || e.repeat || e.isComposing || input.value) return;
+                const last = channel.chatTargets?.at(-1);
+                if (!last) return;
+                e.preventDefault();
+                await removeTarget(last);
                 fieldEl.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
             }));
         };
