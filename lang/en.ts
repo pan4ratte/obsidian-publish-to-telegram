@@ -53,7 +53,6 @@ export default {
     USER_GUIDE_TITLE: "User guide",
     SETTING_CREATE_PRESET_BTN: "Create preset",
     SETTING_DEFAULT_METHOD_NAME: "Select default publishing method",
-    SETTING_DEFAULT_METHOD_DESC: "Used by default to publish with the preset",
     SETTING_ALT_METHODS_NAME: "Use alternative publishing methods",
     SETTING_ALT_METHODS_DESC: "Will be available in advanced publishing settings",
     METHOD_ACCOUNT: "Account",

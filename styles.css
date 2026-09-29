@@ -12,6 +12,11 @@
     display: none;
 }
 
+/* The method chips sit under the title (see "Method chips"), leaving the control empty. */
+.telegram-method-setting > .setting-item-control {
+    display: none;
+}
+
 .telegram-add-token-input .setting-item-control {
     flex: 1;
     gap: 8px;
@@ -1219,7 +1224,8 @@ body .telegram-auth-submit:disabled {
 
 /* An accent-coloured pill whose tint appears on hover. Obsidian draws button focus rings with
    box-shadow, which this drops, so keyboard focus gets its own ring. */
-.telegram-auth-card .telegram-auth-chip {
+.telegram-auth-card .telegram-auth-chip,
+.telegram-method-chips .telegram-auth-chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -1236,9 +1242,32 @@ body .telegram-auth-submit:disabled {
     cursor: pointer;
 }
 
+/* The preset's method picker reuses these chips as a single-choice row (see "Method chips"
+   below). An unselected chip is muted, so the selected one stands out. Every one keeps a
+   transparent border so the selected one's accent border doesn't shift its neighbours. */
+.telegram-method-chips .telegram-auth-chip {
+    /* Equal shares of the row, never narrower than the label: when the row can't fit them all,
+       they wrap and each line fills out again. */
+    flex: 1 1 0;
+    min-width: max-content;
+    justify-content: center;
+
+    /* Positioned, so the chips paint above the selection pill that comes before them. */
+    position: relative;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    transition: background-color 300ms ease, border-color 300ms ease, color 300ms ease;
+}
+
 .telegram-auth-card .telegram-auth-chip:hover {
     background-color: color-mix(in srgb, var(--interactive-accent) 25%, transparent);
     color: var(--text-accent-hover);
+}
+
+.telegram-method-chips .telegram-auth-chip:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
 }
 
 /* Only shows a tooltip, so the cursor says "explains" rather than "does", and clicking it
@@ -1249,8 +1278,60 @@ body .telegram-auth-submit:disabled {
     user-select: none;
 }
 
-.telegram-auth-card .telegram-auth-chip:focus-visible {
+.telegram-auth-card .telegram-auth-chip:focus-visible,
+.telegram-method-chips .telegram-auth-chip:focus-visible {
     box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+/* Method chips: the preset's single-choice method picker. The row is the outline's positioning
+   context. */
+.telegram-method-chips {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 10px;
+}
+
+/* The selected chip only turns its text accent: its fill and border are the outline's, below.
+   Its own hover fill is dropped so it doesn't stack on the outline's. */
+.telegram-method-chips .telegram-auth-chip.is-selected {
+    color: var(--text-accent);
+}
+
+.telegram-method-chips .telegram-auth-chip.is-selected:hover {
+    background-color: transparent;
+    color: var(--text-accent-hover);
+}
+
+/* One accent pill for the whole row, border and fill, laid under the selected chip (it covers
+   the chip's own transparent border exactly). A pick slides it from the old chip to the new
+   one. */
+.telegram-method-outline {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    box-sizing: border-box;
+    border: 1px solid var(--interactive-accent);
+    border-radius: 999px;
+    background-color: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+    pointer-events: none;
+    transition: left 300ms ease, top 300ms ease, width 300ms ease, height 300ms ease;
+}
+
+/* Placement that isn't a move between two chips (the first render, a resized pane, a rewrapped
+   row) puts the outline where it belongs instead of travelling there. */
+.telegram-method-outline.is-instant {
+    transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .telegram-method-chips .telegram-auth-chip,
+    .telegram-method-outline {
+        transition: none;
+    }
 }
 
 .telegram-auth-chip-icon {

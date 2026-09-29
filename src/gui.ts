@@ -2273,6 +2273,9 @@ export class TelegramSettingTab extends PluginSettingTab {
     // Container the tab last rendered into; re-renders target it so the declarative
     // wrapper stays stable. See render()/rerender().
     private renderRoot: HTMLElement | null = null;
+    // Set by a method-chip pick just before the re-render it causes: the rebuilt picker slides
+    // its outline from this method's chip to the new choice (see renderMethodField).
+    private methodSlideFrom: { presetId: string; method: PostMethod } | null = null;
 
     constructor(app: App, plugin: SendToTelegramPlugin) { super(app, plugin); this.plugin = plugin; }
 
@@ -2896,21 +2899,84 @@ export class TelegramSettingTab extends PluginSettingTab {
         setting.settingEl.addClass("telegram-account-setting");
     }
 
+    // One chip per method, in the auth card's chip style, in a row under the title; the selected
+    // one sits on an accent pill (border and fill) that slides between chips.
     private renderMethodField(container: HTMLElement, channel: TelegramChannel): void {
-        const setting = new Setting(container)
-            .setName(t.SETTING_DEFAULT_METHOD_NAME)
-            .setDesc(t.SETTING_DEFAULT_METHOD_DESC)
-            .addDropdown(dd => {
-                for (const [value, label] of methodOptions()) dd.addOption(value, label);
-                dd.setValue(channel.defaultMethod ?? "account");
-                dd.onChange(async (value) => {
-                    channel.defaultMethod = value as PostMethod;
-                    await this.plugin.saveSettings();
-                    // Re-render so the primary/secondary pickers reflect the new method.
-                    this.rerender();
-                });
-            });
+        const setting = new Setting(container).setName(t.SETTING_DEFAULT_METHOD_NAME);
         setting.settingEl.addClass("telegram-method-setting");
+
+        // Person for accounts, robot for bots; the rich variant of each adds a pen or a message.
+        const icons: Record<PostMethod, string> = {
+            "account": "user",
+            "account-rich": "user-pen",
+            "bot": "bot",
+            "bot-rich": "bot-message-square",
+        };
+        const current = channel.defaultMethod ?? "account";
+        const chipsEl = setting.infoEl.createDiv({ cls: "telegram-method-chips" });
+
+        // The selection pill is one element for the whole row, not a border and fill per chip,
+        // so a pick slides it across rather than swapping one for another. It is positioned
+        // against the row, so the chips' offsets are already in its coordinates.
+        const outlineEl = chipsEl.createDiv({ cls: "telegram-method-outline" });
+        const chips = new Map<PostMethod, HTMLElement>();
+        let placedSize = "";
+        const placeOutline = (chip: HTMLElement | undefined, instant: boolean) => {
+            if (!chip) return;
+            if (instant) outlineEl.addClass("is-instant");
+            outlineEl.style.left = `${chip.offsetLeft}px`;
+            outlineEl.style.top = `${chip.offsetTop}px`;
+            outlineEl.style.width = `${chip.offsetWidth}px`;
+            outlineEl.style.height = `${chip.offsetHeight}px`;
+            placedSize = `${chipsEl.offsetWidth}x${chipsEl.offsetHeight}`;
+            if (instant) {
+                // Commit the placement while transitions are still off. Without this read the
+                // browser coalesces the move and the re-enabling into one change and animates
+                // the jump after all.
+                outlineEl.getBoundingClientRect();
+                outlineEl.removeClass("is-instant");
+            }
+        };
+
+        for (const [value, label] of methodOptions()) {
+            const selected = value === current;
+            const chip = chipsEl.createEl("button", { cls: "telegram-auth-chip" });
+            setIcon(chip.createSpan({ cls: "telegram-auth-chip-icon" }), icons[value]);
+            chip.createSpan({ text: label });
+            chip.toggleClass("is-selected", selected);
+            chip.setAttribute("aria-pressed", String(selected));
+            chip.dataset.method = value;
+            chips.set(value, chip);
+            chip.addEventListener("click", () => void (async () => {
+                if (value === current) return;
+                channel.defaultMethod = value;
+                await this.plugin.saveSettings();
+                // Re-render so the primary/secondary pickers reflect the new method. That
+                // replaces the whole row, so the rebuilt one is told where the outline was.
+                this.methodSlideFrom = { presetId: channel.id, method: current };
+                this.rerender();
+                // Keeps keyboard users' place; a mouse click shows no focus ring for it.
+                this.renderRoot?.querySelector<HTMLElement>(
+                    `.telegram-channel-item[data-preset-id="${CSS.escape(channel.id)}"] .telegram-method-chips [data-method="${value}"]`,
+                )?.focus({ preventScroll: true });
+            })());
+        }
+
+        // After a pick the outline starts on the previous choice and travels to the new one;
+        // otherwise it is simply put in place.
+        const slideFrom = this.methodSlideFrom?.presetId === channel.id ? this.methodSlideFrom.method : null;
+        if (slideFrom) this.methodSlideFrom = null;
+        placeOutline(chips.get(slideFrom ?? current), true);
+        if (slideFrom) placeOutline(chips.get(current), false);
+
+        // The chips share the row's width, so a resized pane or a rewrapped row moves them: put
+        // the outline back in place without travelling. This also places it once the row is
+        // first laid out, if it wasn't yet when rendered.
+        new ResizeObserver(() => {
+            if (`${chipsEl.offsetWidth}x${chipsEl.offsetHeight}` !== placedSize) {
+                placeOutline(chips.get(channel.defaultMethod ?? "account"), true);
+            }
+        }).observe(chipsEl);
     }
 
     private renderSecondaryToggle(container: HTMLElement, channel: TelegramChannel): void {
