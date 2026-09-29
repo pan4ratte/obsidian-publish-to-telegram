@@ -6,7 +6,6 @@ import { App, TFile, Notice, requestUrl } from "obsidian";
 import {
     TelegramClient,
     WebCryptoProvider,
-    WebSocketTransport,
     MemoryStorage,
     InputMedia,
     type InputText,
@@ -16,7 +15,8 @@ import {
 import { thtml } from "@mtcute/html-parser";
 import wasmBytes from "@mtcute/wasm/mtcute.wasm";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions, CommentOptions } from "./types";
-import { errMessage } from "./util";
+import { errMessage, withTimeout } from "./util";
+import { accountTransport, transportForProxy, proxiedHttpsRequest, type ProxyConfig } from "./proxy";
 import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
 import { t } from "../lang/helpers";
@@ -332,13 +332,14 @@ function getWasmModule(): Promise<WebAssembly.Module> {
 
 // Builds a client (does not connect). `session` is an mtcute string session; omit it for
 // the login flow. Request-only: updates are disabled (no update loop / keepalive pings).
+// Connects through the account proxy when one is set (see proxy.ts).
 export async function buildClient(session?: string, apiId?: number, apiHash?: string): Promise<TelegramClient> {
     const client = new TelegramClient({
         apiId: apiId || DEFAULT_TG_API_ID,
         apiHash: apiHash || DEFAULT_TG_API_HASH,
         storage: new MemoryStorage(),
         crypto: new WebCryptoProvider({ wasmInput: await getWasmModule() }),
-        transport: new WebSocketTransport(),
+        transport: accountTransport(),
         disableUpdates: true,
     });
     if (session) await client.importSession(session);
@@ -349,6 +350,46 @@ export async function createClient(session: string, apiId?: number, apiHash?: st
     const client = await buildClient(session, apiId, apiHash);
     await client.connect();
     return client;
+}
+
+// Checks that Telegram can be reached through `proxy` and returns the round trip in ms. An
+// MTProxy is checked with a throwaway MTProto client (a handshake, then a timed request); a
+// generic tunnel with an HTTPS request to the Bot API host, the other thing it has to carry.
+export async function checkProxy(proxy: ProxyConfig): Promise<number> {
+    if (proxy.type !== "mtproto") {
+        const started = performance.now();
+        await withTimeout(proxiedHttpsRequest(proxy, "https://api.telegram.org/", { method: "GET" }), 20_000);
+        return Math.round(performance.now() - started);
+    }
+    // mtcute keeps retrying a failing connection, so a bad proxy shows up as a timeout. The
+    // transport remembers why its last attempt failed, which is the error worth reporting.
+    let lastError: unknown = null;
+    const inner = transportForProxy(proxy);
+    const client = new TelegramClient({
+        apiId: DEFAULT_TG_API_ID,
+        apiHash: DEFAULT_TG_API_HASH,
+        storage: new MemoryStorage(),
+        crypto: new WebCryptoProvider({ wasmInput: await getWasmModule() }),
+        transport: {
+            setup: (crypto, log) => inner.setup?.(crypto, log),
+            packetCodec: dc => inner.packetCodec(dc),
+            connect: (dc, signal) => inner.connect(dc, signal).catch((err: unknown) => { lastError = err; throw err; }),
+        },
+        disableUpdates: true,
+    });
+    try {
+        await withTimeout((async () => {
+            await client.connect();
+            await client.call({ _: "help.getNearestDc" });
+        })(), 20_000);
+        const started = performance.now();
+        await withTimeout(client.call({ _: "help.getNearestDc" }), 10_000);
+        return Math.round(performance.now() - started);
+    } catch (err) {
+        throw lastError ?? err;
+    } finally {
+        await client.destroy().catch(() => {});
+    }
 }
 
 // True only for an mtcute (version 3) string session. Sessions authorized before the

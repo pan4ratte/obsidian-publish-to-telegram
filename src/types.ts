@@ -9,6 +9,21 @@ export interface BotToken {
     name: string;          // user-provided label; token value lives in SecretStorage under `bot-token-${id}`
 }
 
+// A proxy the plugin reaches Telegram through (desktop only: it needs raw TCP sockets).
+// "mtproto" is a Telegram MTProxy and carries account traffic only — the Bot API is plain
+// HTTPS, which an MTProxy can't tunnel. The others are generic tunnels and carry both.
+export type ProxyType = "mtproto" | "socks5" | "http" | "https";
+
+export interface TelegramProxy {
+    id: string;
+    type: ProxyType;
+    host: string;
+    port: number;
+    username?: string;     // socks5/http/https login, if the proxy wants one
+    // the MTProxy secret (mtproto) or the login's password (others) lives in SecretStorage
+    // under `proxy-secret-${id}`, never in data.json
+}
+
 export interface TelegramAccount {
     id: string;
     displayName: string;   // resolved from getMe() at login; shown in the account dropdown / modal
@@ -96,6 +111,9 @@ export interface TelegramSettings {
     channels: TelegramChannel[];
     botTokens: BotToken[];
     accounts: TelegramAccount[];
+    proxies: TelegramProxy[];
+    accountProxyId?: string;          // proxy account connections go through; unset = direct
+    botProxyId?: string;              // proxy Bot API requests go through (never an MTProxy); unset = direct
     savePostLinks: boolean;
     treatMdEmbedsAsComments: boolean;
     commentsFollowPostSettings: boolean;  // a comment card mirrors its post's settings until the user sets that comment's own
@@ -118,6 +136,7 @@ export const DEFAULT_SETTINGS: TelegramSettings = {
     channels: [],
     botTokens: [],
     accounts: [],
+    proxies: [],
     savePostLinks: false,
     treatMdEmbedsAsComments: false,
     commentsFollowPostSettings: true,

@@ -41,7 +41,12 @@ haven't added type errors. The repository is checked out inside a development va
   formatting-help modals. The largest file by far.
 - `src/telegram.ts` — account send/edit paths, mtcute client creation, dialogs, scheduled posts.
 - `src/telegram-bot.ts` — bot send/edit paths. Self-contained; imports only `markdown.ts`,
-  `split.ts` and Obsidian.
+  `split.ts`, `proxy.ts` and Obsidian.
+- `src/proxy.ts` — proxy routing (desktop only): mtcute transports over Node sockets
+  (SOCKS5, HTTP(S) CONNECT, MTProxy) for accounts, and tunnelled HTTPS for the Bot API.
+  `setProxies()` is called by the plugin on load and on every settings save.
+- `src/proxy-link.ts` — parsing pasted proxy links and validating MTProxy secrets. No
+  Obsidian/Node imports.
 - `src/markdown.ts` — Obsidian markdown → Telegram HTML (classic) and → Rich Markdown (rich).
 - `src/split.ts` — `%% \split %%` markers: splitting a note into posts and writing published
   links back into the markers. No Obsidian/Telegram imports.
@@ -59,6 +64,10 @@ haven't added type errors. The repository is checked out inside a development va
   a second CodeMirror copy breaks the editor extension. Keep `target: chrome110`; it stops
   esbuild emitting `Uint8Array.fromBase64` for the inlined mtcute wasm. Don't add a `crypto`
   shim (see the comment in `esbuild.config.mjs`).
+- **Node built-ins.** `net`, `tls` and `http` are external and loaded only by a
+  `Platform.isDesktop`-guarded `import()` in `src/proxy.ts`; `supported: { "dynamic-import":
+  false }` lowers it to a `require` the renderer can resolve. Never import them statically —
+  the bundle has to load on mobile, where they don't exist.
 - **Rich Messages are sent as server-parsed markdown** (`type: "markdown"`). Don't switch to the
   `blocks` form — see "Inline buttons under a post" in `CONTRIBUTING.md`.
 - **Classic posts must be one message.** If a classic (non-rich) post's attachments would
@@ -90,7 +99,7 @@ haven't added type errors. The repository is checked out inside a development va
 - **Russian is the source.** The maintainer writes `CHANGELOG_RU.md`, `README_RU.md` and
   `USER_GUIDE_RU.md` first; the English files are translations and must mirror them exactly —
   same sections, same bullet count and order, including removals.
-- The user guide body (sections 1–8) appears in all four of `README.md`, `README_RU.md`,
+- The user guide body (sections 1–9) appears in all four of `README.md`, `README_RU.md`,
   `USER_GUIDE.md` and `USER_GUIDE_RU.md`. The Features section is only in the two READMEs.
   When syncing, change only the section that was edited; don't write new prose unless asked.
 - **Changelog:** newest version first, bare `## x.y.z` headings, one short bullet per

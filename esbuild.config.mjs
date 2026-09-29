@@ -12,7 +12,9 @@ const nodeStubPlugin = {
         // advisory GHSA-848j-6mx2-7j84 from the dependency tree. Re-adding a crypto
         // shim would pull elliptic back in via browserify-sign / create-ecdh; stub
         // those two out if that ever becomes necessary.
-        const stubModules = ["net", "tls", "fs", "dns", "child_process", "node-localstorage"];
+        // `net`, `tls` and `http` are not stubbed: src/proxy.ts loads the real ones at run
+        // time on desktop (see `external` below).
+        const stubModules = ["fs", "dns", "child_process", "node-localstorage"];
         build.onResolve({ filter: new RegExp(`^(node:)?(${stubModules.join("|")})$`) }, (args) => ({
             path: args.path,
             namespace: "node-stub",
@@ -30,8 +32,9 @@ const context = await esbuild.context({
     // Obsidian provides these at runtime. CodeMirror in particular MUST stay external:
     // bundling a second copy would give the editor extension its own state/view classes,
     // which the running editor doesn't recognise.
+    // `net`, `tls` and `http` are Node's own, required by src/proxy.ts on desktop only.
     external: [
-        "obsidian", "electron",
+        "obsidian", "electron", "net", "tls", "http",
         "@codemirror/state", "@codemirror/view", "@codemirror/language",
         "@codemirror/commands", "@codemirror/search", "@codemirror/autocomplete",
         "@lezer/common", "@lezer/highlight", "@lezer/lr",
@@ -43,6 +46,9 @@ const context = await esbuild.context({
     // Chromium (older than 133) lacks; pinning a Chromium target makes esbuild emit its own
     // base64 decoder instead. It also downlevels mtcute's modern syntax for the renderer.
     target: ["chrome110"],
+    // src/proxy.ts loads Node's net/tls/http with a guarded dynamic import(). The renderer's
+    // module loader can't resolve Node built-ins, so lower import() to require(), which can.
+    supported: { "dynamic-import": false },
     // Emit non-ASCII literally instead of as \uXXXX escapes. The bundled emoji set and the
     // localized strings are mostly non-ASCII, and escaping them triples their size.
     charset: "utf8",

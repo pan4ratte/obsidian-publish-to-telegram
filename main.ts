@@ -1,6 +1,6 @@
 import { Plugin, Notice, TFile, TFolder, Menu, Editor } from "obsidian";
 import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
-import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink, SplitPartOptions } from "./src/types";
+import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, TelegramProxy, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink, SplitPartOptions } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
 import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
 import { CustomEmojiThumbnails, PreviewStore, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
@@ -8,6 +8,7 @@ import { hasCustomEmoji } from "./src/markdown";
 import { customEmojiEditorExtension, customEmojiPostProcessor, refreshInlineEmoji } from "./src/emoji-inline";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
+import { setProxies, type ProxyConfig } from "./src/proxy";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 import { errMessage } from "./src/util";
 
@@ -753,6 +754,7 @@ export default class SendToTelegramPlugin extends Plugin {
             }
         }
         await this.loadSecrets();
+        this.applyProxies();
     }
 
     async loadSecrets() {
@@ -816,6 +818,35 @@ export default class SendToTelegramPlugin extends Plugin {
         return this.app.secretStorage.getSecret(`bot-token-${tokenId}`) ?? "";
     }
 
+    saveProxySecret(proxyId: string, secret: string): void {
+        this.app.secretStorage.setSecret(`proxy-secret-${proxyId}`, secret);
+    }
+
+    deleteProxy(proxyId: string): void {
+        this.app.secretStorage.setSecret(`proxy-secret-${proxyId}`, "");
+        this.settings.proxies = this.settings.proxies.filter(p => p.id !== proxyId);
+        if (this.settings.accountProxyId === proxyId) this.settings.accountProxyId = undefined;
+        if (this.settings.botProxyId === proxyId) this.settings.botProxyId = undefined;
+    }
+
+    // The proxy with its secret, ready to connect with; null for an unknown id.
+    proxyConfig(proxyId?: string): ProxyConfig | null {
+        const proxy: TelegramProxy | undefined = this.settings.proxies.find(p => p.id === proxyId);
+        if (!proxy) return null;
+        return {
+            type: proxy.type,
+            host: proxy.host,
+            port: proxy.port,
+            username: proxy.username,
+            secret: this.app.secretStorage.getSecret(`proxy-secret-${proxy.id}`) ?? "",
+        };
+    }
+
+    // Hands the chosen proxies to the network code; clients built from here on use them.
+    applyProxies(): void {
+        setProxies(this.proxyConfig(this.settings.accountProxyId), this.proxyConfig(this.settings.botProxyId));
+    }
+
     async saveSettings() {
         const stripped = {
             ...this.settings,
@@ -823,5 +854,6 @@ export default class SendToTelegramPlugin extends Plugin {
         };
         await this.saveData(stripped);
         this.syncChannelCommands();
+        this.applyProxies();
     }
 }

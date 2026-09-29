@@ -4,8 +4,10 @@ import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
-import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions } from "./types";
-import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
+import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions, TelegramProxy, ProxyType } from "./types";
+import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, checkProxy, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
+import { parseProxyLink, isValidMtProxySecret, proxyCarriesBots, defaultProxyPort, type ParsedProxy } from "./proxy-link";
+import { proxiesSupported } from "./proxy";
 import { parseSplitPosts, linksMatch, parseChatTargetInput, type SplitPost } from "./split";
 import { stripComments } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
@@ -19,6 +21,19 @@ const REVOKE_TIMEOUT_MS = 8000;
 // strand a re-login as a duplicate entry, so it's worth a couple of retries.
 const IDENTITY_ATTEMPTS = 3;
 const IDENTITY_RETRY_DELAY_MS = 1000;
+
+// Proxy types as the proxy card names them; protocol names, the same in every language.
+const PROXY_TYPE_LABELS: Record<ProxyType, string> = {
+    mtproto: "MTProto",
+    socks5: "SOCKS5",
+    http: "HTTP",
+    https: "HTTPS",
+};
+
+function proxyLabel(proxy: TelegramProxy): string {
+    const host = proxy.host.includes(":") ? `[${proxy.host}]` : proxy.host;
+    return `${host}:${proxy.port}`;
+}
 
 // How long a leaving auth panel stays on screen fading out. Must match the
 // `telegram-auth-card-out` animation in styles.css. It no longer holds anything up — the panel
@@ -2245,6 +2260,8 @@ export class TelegramSettingTab extends PluginSettingTab {
     private dialogsByAccount = new Map<string, { fetch: Promise<DialogData[]>; loading: boolean }>();
     // Persisted across re-renders so the credentials card stays open after edits.
     private credentialsCardOpen = false;
+    // Last connection check per proxy id, kept across re-renders of the proxy card.
+    private proxyChecks = new Map<string, { state: "checking" | "ok" | "fail"; text: string; detail?: string }>();
     // Pending hand-off between two auth panels: the timer that builds the incoming panel once
     // the outgoing one has finished leaving. See the auth bar in render().
     private inlineSwapTimer: number | null = null;
@@ -2282,7 +2299,8 @@ export class TelegramSettingTab extends PluginSettingTab {
                     t.SETTING_ALWAYS_SILENT_NAME,
                     t.SETTING_CREATE_PRESET_BTN, t.USER_GUIDE_TITLE,
                     t.AUTH_LOGIN_BTN, t.AUTH_ADD_ACCOUNT_BTN, t.AUTH_ADD_BOT_TOKEN_BTN,
-                    t.AUTH_MANAGE_CREDENTIALS_BTN,
+                    t.AUTH_MANAGE_CREDENTIALS_BTN, t.AUTH_PROXY_BTN,
+                    t.PROXY_ACCOUNTS_NAME, t.PROXY_BOTS_NAME,
                 ],
                 render: (setting) => {
                     // The UI must live INSIDE the definition's own row: after every render
@@ -2501,7 +2519,8 @@ export class TelegramSettingTab extends PluginSettingTab {
         const addTokenContainer = stageInnerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
         const loginContainer = stageInnerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
         const credsContainer = stageInnerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
-        const inlineContainers = [addTokenContainer, loginContainer, credsContainer];
+        const proxyContainer = stageInnerEl.createDiv({ cls: "telegram-auth-inline is-hidden" });
+        const inlineContainers = [addTokenContainer, loginContainer, credsContainer, proxyContainer];
 
         const clearInline = () => {
             for (const container of inlineContainers) { container.empty(); container.addClass("is-hidden"); }
@@ -2599,6 +2618,19 @@ export class TelegramSettingTab extends PluginSettingTab {
         addTokenBtn.buttonEl.addClass("telegram-link-button");
         prependIcon(addTokenBtn, "bot-message-square");
 
+        const proxyBtn = new ButtonComponent(authActionsEl)
+            .setButtonText(t.AUTH_PROXY_BTN)
+            .setTooltip(t.AUTH_PROXY_TOOLTIP)
+            .onClick(() => {
+                const wasOpen = proxyBtn.buttonEl.hasClass("is-active");
+                swapInline(wasOpen ? null : proxyBtn, wasOpen ? null : () => {
+                    proxyContainer.removeClass("is-hidden");
+                    this.renderProxyLinkStep(proxyContainer);
+                });
+            });
+        proxyBtn.buttonEl.addClass("telegram-link-button");
+        prependIcon(proxyBtn, "globe-lock");
+
         const openCredentials = () => {
             this.credentialsCardOpen = true;
             credsContainer.removeClass("is-hidden");
@@ -2622,13 +2654,40 @@ export class TelegramSettingTab extends PluginSettingTab {
         // token delete or account logout triggered from inside the card).
         if (this.credentialsCardOpen) openCredentials();
 
+        // Segments sharing a row all start from the width the widest label needs, so they come
+        // out equal; a bar too narrow for that many wraps instead (see styles.css). A Range over
+        // a segment's contents spans its icon and label at their natural size, whatever width
+        // the segment itself has been given. A bar that isn't laid out yet measures nothing, and
+        // is left to size its segments by their own labels until it is.
+        const segments = [loginBtn, addTokenBtn, proxyBtn, credsBtn].map(btn => btn.buttonEl);
+        const equalizeSegments = () => {
+            let widest = 0;
+            for (const segment of segments) {
+                const range = segment.doc.createRange();
+                range.selectNodeContents(segment);
+                const style = segment.win.getComputedStyle(segment);
+                const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+                widest = Math.max(widest, range.getBoundingClientRect().width + padding);
+            }
+            if (widest === 0) return;
+            const width = `${Math.ceil(widest)}px`;
+            if (authActionsEl.style.getPropertyValue("--telegram-segment-width") !== width) {
+                authActionsEl.setCssProps({ "--telegram-segment-width": width });
+            }
+        };
+
         // The bar has no measurable width until it is laid out — and none at all while the tab
         // is hidden — so the first observation is what places the line; later ones follow the
         // segments when the pane is resized, the bar rewraps or a label changes width. The
         // segments are watched alongside the bar because they can resize without it doing so.
         // None of these are tab changes, so the line is placed outright rather than sliding.
-        this.authIndicatorObserver = new ResizeObserver(() => moveIndicator(activeTabEl(), true));
-        for (const el of [authStatusEl, loginBtn.buttonEl, addTokenBtn.buttonEl, credsBtn.buttonEl]) {
+        // The segments are re-measured on the next frame rather than here: resizing them inside
+        // the observer's own callback would have it report a loop.
+        this.authIndicatorObserver = new ResizeObserver(() => {
+            moveIndicator(activeTabEl(), true);
+            window.requestAnimationFrame(equalizeSegments);
+        });
+        for (const el of [authStatusEl, loginBtn.buttonEl, addTokenBtn.buttonEl, credsBtn.buttonEl, proxyBtn.buttonEl]) {
             this.authIndicatorObserver.observe(el);
         }
 
@@ -2653,6 +2712,21 @@ export class TelegramSettingTab extends PluginSettingTab {
         new Setting(generalCard).setName(t.SETTING_ALWAYS_SILENT_NAME).setDesc(t.SETTING_ALWAYS_SILENT_DESC)
             .addToggle(toggle => toggle.setValue(this.plugin.settings.alwaysSilent)
                 .onChange(async (v) => { this.plugin.settings.alwaysSilent = v; await this.plugin.saveSettings(); }));
+
+        // How accounts and bots reach Telegram — offered only once there is a proxy to choose.
+        const settings = this.plugin.settings;
+        if (settings.proxies.length > 0) {
+            this.renderConnectionSetting(generalCard, t.PROXY_ACCOUNTS_NAME, t.PROXY_ACCOUNTS_DESC,
+                settings.proxies, settings.accountProxyId, id => {
+                    settings.accountProxyId = id;
+                    // Chat lists that failed to load over the old route get another go over the new one.
+                    this.dialogsByAccount.clear();
+                });
+            this.renderConnectionSetting(generalCard, t.PROXY_BOTS_NAME, t.PROXY_BOTS_DESC,
+                settings.proxies.filter(p => proxyCarriesBots(p.type)), settings.botProxyId, id => {
+                    settings.botProxyId = id;
+                });
+        }
 
         // ── Presets ──
         new Setting(containerEl).setHeading().setName(t.SECTION_PRESETS);
@@ -2998,6 +3072,235 @@ export class TelegramSettingTab extends PluginSettingTab {
                     .buttonEl.addClasses(["clickable-icon", "telegram-danger-icon"]);
             }
         }
+
+        // ── Proxies ── (added and chosen in the proxy card; listed here with the other
+        // saved connections, each with its connection check)
+        card.createDiv({ text: t.PROXY_LIST_HEADING, cls: "telegram-credentials-heading" });
+        const proxies = this.plugin.settings.proxies;
+        if (proxies.length === 0) {
+            card.createEl("p", { text: t.PROXY_LIST_EMPTY, cls: "telegram-credentials-empty" });
+        } else {
+            const list = card.createDiv({ cls: "telegram-credentials-list" });
+            for (const proxy of proxies) this.renderProxyRow(list, proxy);
+        }
+    }
+
+    // A connection-method option in the general settings: direct, or one of `candidates`.
+    private renderConnectionSetting(parent: HTMLElement, name: string, desc: string, candidates: TelegramProxy[], current: string | undefined, choose: (id: string | undefined) => void): void {
+        new Setting(parent).setName(name).setDesc(desc).addDropdown(dropdown => {
+            dropdown.addOption("", t.PROXY_DIRECT);
+            for (const proxy of candidates) {
+                dropdown.addOption(proxy.id, `${PROXY_TYPE_LABELS[proxy.type]} · ${proxyLabel(proxy)}`);
+            }
+            dropdown.setValue(candidates.some(p => p.id === current) ? current ?? "" : "")
+                .onChange(async (value) => {
+                    choose(value || undefined);
+                    await this.plugin.saveSettings();
+                });
+        });
+    }
+
+    // Adding a proxy, in the login card's two steps: a link first, then the details it gave,
+    // to check (or fill in by hand) and save. Saving closes the panel, like adding a bot does;
+    // the saved proxies are listed in the credentials card, and which one accounts and bots use
+    // is chosen in the general settings.
+    private renderProxyLinkStep(container: HTMLElement, link = ""): void {
+        const { fields, submitEl, noteEl, extraEl } = this.buildAuthCard(container, t.PROXY_STEP_1);
+        fields.addClass("telegram-proxy-fields");
+
+        const linkInput = fields.createEl("input", {
+            cls: "telegram-auth-input telegram-proxy-link-input",
+            attr: { type: "text", placeholder: t.PROXY_LINK_PLACEHOLDER },
+        });
+        linkInput.value = link;
+        linkInput.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); submitEl.click(); } });
+        window.setTimeout(() => linkInput.focus(), 50);
+
+        submitEl.textContent = t.PROXY_NEXT_BTN;
+        submitEl.addClass("telegram-proxy-link-submit");
+        submitEl.addEventListener("click", () => {
+            const value = linkInput.value.trim();
+            if (!value) return;
+            const parsed = parseProxyLink(value);
+            if (!parsed) { new Notice(t.PROXY_ERR_LINK); return; }
+            this.renderProxyDetailsStep(container, parsed, value);
+        });
+
+        noteEl.textContent = proxiesSupported() ? t.PROXY_LINK_NOTE : t.PROXY_MOBILE_NOTE;
+
+        extraEl.addClass("telegram-auth-chips");
+        const manualBtn = extraEl.createEl("button", { cls: "telegram-auth-chip" });
+        setIcon(manualBtn.createSpan({ cls: "telegram-auth-chip-icon" }), "pencil");
+        manualBtn.createSpan({ text: t.PROXY_MANUAL_CHIP });
+        manualBtn.addEventListener("click", () => this.renderProxyDetailsStep(container, null, linkInput.value));
+    }
+
+    // Step 2: the proxy's details, prefilled from the link (or empty, entered by hand), as rows
+    // split by dividers the way the general settings are (see styles.css).
+    private renderProxyDetailsStep(container: HTMLElement, parsed: ParsedProxy | null, link: string): void {
+        const settings = this.plugin.settings;
+        const { fields, submitEl } = this.buildAuthCard(container, t.PROXY_STEP_2,
+            () => this.renderProxyLinkStep(container, link));
+        fields.addClass("telegram-proxy-fields");
+        const form = fields.createDiv({ cls: "telegram-settings-card telegram-proxy-form" });
+        // A link names its type; a bare address doesn't, and is most likely a VPN app's local
+        // port, which is SOCKS5 more often than not.
+        let type: ProxyType = parsed ? parsed.type ?? "socks5" : "mtproto";
+
+        const typeSetting = new Setting(form).setName(t.PROXY_TYPE_NAME);
+        const typeDropdown = new DropdownComponent(typeSetting.controlEl);
+        for (const [value, label] of Object.entries(PROXY_TYPE_LABELS)) typeDropdown.addOption(value, label);
+        typeDropdown.setValue(type);
+
+        const serverSetting = new Setting(form).setName(t.PROXY_SERVER_NAME).setDesc(t.PROXY_SERVER_DESC);
+        const hostText = new TextComponent(serverSetting.controlEl).setPlaceholder("proxy.example.com");
+        const portText = new TextComponent(serverSetting.controlEl);
+        portText.inputEl.inputMode = "numeric";
+        portText.inputEl.addClass("telegram-proxy-port");
+
+        const secretSetting = new Setting(form).setName(t.PROXY_SECRET_NAME).setDesc(t.PROXY_SECRET_DESC);
+        const secretText = new TextComponent(secretSetting.controlEl);
+        secretText.inputEl.type = "password";
+
+        const authSetting = new Setting(form).setName(t.PROXY_AUTH_NAME).setDesc(t.PROXY_AUTH_DESC);
+        const userText = new TextComponent(authSetting.controlEl).setPlaceholder(t.PROXY_USERNAME_PLACEHOLDER);
+        const passText = new TextComponent(authSetting.controlEl).setPlaceholder(t.PROXY_PASSWORD_PLACEHOLDER);
+        passText.inputEl.type = "password";
+
+        // An MTProxy takes a secret; the others take an optional login.
+        const showFieldsFor = (next: ProxyType) => {
+            type = next;
+            secretSetting.settingEl.toggle(type === "mtproto");
+            authSetting.settingEl.toggle(type !== "mtproto");
+            portText.setPlaceholder(`${t.PROXY_PORT_PLACEHOLDER} (${defaultProxyPort(type)})`);
+        };
+        typeDropdown.onChange(value => showFieldsFor(value as ProxyType));
+        showFieldsFor(type);
+
+        hostText.setValue(parsed?.host ?? "");
+        portText.setValue(parsed?.port ? String(parsed.port) : "");
+        if (type === "mtproto") {
+            secretText.setValue(parsed?.secret ?? "");
+        } else {
+            userText.setValue(parsed?.username ?? "");
+            passText.setValue(parsed?.secret ?? "");
+        }
+        window.setTimeout(() => (parsed ? submitEl : hostText.inputEl).focus(), 50);
+
+        const save = async () => {
+            const host = hostText.getValue().trim().replace(/^\[(.*)\]$/, "$1");
+            const portValue = portText.getValue().trim();
+            const port = portValue ? Number(portValue) : defaultProxyPort(type);
+            if (!host) { new Notice(t.PROXY_ERR_HOST); return; }
+            if (!Number.isInteger(port) || port < 1 || port > 65535) { new Notice(t.PROXY_ERR_PORT); return; }
+            const secret = type === "mtproto" ? secretText.getValue().trim() : passText.getValue();
+            if (type === "mtproto" && !isValidMtProxySecret(secret)) { new Notice(t.PROXY_ERR_SECRET); return; }
+            const username = type === "mtproto" ? "" : userText.getValue().trim();
+            // A second click while saving would add the proxy twice.
+            submitEl.disabled = true;
+
+            const id = Date.now().toString();
+            settings.proxies.push({ id, type, host, port, ...(username ? { username } : {}) });
+            this.plugin.saveProxySecret(id, secret);
+            // The first proxy able to carry a kind of traffic is put to use for it right away:
+            // someone adding a proxy wants to be connecting through it.
+            if (!settings.accountProxyId) {
+                settings.accountProxyId = id;
+                this.dialogsByAccount.clear();
+            }
+            if (!settings.botProxyId && proxyCarriesBots(type)) settings.botProxyId = id;
+            await this.plugin.saveSettings();
+            // Re-rendering closes the panel and brings up the connection options.
+            this.rerender();
+            // Its row lives in the credentials card, out of sight, so the result comes as a notice.
+            void this.runProxyCheck(id, true);
+        };
+
+        form.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Enter" && e.target instanceof HTMLInputElement) { e.preventDefault(); void save(); }
+        });
+        submitEl.textContent = t.PROXY_SAVE_BTN;
+        submitEl.addClass("telegram-proxy-save-submit");
+        submitEl.addEventListener("click", () => { void save(); });
+    }
+
+    private renderProxyRow(list: HTMLElement, proxy: TelegramProxy): void {
+        const row = list.createDiv({ cls: "telegram-credentials-row telegram-proxy-row" });
+        row.dataset.proxyId = proxy.id;
+        const info = row.createDiv({ cls: "telegram-proxy-row-info" });
+        info.createSpan({ text: PROXY_TYPE_LABELS[proxy.type], cls: "telegram-proxy-type" });
+        const nameEl = info.createSpan({ text: proxyLabel(proxy), cls: "telegram-credentials-row-name" });
+        if (proxy.username) setTooltip(nameEl, proxy.username);
+        info.createSpan({ cls: "telegram-proxy-status" });
+
+        const rowActions = row.createDiv({ cls: "telegram-credentials-row-actions" });
+        new ButtonComponent(rowActions)
+            .setIcon("plug-zap").setTooltip(t.PROXY_CHECK_BTN)
+            .onClick(() => { void this.runProxyCheck(proxy.id); })
+            .buttonEl.addClasses(["clickable-icon", "telegram-proxy-check"]);
+        new ButtonComponent(rowActions)
+            .setIcon("trash").setTooltip(t.PROXY_DELETE_BTN)
+            .onClick(() => {
+                new ConfirmationModal(
+                    this.app,
+                    t.PROXY_DELETE_TITLE,
+                    t.PROXY_DELETE_MSG.replace("{name}", proxyLabel(proxy)),
+                    t.PROXY_DELETE_CONFIRM,
+                    async () => {
+                        if (this.plugin.settings.accountProxyId === proxy.id) this.dialogsByAccount.clear();
+                        this.plugin.deleteProxy(proxy.id);
+                        this.proxyChecks.delete(proxy.id);
+                        await this.plugin.saveSettings();
+                        this.rerender();
+                    },
+                ).open();
+            })
+            .buttonEl.addClasses(["clickable-icon", "telegram-danger-icon"]);
+
+        this.paintProxyCheck(proxy.id, row);
+    }
+
+    // Checks one saved proxy and shows the result on its row. The result is kept by id, so a
+    // re-render while the check runs picks it up rather than losing it. A failure is always
+    // reported in a notice; a success only when `notifySuccess` is set.
+    private async runProxyCheck(proxyId: string, notifySuccess = false): Promise<void> {
+        const config = this.plugin.proxyConfig(proxyId);
+        if (!config || this.proxyChecks.get(proxyId)?.state === "checking") return;
+        this.proxyChecks.set(proxyId, { state: "checking", text: t.PROXY_CHECKING });
+        this.paintProxyCheck(proxyId);
+        const proxy = this.plugin.settings.proxies.find(p => p.id === proxyId);
+        try {
+            const ms = await checkProxy(config);
+            this.proxyChecks.set(proxyId, { state: "ok", text: t.PROXY_CHECK_OK.replace("{ms}", String(ms)) });
+            if (notifySuccess && proxy) {
+                new Notice(t.PROXY_CHECK_OK_NOTICE
+                    .replace("{name}", proxyLabel(proxy))
+                    .replace("{ms}", String(ms)));
+            }
+        } catch (err) {
+            this.proxyChecks.set(proxyId, { state: "fail", text: t.PROXY_CHECK_FAILED, detail: errMessage(err) });
+            if (proxy) {
+                new Notice(t.PROXY_CHECK_FAILED_NOTICE
+                    .replace("{name}", proxyLabel(proxy))
+                    .replace("{error}", errMessage(err)));
+            }
+        }
+        this.paintProxyCheck(proxyId);
+    }
+
+    // Paints a proxy's last check onto its row: the one given, or whichever is on screen now.
+    private paintProxyCheck(proxyId: string, row?: HTMLElement): void {
+        const rowEl = row ?? this.renderRoot?.querySelector<HTMLElement>(`.telegram-proxy-row[data-proxy-id="${CSS.escape(proxyId)}"]`);
+        if (!rowEl) return;
+        const check = this.proxyChecks.get(proxyId);
+        const statusEl = rowEl.querySelector<HTMLElement>(".telegram-proxy-status");
+        if (statusEl) {
+            statusEl.setText(check?.text ?? "");
+            statusEl.toggleClass("is-ok", check?.state === "ok");
+            statusEl.toggleClass("is-fail", check?.state === "fail");
+            setTooltip(statusEl, check?.detail ?? "");
+        }
+        rowEl.querySelector<HTMLButtonElement>(".telegram-proxy-check")?.toggleAttribute("disabled", check?.state === "checking");
     }
 
     private renameCredential(token: BotToken, row: HTMLElement): void {

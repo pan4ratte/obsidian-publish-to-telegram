@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
-    "test": "esbuild tests/*.test.ts --bundle --platform=node --format=cjs --outdir=tests/.tmp --out-extension:.js=.cjs && node --test tests/.tmp/convert.test.cjs tests/.tmp/util.test.cjs tests/.tmp/split.test.cjs tests/.tmp/emoji.test.cjs",
+    "test": "esbuild tests/*.test.ts --bundle --platform=node --format=cjs --outdir=tests/.tmp --out-extension:.js=.cjs && node --test tests/.tmp/convert.test.cjs tests/.tmp/util.test.cjs tests/.tmp/split.test.cjs tests/.tmp/emoji.test.cjs tests/.tmp/proxy.test.cjs",
     "lint": "npm run lint:ts && npm run lint:css",
     "lint:ts": "eslint .",
     "lint:css": "stylelint \"**/*.css\" --ignore-disables",
@@ -30,6 +30,7 @@
     "typescript-eslint": "^8.60.1"
   },
   "dependencies": {
+    "@fuman/net": "^0.0.21",
     "@mtcute/html-parser": "^0.32.3",
     "@mtcute/wasm": "^0.32.0",
     "@mtcute/web": "^0.32.3",

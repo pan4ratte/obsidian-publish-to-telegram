@@ -1,6 +1,13 @@
 # Changelog
 
-## 6.2.4
+## 6.3.0
+
+### New features
+
+* Connecting to Telegram through a proxy: MTProto (including `dd` and `ee` secrets), SOCKS5, HTTP and HTTPS.
+* A proxy is added from a `tg://proxy` or `socks5://` link or an `ip:port:login:password` line — its details fill in automatically.
+* Accounts and bots can use different proxies or a direct connection.
+* Saved proxies can be checked and removed in the "Saved" tab.
 
 ### UI/UX enhancements and bug fixes
 
@@ -16,7 +23,9 @@
 * The account login card has been redesigned: the input fields match the button's width, the confirmation code is centered, and the spacing is more even.
 * Logging in with a QR code now has its own button.
 * An "Is that safe?" hint was added to the login card, briefly explaining how the plugin stores account data.
-* The delete bot and log out buttons in "My accounts and bots" now turn red on hover.
+* The "My accounts and bots" tab was renamed to "Saved".
+* The delete bot and log out buttons in the "Saved" tab now turn red on hover.
+* Auth panel tabs that fit in one row now have equal width.
 
 
 ## 6.2.3

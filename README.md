@@ -56,6 +56,10 @@ The advanced publishing settings show every message the way Telegram will render
 
 Edit posts and comments right from the note they were published from. To do that, enable automatic saving of post links to the note's properties.
 
+### 7. Connecting through a proxy
+
+If Telegram is blocked or throttled, connect to it through an MTProto, SOCKS5 or HTTP(S) proxy — accounts and bots can use different ones. Just paste a `tg://proxy` link or the proxy address. VLESS, Shadowsocks and other protocols work too, through a VPN client's local port.
+
 ---
 
 **A detailed user guide with setup walkthroughs and a description of every feature and every supported formatting option is available right in the plugin settings and can be opened from the command palette.**
@@ -501,7 +505,35 @@ Links to published messages are stored in the note's `tg_posts` and `tg_comments
 
 An important note: a post is always edited *in its original style* — a rich-text post stays rich-text and a classic post stays classic, regardless of which preset you edit it with.
 
-## 8. Limits
+## 8. Connecting through a proxy
+
+If Telegram is unavailable or slow, the plugin can connect to it through a proxy.
+
+**Important aspects:**
+
+* MTProto proxies (including secrets with the `dd` and `ee` prefixes), SOCKS5, HTTP and HTTPS are supported. SOCKS5, HTTP and HTTPS proxies can take a username and password.
+
+* Accounts and bots connect separately: each can use its own proxy or a direct connection. An MTProto proxy works for accounts only — bot requests can't pass through it, so use SOCKS5 or HTTP for bots.
+
+* The plugin doesn't support VLESS, Shadowsocks, Trojan and other VPN protocols directly. If you use a VPN client (Hiddify, v2rayN, NekoBox, Clash and the like), add its local SOCKS5 or HTTP port to the plugin, e.g. `socks5://127.0.0.1:10808`. The port number is in the client's settings.
+
+* Proxies only work in the Obsidian desktop app. On mobile the plugin connects directly — use a VPN app.
+
+* MTProto secrets and proxy passwords are stored locally, encrypted, in your Obsidian Keychain. If the plugin's settings sync between devices, such a proxy has to be added again on the other device.
+
+**Setup:**
+
+1. In the plugin settings, click the "Add a proxy" button.
+
+2. Paste a proxy link and click "Next" — the proxy details fill in by themselves. Supported are `tg://proxy?…`, `https://t.me/proxy?…`, `tg://socks?…`, `socks5://…` and `http://…` links, as well as the `ip:port:login:password` and `login:password@ip:port` lines bought proxies usually come as. Alternatively, click "Enter manually" and fill in the proxy details yourself.
+
+3. Check the proxy details and click "Save proxy". The first saved proxy is put to use for accounts right away, and for bots too if it's SOCKS5 or HTTP. The plugin checks the connection and tells you the result.
+
+4. Once the first proxy is added, the "Connection method for accounts" and "Connection method for bots" options appear in the plugin's general settings — choose the proxy you want there, or "Direct connection".
+
+Saved proxies are listed in the "Saved" tab — there you can check one again with the "Check connection" button or remove it.
+
+## 9. Limits
 
 Standard Telegram posting limits apply to posts, sent via "Account" and "Bot" methods. A rich-text message may contain up to 32768 characters, 500 blocks, 16 levels of nesting, 50 media attachments, and 20 table columns. More about limits: [https://limits.tginfo.me/](https://limits.tginfo.me/)
 

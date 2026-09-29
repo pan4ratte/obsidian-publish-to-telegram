@@ -1,11 +1,12 @@
 // telegram-bot.ts
 // Telegram Bot API send path — used when a preset posts via a "bot" or "bot-rich" method.
-// Self-contained: only imports from markdown.ts and Obsidian's API.
+// Self-contained: only imports from markdown.ts, split.ts, proxy.ts and Obsidian's API.
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings, SplitPartOptions, CommentOptions } from "./types";
 import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
+import { activeBotProxy, proxiedHttpsRequest } from "./proxy";
 import { t } from "../lang/helpers";
 
 // ─── Internal types ───────────────────────────────────────────────────────────
@@ -163,7 +164,37 @@ function botUrl(token: string, method: string): string {
     return `https://api.telegram.org/bot${token}/${method}`;
 }
 
+type BotResponse = { ok: boolean; result: unknown; description?: string };
+
+// Reads a Bot API reply, which is JSON whatever the HTTP status says.
+function botResult(data: BotResponse, method: string): unknown {
+    if (!data.ok) throw new Error(data.description ?? `Bot API error: ${method}`);
+    return data.result;
+}
+
+// A Bot API call through the bot proxy (see proxy.ts). The proxy path speaks raw HTTP, so the
+// body arrives here already encoded.
+async function callBotViaProxy(token: string, method: string, contentType: string, body: Uint8Array): Promise<unknown> {
+    const proxy = activeBotProxy();
+    if (!proxy) throw new Error("No bot proxy");
+    const response = await proxiedHttpsRequest(proxy, botUrl(token, method), {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body,
+    });
+    let data: BotResponse;
+    try {
+        data = JSON.parse(response.text) as BotResponse;
+    } catch {
+        throw new Error(`Bot API error: ${method} (HTTP ${response.status})`);
+    }
+    return botResult(data, method);
+}
+
 async function callBotJson(token: string, method: string, body: Record<string, unknown>): Promise<unknown> {
+    if (activeBotProxy()) {
+        return callBotViaProxy(token, method, "application/json", new TextEncoder().encode(JSON.stringify(body)));
+    }
     const response = await requestUrl({
         url: botUrl(token, method),
         method: "POST",
@@ -171,9 +202,7 @@ async function callBotJson(token: string, method: string, body: Record<string, u
         body: JSON.stringify(body),
         throw: false, // read the JSON error body ourselves instead of losing it to a thrown exception
     });
-    const data = response.json as { ok: boolean; result: unknown; description?: string };
-    if (!data.ok) throw new Error(data.description ?? `Bot API error: ${method}`);
-    return data.result;
+    return botResult(response.json as BotResponse, method);
 }
 
 // Resolves a bot's display label from its token via the Bot API getMe method.
@@ -188,10 +217,15 @@ export async function getBotInfo(token: string): Promise<string> {
 
 // FormData (multipart) cannot be passed to requestUrl whose body type is string|ArrayBuffer.
 async function callBotFetch(token: string, method: string, form: FormData): Promise<unknown> {
+    if (activeBotProxy()) {
+        // Let the browser encode the multipart body (and pick its boundary), then send the
+        // bytes through the proxy.
+        const encoded = new Request(botUrl(token, method), { method: "POST", body: form });
+        const contentType = encoded.headers.get("Content-Type") ?? "multipart/form-data";
+        return callBotViaProxy(token, method, contentType, new Uint8Array(await encoded.arrayBuffer()));
+    }
     const response = await window.fetch(botUrl(token, method), { method: "POST", body: form });
-    const data = await response.json() as { ok: boolean; result: unknown; description?: string };
-    if (!data.ok) throw new Error(data.description ?? `Bot API error: ${method}`);
-    return data.result;
+    return botResult(await response.json() as BotResponse, method);
 }
 
 // ─── Send functions ───────────────────────────────────────────────────────────
