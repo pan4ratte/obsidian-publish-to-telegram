@@ -24,6 +24,11 @@
     border-radius: var(--radius-s);
 }
 
+.telegram-auth-chip-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
 .telegram-changelog-icon svg {
     width: var(--icon-s);
     height: var(--icon-s);
@@ -873,6 +878,13 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     flex-shrink: 0;
 }
 
+/* Delete and log out can't be undone from here, so they warn on hover instead of lighting up
+   like the rename button beside them. */
+.telegram-credentials-row-actions .telegram-danger-icon:hover {
+    color: var(--text-error);
+    background-color: color-mix(in srgb, var(--text-error) 12%, transparent);
+}
+
 .telegram-credentials-rename-input {
     width: 100%;
 }
@@ -889,8 +901,11 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     position: relative;
     z-index: 0;
     margin: -24px auto 0;
-    padding: 24px;
-    padding-top: 40px;
+
+    /* 40px on top is 16px below the bar once the 24px tucked under it is taken off; the title
+       sits a few pixels lower inside its 28px row, so it and the last line of the card both end
+       up about 20px from the edge. */
+    padding: 40px 24px 20px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -898,6 +913,12 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     border-radius: var(--setting-items-radius);
     background-color: var(--setting-items-background);
     align-items: center;
+}
+
+/* Every step gets the same slots, and the ones it leaves empty (the extra row on the code and
+   password steps) would still take a gap each, padding the bottom of the card. */
+.telegram-auth-card > :empty {
+    display: none;
 }
 
 .telegram-auth-header {
@@ -917,6 +938,7 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     cursor: pointer;
     background: transparent;
     border: none;
+    box-shadow: none;
     color: var(--text-muted);
     padding: 0;
 }
@@ -924,6 +946,11 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
 .telegram-auth-card .telegram-auth-back:hover {
     background-color: var(--background-modifier-hover);
     color: var(--text-normal);
+}
+
+/* Obsidian draws button focus rings with box-shadow, which the button above drops. */
+.telegram-auth-card .telegram-auth-back:focus-visible {
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
 }
 
 .telegram-auth-card .telegram-auth-back.is-hidden {
@@ -949,7 +976,7 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
 }
 
 .telegram-auth-input {
-    min-width: 180px;
+    width: 180px;
     padding: 8px 12px;
     background-color: var(--background-modifier-form-field);
     border: 1px solid var(--background-modifier-border);
@@ -961,8 +988,19 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     font-family: inherit;
 }
 
+/* One-time codes are short and read as a unit, so they sit centred with the digits spaced out;
+   the placeholder keeps normal spacing. */
+.telegram-auth-code {
+    text-align: center;
+    letter-spacing: 0.3em;
+}
+
 .telegram-auth-input::placeholder {
     color: var(--text-faint);
+}
+
+.telegram-auth-code::placeholder {
+    letter-spacing: normal;
 }
 
 .telegram-auth-input:focus {
@@ -970,7 +1008,7 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
 }
 
 body .telegram-auth-submit {
-    min-width: 180px;
+    width: 180px;
     padding: 12px;
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
@@ -997,6 +1035,19 @@ body .telegram-auth-submit:disabled {
     color: var(--text-muted);
     text-align: center;
     margin: 0;
+}
+
+/* The phone note breaks at the "\n" in its string and nowhere else, so it is always two lines. */
+.telegram-auth-note.is-two-line {
+    max-width: none;
+    white-space: pre;
+}
+
+/* A phone may be too narrow for either line; wrapping beats overflowing the card. */
+@media (max-width: 520px) {
+    .telegram-auth-note.is-two-line {
+        white-space: pre-line;
+    }
 }
 
 .telegram-qr-wrap {
@@ -1030,6 +1081,60 @@ body .telegram-auth-submit:disabled {
     display: block;
     width: 100%;
 }
+
+/* The chips are the other ways in, not part of the form, so they stand apart from it with about
+   28px of visible space on either side: above, 12px of gap and 10px of margin; below, the card's
+   20px of padding and 2px of margin. Each side also has the chips' own 6px of padding, which is
+   empty space too while they are transparent. */
+.telegram-auth-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 10px;
+    margin-bottom: 2px;
+}
+
+/* An accent-coloured pill whose tint appears on hover. Obsidian draws button focus rings with
+   box-shadow, which this drops, so keyboard focus gets its own ring. */
+.telegram-auth-card .telegram-auth-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: auto;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--text-accent);
+    box-shadow: none;
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-medium);
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.telegram-auth-card .telegram-auth-chip:hover {
+    background-color: color-mix(in srgb, var(--interactive-accent) 25%, transparent);
+    color: var(--text-accent-hover);
+}
+
+/* Only shows a tooltip, so the cursor says "explains" rather than "does", and clicking it
+   doesn't select its label. */
+.telegram-auth-card .telegram-auth-chip.is-info {
+    cursor: help;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.telegram-auth-card .telegram-auth-chip:focus-visible {
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+.telegram-auth-chip-icon {
+    display: inline-flex;
+}
+
+/* The chip icon's svg is sized under "Least-specific rules" at the top of the file. */
 
 /* ── Motion ── */
 

@@ -13,6 +13,10 @@
 * Target chats can now be removed with Backspace.
 * The loaded chat list no longer lags behind the search field when scrolling, and hides when the field scrolls out of view.
 * A preset name is now edited in place, without the font changing or the header shifting.
+* The account login card has been redesigned: the input fields match the button's width, the confirmation code is centered, and the spacing is more even.
+* Logging in with a QR code now has its own button.
+* An "Is that safe?" hint was added to the login card, briefly explaining how the plugin stores account data.
+* The delete bot and log out buttons in "My accounts and bots" now turn red on hover.
 
 
 ## 6.2.3

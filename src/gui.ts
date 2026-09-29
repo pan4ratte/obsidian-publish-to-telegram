@@ -1,4 +1,4 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Menu, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest } from "obsidian";
+import { App, Modal, Component, ButtonComponent, ToggleComponent, Menu, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, displayTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest, Platform } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
@@ -67,14 +67,7 @@ function enableLongPressTooltip(el: HTMLElement): void {
         const text = el.getAttribute("aria-label");
         if (!text) return;
         fired = true;
-        const rect = el.getBoundingClientRect();
-        tooltipEl = document.body.createDiv({ cls: "telegram-touch-tooltip", text });
-        // Centred above the control and clamped to the viewport, so a control at either edge
-        // of the row still shows its tooltip in full.
-        const centered = rect.left + rect.width / 2 - tooltipEl.offsetWidth / 2;
-        const left = Math.min(Math.max(centered, 8), window.innerWidth - tooltipEl.offsetWidth - 8);
-        tooltipEl.style.left = `${Math.max(left, 8)}px`;
-        tooltipEl.style.top = `${Math.max(rect.top - tooltipEl.offsetHeight - 8, 8)}px`;
+        tooltipEl = placeTouchTooltip(el, text);
     };
 
     // The tap that ends a long press is cancelled twice over: preventDefault on touchend stops
@@ -98,6 +91,50 @@ function enableLongPressTooltip(el: HTMLElement): void {
         cancel();
     }, { passive: false });
     el.addEventListener("touchcancel", cancel, { passive: true });
+}
+
+// Puts a touch tooltip on screen, centred above `el` and clamped to the viewport, so a control
+// at either edge of a row still shows its tooltip in full. The caller removes it.
+function placeTouchTooltip(el: HTMLElement, text: string): HTMLElement {
+    const rect = el.getBoundingClientRect();
+    const tooltipEl = document.body.createDiv({ cls: "telegram-touch-tooltip", text });
+    const centered = rect.left + rect.width / 2 - tooltipEl.offsetWidth / 2;
+    const left = Math.min(Math.max(centered, 8), window.innerWidth - tooltipEl.offsetWidth - 8);
+    tooltipEl.style.left = `${Math.max(left, 8)}px`;
+    tooltipEl.style.top = `${Math.max(rect.top - tooltipEl.offsetHeight - 8, 8)}px`;
+    return tooltipEl;
+}
+
+// For an element whose tooltip is its whole content (a "what's this?" chip), clicking has to
+// show the tooltip rather than dismiss it. On desktop Obsidian hides tooltips on mouse down, so
+// the click reopens it. The mobile app never shows Obsidian's tooltips at all, and a long-press
+// tooltip vanishes with the finger, which is too soon for a few sentences, so a tap opens one
+// that stays until the next tap anywhere else, or on the element again.
+function enableTapTooltip(el: HTMLElement, text: string): void {
+    let tooltipEl: HTMLElement | null = null;
+
+    const close = () => {
+        tooltipEl?.remove();
+        tooltipEl = null;
+        document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+    // A tap on the element itself is left to the click below, which closes it.
+    const onPointerDown = (evt: PointerEvent) => {
+        if (!(evt.target instanceof Node) || !el.contains(evt.target)) close();
+    };
+
+    el.addEventListener("click", () => {
+        if (!Platform.isMobile) {
+            displayTooltip(el, text);
+            return;
+        }
+        if (tooltipEl) {
+            close();
+            return;
+        }
+        tooltipEl = placeTouchTooltip(el, text);
+        document.addEventListener("pointerdown", onPointerDown, true);
+    });
 }
 
 // setIcon replaces an element's SVG outright, so a button whose icon reports its state — the
@@ -2928,7 +2965,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                             },
                         ).open();
                     })
-                    .buttonEl.addClass("clickable-icon");
+                    .buttonEl.addClasses(["clickable-icon", "telegram-danger-icon"]);
             }
         }
 
@@ -2958,7 +2995,7 @@ export class TelegramSettingTab extends PluginSettingTab {
                             },
                         ).open();
                     })
-                    .buttonEl.addClass("clickable-icon");
+                    .buttonEl.addClasses(["clickable-icon", "telegram-danger-icon"]);
             }
         }
     }
@@ -3248,8 +3285,20 @@ export class TelegramSettingTab extends PluginSettingTab {
         }));
 
         noteEl.textContent = t.AUTH_PHONE_NOTE;
+        noteEl.addClass("is-two-line");
 
-        const qrBtn = extraEl.createEl("button", { cls: "telegram-auth-link-btn", text: t.AUTH_PHONE_USE_QR });
+        extraEl.addClass("telegram-auth-chips");
+        const qrBtn = extraEl.createEl("button", { cls: "telegram-auth-chip" });
+        setIcon(qrBtn.createSpan({ cls: "telegram-auth-chip-icon" }), "qr-code");
+        qrBtn.createSpan({ text: t.AUTH_PHONE_USE_QR });
+
+        // Answers the obvious worry about typing a phone number into a plugin. A span, not a
+        // button: it does nothing but explain, on hover and on click or tap.
+        const safetyChip = extraEl.createSpan({ cls: "telegram-auth-chip is-info" });
+        setIcon(safetyChip.createSpan({ cls: "telegram-auth-chip-icon" }), "shield-check");
+        safetyChip.createSpan({ text: t.AUTH_SAFETY_CHIP });
+        setTooltip(safetyChip, t.AUTH_SAFETY_TOOLTIP, { delay: 100 });
+        enableTapTooltip(safetyChip, t.AUTH_SAFETY_TOOLTIP);
         qrBtn.addEventListener("click", () => this.renderInlineQrStep(container));
     }
 
@@ -3424,7 +3473,7 @@ export class TelegramSettingTab extends PluginSettingTab {
         );
 
         let codeValue = "";
-        const codeInput = fields.createEl("input", { cls: "telegram-auth-input", attr: { type: "text", placeholder: t.AUTH_CODE_PLACEHOLDER } });
+        const codeInput = fields.createEl("input", { cls: "telegram-auth-input telegram-auth-code", attr: { type: "text", placeholder: t.AUTH_CODE_PLACEHOLDER } });
         codeInput.addEventListener("input", () => { codeValue = codeInput.value; });
         codeInput.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); submitEl.click(); } });
         window.setTimeout(() => codeInput.focus(), 50);
