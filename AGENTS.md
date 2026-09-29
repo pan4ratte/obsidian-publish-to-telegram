@@ -104,8 +104,8 @@ haven't added type errors. The repository is checked out inside a development va
   When syncing, change only the section that was edited; don't write new prose unless asked.
 - **Changelog:** newest version first, bare `## x.y.z` headings, one short bullet per
   user-visible change — no notes, causes or caveats. Section headings:
-  - `### UI/UX enhancements and bug fixes` / `### UI/UX улучшения и исправления багов`
-  - `### New features` / `### Новые возможности`
+  - `### Improvements and bug fixes` / `### Улучшения и исправления багов`
+  - `### New features` / `### Новые функции`
   - `### Major update: …` / `### Крупное обновление: …` (x.0.0 only)
   - hotfix releases have no subheading, just one bullet: `* **Hotfix.** …` / `* **Хотфикс.** …`
 

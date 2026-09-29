@@ -4,33 +4,20 @@
 
 ### New features
 
-* Connecting to Telegram through a proxy: MTProto (including `dd` and `ee` secrets), SOCKS5, HTTP and HTTPS.
-* A proxy is added from a `tg://proxy` or `socks5://` link or an `ip:port:login:password` line — its details fill in automatically.
-* Accounts and bots can use different proxies or a direct connection.
-* Saved proxies can be checked and removed in the "Saved" tab.
+* **Connecting to Telegram through a proxy.** MTProto (including `dd` and `ee` secrets), SOCKS5, HTTP and HTTPS are supported. A proxy is added from a `tg://proxy` or `socks5://` link or an `ip:port:login:password` line — its details fill in automatically. Accounts and bots can use different proxies or a direct connection, and saved proxies are kept in the shared "Saved" tab.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * The plugin update notice in the settings has been redesigned.
-* The plugin title and description were removed from the settings.
+* The plugin title and description were removed from the settings, following Obsidian's guidelines.
 * The options of the "General" section were united into one group.
-* After a preset is created, the settings window smoothly scrolls to it, and the preset is highlighted.
-* The chat search field is now highlighted as a whole on hover and gets an accent border when focused.
-* Target chats in the chat search field are now clearly visible without hovering.
-* Target chats can now be removed with Backspace.
-* The loaded chat list no longer lags behind the search field when scrolling, and hides when the field scrolls out of view.
-* A preset name is now edited in place, without the font changing or the header shifting.
-* The account login card has been redesigned: the input fields match the button's width, the confirmation code is centered, and the spacing is more even.
-* Logging in with a QR code now has its own button.
-* An "Is that safe?" hint was added to the login card, briefly explaining how the plugin stores account data.
-* The "My accounts and bots" tab was renamed to "Saved".
-* The delete bot and log out buttons in the "Saved" tab now turn red on hover.
-* Auth panel tabs that fit in one row now have equal width.
+* The presets interface and interactions were improved, and new animations were added.
+* The account login card interface and interactions were redesigned.
 
 
 ## 6.2.3
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * The mtcute library was updated to 0.32.2 — logging in to an account with a QR code is now more reliable.
 
@@ -42,7 +29,7 @@
 
 ## 6.2.1
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * The authentication bar has been redesigned, and new animations were added.
 * The post preview has been improved: it now better reflects how a post will look after publishing, depending on the selected publishing method.
@@ -55,7 +42,7 @@
 
 ## 6.2.0
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * The plugin settings were migrated to the declarative Obsidian 1.13.0 API — they are now discoverable through the settings search.
 * The minimum Obsidian version was raised to 1.13.0. Users on older versions still get plugin version 6.1.0.
@@ -71,7 +58,7 @@
 * **Comment settings.** Comments now have their own post settings bar.
 * **Attachment preview.** If one of the classic publishing methods is selected, the preview shows attachments as an album above or below the text — the way they will appear in Telegram and according to the post settings.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Fixed a bug where empty lines did not appear in rich-text messages.
 * The link preview is no longer shown for rich-text methods or for messages with attachments, and the preview placement setting is disabled in those cases.
@@ -93,7 +80,7 @@ This update brings two major changes. The advanced publishing menu was significa
 * **Emoji bar with search.** In the Obsidian editor you can open the emoji bar with the "Insert emoji" command from the palette or with a hotkey. The bar fully mirrors Telegram's emoji categories and set, and also offers search by English and Russian keywords, category tabs and a recently used section.
 * **Custom emoji support.** Custom emoji packs installed on an authorized account are loaded into the emoji bar. Animated emoji are drawn as still images but published as native Telegram custom emoji. Using them requires Telegram Premium on the publishing account.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * The "Insert post split marker" command no longer adds an extra empty line after the marker.
 * Fixed a bug where the loaded chat list opened automatically without clicking the search field.
@@ -107,7 +94,7 @@ Thanks to @MrEfrill for the idea to add option of silent posting by deafult.
 
 * **Publish without a preset.** To the advanced publishing settings a "Post without a preset" section was added. It allows to pick target chats, an author and a publishing method to send a one-off post without saving a preset.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Fixed a bug where posts published to personal chats could not be edited because the link failed to resolve.
 * Fixed a bug where accounts authorized in older versions failed with an "Invalid session string" error and couldn't publish.
@@ -119,7 +106,7 @@ Thanks to @MrEfrill for the idea to add option of silent posting by deafult.
 
 * **Formatting tools in the note editor's context menu.** A new section has been added to the note's right-click menu, below the standard formatting options, with the "Insert post split marker" command and a "Rich-text formatting" submenu.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Fixed a bug where links to posts and comments in chats the primary account can't access failed to load for editing when several accounts are authorized.
 * Fixed a bug where the link to a post in an old-type (non-supergroup) group was fetched incorrectly, which prevented the post from being edited.
@@ -133,7 +120,7 @@ Thanks to @MrEfrill for the idea to add option of silent posting by deafult.
 
 * **Edit posts that were published separately with the `\split` command.** After the posts are published, the link to each post is written automatically inside its split command — for example `%% \split t.me/channel/123 %%`. When you edit a post, the plugin matches the link you chose in the advanced publishing settings with the link inside the command. Important reminder: the command marks the *end* of a post.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Fixed a bug where attachments, text and pre-written comments hidden with `%% … %%` or `<!-- … -->` comments were still published.
 * Fixed a bug where comment syntax inside inline code or a code block was removed from the published post.
@@ -141,7 +128,7 @@ Thanks to @MrEfrill for the idea to add option of silent posting by deafult.
 
 ## 5.0.3
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Added deletion of duplicate sessions. When you authorize into already added account, new session is saved and the old one is deleted.
 * Fixed a bug when it was impossible to add local media to the rich-text post on edit.
@@ -150,7 +137,7 @@ Thanks to @MrEfrill for the idea to add option of silent posting by deafult.
 
 ## 5.0.2
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Fixed a bug where a photo (or other attachment) added to an existing post did not appear when editing.
 * Fixed a bug where editing a rich-text post converted it into a classic message.
@@ -172,7 +159,7 @@ On [July 15, 2026](https://telegram.org/blog/communities-editor-invisible-messag
 
 Please note: this update affects user sessions, so a one-time re-login to your accounts is required. Your saved presets and bot tokens are unaffected.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Improved detection of unsupported attachment combinations. When you try to send attachment sets that classic methods don't support, the post is not sent and an error is shown. The same happens when attachment count limits are exceeded.
 * Fixed a bug where basic groups upgraded to supergroups still appeared in the chat search field — such groups are now filtered out and only working chats are shown.
@@ -193,7 +180,7 @@ Version 4.0.0 brings bots back with a more important purpose: a full support of 
 
 Upgrading from 3.x should be seamless: your authorized account and presets carry over automatically — you don't need to log in again or rebuild your presets, and your previous account becomes the first entry in the new multiple-accounts list.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * Authorization and preset cards were completely redesigned.
 * READMEs and User guides were updated with full rich-text formatting documentation.
@@ -212,7 +199,7 @@ Upgrading from 3.x should be seamless: your authorized account and presets carry
 * **Edit pre-written comments after publication.** Links to published comments are stored in the separate `tg_comments` property and after publication you can edit them with the advanced publishing settings menu. Note that `telegram_links` property was renamed to `tg_posts`: if you used "Save posts links" feature, be sure to rename already existing property with the Obsidian core plugin [Properties view](https://obsidian.md/help/plugins/properties).
 * **View changelog.** Available to view in the settings, the user guide, or via the palette command. Changelog notification in the settings can be dismissed and will not appear until the next update.
 
-### UI/UX enhancements and bug fixes
+### Improvements and bug fixes
 
 * New notifications that reflect post/comment editing process.
 * Legacy auto-default preset feature removed. Now, if you have only one preset and try to post with the default option` and it is not set up, advanced publishing settings menu will open.
