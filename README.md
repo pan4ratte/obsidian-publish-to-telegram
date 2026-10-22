@@ -264,7 +264,7 @@ Currently supported formats:
 | `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`            | Video / Album   |
 | `.pdf`, `.md`                                      | Document        |
 
-Audio files (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are supported only inside a rich-text message — see [Rich-text formatting](#4-rich-text-formatting) below.
+Audio files (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) and files of any other format are supported only inside a rich-text message — see [Rich-text formatting](#4-rich-text-formatting) below.
 
 **One post per publish (classic methods).** The “Account” and “Bot” methods send your attachments as a single Telegram message — a photo/video album, or a document album. If your attachments can't fit in one message, the whole post is refused with an error (nothing is sent in fragments). This happens when you combine things Telegram can't group in one album (an album together with an animation/GIF or a document, or several GIFs), when an album would exceed 10 items, and — on the “Account” method only — when you mix photos and videos in the same album (the “Bot” method handles that combination). To publish such a set, use a rich-text method (which places everything in one rich message) or split the attachments across separate posts.
 
@@ -429,8 +429,8 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’
 
 **Note:**
 
-* In a **”Bot + rich text”** post, inline media must be an *HTTP(S) web link* — the Bot API can’t upload a local file into a rich message, so a local attachment is rejected with an error (attach it with the classic “Bot” method, or use a web URL).
-* An **”Account + rich text”** post can embed *local* media too: photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are uploaded and shown inline, right where you embed them, alongside any web-link media. Only local *documents* (e.g. `.pdf`, or `.md` embeds attached as files) can’t be embedded in a rich message.
+* **“Account + rich text”** and **“Bot + rich text”** posts embed *local* files right in the message — where you embed them, alongside any web-link media. Photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are shown inline, and files of any other format (e.g. `.pdf`, `.docx` or `.zip`) as documents.
+* Embedded `.md` notes are attached to a rich message as documents when the “Treat .md embeds as post comments” option is off.
 
 ### 4.3 Inserting elements from the context menu
 
