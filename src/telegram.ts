@@ -17,7 +17,7 @@ import wasmBytes from "@mtcute/wasm/mtcute.wasm";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions, CommentOptions } from "./types";
 import { errMessage, withTimeout } from "./util";
 import { accountTransport, transportForProxy, proxiedHttpsRequest, type ProxyConfig } from "./proxy";
-import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments, rewriteEmbeds, richKindForExt, type RichKind } from "./markdown";
+import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments, rewriteEmbeds, richKindForExt, parseButtons, buttonsToRichMarkdown, type RichKind } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
 import { t } from "../lang/helpers";
 
@@ -207,12 +207,15 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
 // (each resolved against its own file).
 //
 // The markdown here is parsed SERVER-side (type: "markdown"). That's what buys headings,
-// tables, task lists, <tg-collage> and the rest for free — and it's also why a rich post
-// can't carry inline buttons, those living only in the mutually exclusive blocks form. See
-// "Inline buttons under `account-rich` posts" in CONTRIBUTING.md before reaching for Rich.buttonRow().
-async function buildRichMessageContent(app: App, body: string, sourceFile: TFile, mdAsDocument = false): Promise<{ markdown: string; attachments?: Record<string, RichAttachment> }> {
+// tables, task lists, <tg-collage> and the rest for free. It also carries the post's buttons
+// (`withButtons`, posts only — comments get none, as on the bot path): the parser turns
+// `<tg-button-row>` tags into button blocks, so there's no need for Rich.buttonRow() and the
+// blocks form. Buttons only go on a message that has content of its own.
+async function buildRichMessageContent(app: App, body: string, sourceFile: TFile, mdAsDocument = false, withButtons = false): Promise<{ markdown: string; attachments?: Record<string, RichAttachment> }> {
     const { body: richBody, media } = collectRichMedia(app, body, sourceFile, mdAsDocument);
-    const markdown = obsidianToRichMarkdown(richBody);
+    let markdown = obsidianToRichMarkdown(richBody);
+    const buttons = withButtons ? buttonsToRichMarkdown(parseButtons(body)) : "";
+    if (markdown.length > 0 && buttons) markdown += `\n\n${buttons}`;
     let attachments: Record<string, RichAttachment> | undefined;
     if (media.length) {
         const entries = await Promise.all(media.map(async m => [m.id, await toRichAttachment(m)] as const));
@@ -766,7 +769,7 @@ async function sendPartViaAccount(
     // embeds ride along as their URL. Embedded notes go in as documents unless they're
     // being posted as comments.
     if (postAsRich) {
-        const { markdown: richMarkdown, attachments: richAttachments } = await buildRichMessageContent(app, body, sourceFile, !treatMdEmbedsAsComments);
+        const { markdown: richMarkdown, attachments: richAttachments } = await buildRichMessageContent(app, body, sourceFile, !treatMdEmbedsAsComments, true);
         if (richMarkdown.length > 0) {
             const msg = await client.sendRichMessage(peer, {
                 content: { type: "markdown", content: richMarkdown, attachments: richAttachments },
@@ -937,7 +940,7 @@ export async function sendNoteToTelegram(
                         // markdown (Telegram renders them inline), local media becomes tg://…?id=
                         // refs backed by the attachments map, which editMessage uploads and binds
                         // by key — so media can be added to a post that was sent without any.
-                        const { markdown, attachments } = await buildRichMessageContent(app, editBody, file, !treatMdEmbedsAsComments);
+                        const { markdown, attachments } = await buildRichMessageContent(app, editBody, file, !treatMdEmbedsAsComments, true);
                         await client.editMessage({
                             chatId: peer,
                             message: messageId,

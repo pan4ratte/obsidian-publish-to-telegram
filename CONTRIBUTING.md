@@ -34,55 +34,6 @@ would make them worth revisiting. Please read the relevant entry before opening 
 issue for one of these — the reason is usually a platform constraint rather than a lack of
 interest.
 
-### Inline buttons under `account-rich` posts
-
-**Status:** deferred (investigated against mtcute 0.32.1, layer 229; rechecked against 0.32.6,
-layer 232 — unchanged). The bot methods have had buttons since 6.4.0 (see the end of this entry);
-this entry is about the `account-rich` method. The classic `account` method can't have them at
-all: the User API only lets bots attach an inline keyboard to a message.
-
-mtcute 0.32.0 added `Rich.buttonRow()`, `Rich.button()` and `Rich.textButton()`, which build
-`pageBlockButtonRow` / `pageButton` / `textButton` objects. It is tempting to use them to put
-tappable URL buttons under a published post.
-
-They cannot be used as the plugin currently sends rich messages. Telegram's three rich-message
-input constructors are mutually exclusive:
-
-```
-inputRichMessageMarkdown { markdown, files }        ← what this plugin sends
-inputRichMessageHTML     { html, files }
-inputRichMessage         { blocks, photos, ... }    ← the only one that can hold buttons
-```
-
-Buttons are page *blocks*, so they exist only in the third form, and mtcute's
-`_normalizeInputRichMessage` only emits that form when the caller passes `type: "blocks"`.
-There is no way to attach a button row to a server-parsed markdown message.
-
-The plugin sends `type: "markdown"` and relies on Telegram's server-side Rich Markdown parser
-for the whole document: headings, tables, task lists, math, fenced code, `<tg-collage>`,
-`<tg-slideshow>`, `<details>`, custom-emoji tags, and the blank-line handling in
-`materializeBlankLines` (`src/markdown.ts`). Switching to the blocks form means writing a
-client-side replacement for that parser. Every construct the replacement failed to cover would
-render worse than it does today — a rewrite of the plugin's rendering core in exchange for one
-row of buttons.
-
-**Revisit when any of these becomes true:**
-
-- Telegram allows a button row alongside `inputRichMessageMarkdown` (i.e. a `files`-style
-  side-channel for blocks), which removes the trade-off entirely.
-- mtcute ships a markdown → page-blocks converter, so the blocks form can be adopted without
-  hand-writing the parser.
-- The plugin needs the blocks form for some other reason and pays the conversion cost anyway —
-  at that point buttons are nearly free.
-
-The bot methods take the narrower route that needs none of the above: the Bot API's
-`reply_markup` / `inline_keyboard`, which `sendRichMessage` accepts as well as the classic send
-methods. Buttons are written as a `tg-buttons` code block of `<button>` elements
-(`parseButtons` in `src/markdown.ts`, rendered by `src/buttons.ts`) and sent by
-`src/telegram-bot.ts`; the account path strips the block and sends no buttons. A code block
-rather than raw HTML because Obsidian's sanitizer strips unknown elements and their attributes,
-so `<tg-buttons>` could not be rendered in the editor.
-
 ### Built-in VPN protocols (VLESS, Shadowsocks, Trojan, …)
 
 **Status:** deferred (checked against mtcute 0.32.3, @fuman/net 0.0.21, Obsidian 1.13.7).

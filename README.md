@@ -270,7 +270,7 @@ Audio files (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) and files of any other for
 
 ### 3.4 Buttons under a post
 
-The “Bot” and “Bot + rich text” methods can publish buttons under a post. Add a `tg-buttons` code block to the note: each line is a row of buttons, each `<button>` element on the line is a button.
+The “Bot”, “Bot + rich text” and “Account + rich text” methods can publish buttons under a post. Add a `tg-buttons` code block to the note: each line is a row of buttons, each `<button>` element on the line is a button.
 
 ````markdown
 ```tg-buttons
@@ -290,7 +290,7 @@ The “Bot” and “Bot + rich text” methods can publish buttons under a post
 
 * Every button needs one action: `href`, `copy` or `disabled`. A button without one is outlined with a dashed border in the note, and a post containing it isn't published.
 
-* Telegram shows a custom emoji in a button only if the bot has a username bought on Fragment, or if the bot's owner has Telegram Premium and the post goes to a private chat or a group, not a channel.
+* In bot posts, Telegram shows a custom emoji in a button only if the bot has a username bought on Fragment, or if the bot's owner has Telegram Premium and the post goes to a private chat or a group, not a channel.
 
 * You can insert the block with the **Insert buttons under the post** command in the note's editor context menu. In the note and in the preview it looks the same as buttons do in Telegram.
 
@@ -298,9 +298,9 @@ The “Bot” and “Bot + rich text” methods can publish buttons under a post
 
 * Editing a post updates its buttons: remove the block from the note, and the buttons disappear from the post too.
 
-* The account publishing methods don't publish buttons — Telegram only lets bots attach them. Pre-written comments are published without buttons.
+* The “Account” method doesn't publish buttons — Telegram only lets bots attach them to regular messages. Pre-written comments are published without buttons.
 
-* Telegram can't attach buttons to an album, so a “Bot” post with several photos, videos or documents plus buttons is rejected with an error. The “Bot + rich text” method has no such limit.
+* Telegram can't attach buttons to an album, so a “Bot” post with several photos, videos or documents plus buttons is rejected with an error. The “Bot + rich text” and “Account + rich text” methods have no such limit.
 
 ## 4. Rich-text formatting
 
@@ -533,7 +533,7 @@ The "Comments follow post settings" option in the plugin settings repeats the ch
 
 * Attached files are shown the way Telegram shows them — as blocks with a file icon, name and size.
 
-* Buttons under the post are shown below its text and attachments when a bot publishing method is selected.
+* Buttons under the post are shown below its text and attachments when any method other than “Account” is selected.
 
 Also, the publishing settings let you specify whether a post will be published, edited or ignored on publication (the last one is only available when there are several posts in one note).
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt, parseButtons, parseButtonRows, removeButtonBlocks } from '../src/markdown';
+import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt, parseButtons, parseButtonRows, removeButtonBlocks, buttonsToRichMarkdown } from '../src/markdown';
 
 // `expect(x).toBe(y)` over node:assert, so the ported test bodies stay unchanged.
 function expect(received: unknown) {
@@ -387,4 +387,20 @@ test('Buttons: commented-out blocks and other code blocks are ignored', () => {
 test('Buttons: the block never reaches the message text', () => {
   expect(mdToTelegramHtml(BUTTONS_NOTE)).toBe('Post text.\n\nAfter.');
   assert.ok(!obsidianToRichMarkdown(BUTTONS_NOTE).includes('button'));
+});
+
+test('Buttons: rich markdown rows for account posts', () => {
+  assert.equal(buttonsToRichMarkdown(parseButtons(BUTTONS_NOTE).slice(0, 2)), [
+    '<tg-button-row>',
+    '  <tg-button type="url" url="https://example.com" style="success">Website</tg-button>',
+    '  <tg-button type="copy_text" text="PROMO &amp; CO">Copy code</tg-button>',
+    '</tg-button-row>',
+    '<tg-button-row>',
+    '  <tg-button type="url" url="https://t.me/example" style="danger"><tg-emoji emoji-id="5368324170671202286">👍</tg-emoji> Channel</tg-button>',
+    '</tg-button-row>',
+  ].join('\n'));
+  assert.equal(buttonsToRichMarkdown([[{ text: 'Sold <out>', disabled: true, url: 'https://a.com' }]]),
+    '<tg-button-row>\n  <tg-button type="disabled">Sold &lt;out&gt;</tg-button>\n</tg-button-row>');
+  assert.equal(buttonsToRichMarkdown([]), '');
+  assert.throws(() => buttonsToRichMarkdown(parseButtons(BUTTONS_NOTE)), /BUTTON_NO_ACTION/);
 });

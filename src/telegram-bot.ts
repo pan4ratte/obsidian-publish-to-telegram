@@ -337,9 +337,9 @@ function linkPreviewOptions(linkPreviewUrl?: string, linkPreviewAboveText?: bool
 }
 
 // A post's buttons as Telegram's reply_markup, or undefined when it has none. Only bots can
-// attach buttons, which is why the `tg-buttons` block is read here and nowhere on the account
-// path. A button carries exactly one action (Telegram rejects two); one with none is refused
-// before anything is sent.
+// attach reply_markup; the "account-rich" path sends the same block as button blocks inside
+// the message instead (buttonsToRichMarkdown). A button carries exactly one action (Telegram
+// rejects two); one with none is refused before anything is sent.
 type ReplyMarkup = { inline_keyboard: Array<Array<Record<string, unknown>>> };
 function inlineKeyboard(body: string): ReplyMarkup | undefined {
     const rows = parseButtons(body);

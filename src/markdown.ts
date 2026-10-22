@@ -92,8 +92,10 @@ export function stripComments(body: string): string {
 // A code block rather than raw HTML because Obsidian's sanitizer strips unknown elements and
 // their attributes, while a code block processor (src/buttons.ts) renders the same way in the
 // editor, reading view and the publishing preview. The block is never part of the message text
-// (stripObsidianSyntax removes it); only bots can attach buttons, so only the bot send path
-// reads it (parseButtons).
+// (stripObsidianSyntax removes it); the send paths read it separately (parseButtons). Bots send
+// it as reply_markup; "account-rich" appends it to the message as `<tg-button-row>` blocks
+// (buttonsToRichMarkdown), since only bots can attach reply_markup. Classic account posts
+// can't have buttons.
 
 // Telegram's button styles. `color` takes these or the colour each one is drawn in.
 export type ButtonColor = "danger" | "success" | "primary";
@@ -175,6 +177,33 @@ export function removeButtonBlocks(body: string): string {
 // skipped.
 export function parseButtons(body: string): InlineButton[][] {
     return Array.from(stripComments(body).matchAll(BUTTON_BLOCK), m => parseButtonRows(m[2])).flat();
+}
+
+function escAttr(s: string): string {
+    return escHtml(s).replace(/"/g, "&quot;");
+}
+
+// A post's buttons as Rich Markdown, or "" when it has none: one `<tg-button-row>` per row,
+// which Telegram's server-side parser turns into button blocks. This is how an account posts
+// buttons — the User API keeps reply_markup for bots, but a Rich Message may hold button
+// blocks. Exactly one action per button, as on the bot path; one with none is refused.
+export function buttonsToRichMarkdown(rows: InlineButton[][]): string {
+    return rows.map(row => {
+        const buttons = row.map(button => {
+            let attrs: string;
+            if (button.disabled) attrs = `type="disabled"`;
+            else if (button.url) attrs = `type="url" url="${escAttr(button.url)}"`;
+            else if (button.copy) attrs = `type="copy_text" text="${escAttr(button.copy)}"`;
+            else throw new Error("BUTTON_NO_ACTION");
+            if (button.color) attrs += ` style="${button.color}"`;
+            const emoji = button.emojiId
+                ? `<tg-emoji emoji-id="${button.emojiId}">${escHtml(button.emojiFallback ?? "")}</tg-emoji>`
+                : "";
+            const label = [emoji, escHtml(button.text)].filter(Boolean).join(" ");
+            return `  <tg-button ${attrs}>${label}</tg-button>`;
+        });
+        return `<tg-button-row>\n${buttons.join("\n")}\n</tg-button-row>`;
+    }).join("\n");
 }
 
 // ─── Rich-message attachments ─────────────────────────────────────────────────

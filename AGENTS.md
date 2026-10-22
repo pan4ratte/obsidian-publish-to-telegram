@@ -69,7 +69,9 @@ haven't added type errors. The repository is checked out inside a development va
   false }` lowers it to a `require` the renderer can resolve. Never import them statically —
   the bundle has to load on mobile, where they don't exist.
 - **Rich Messages are sent as server-parsed markdown** (`type: "markdown"`). Don't switch to the
-  `blocks` form — see "Inline buttons under `account-rich` posts" in `CONTRIBUTING.md`.
+  `blocks` form: the server parser does headings, tables, collages and the rest, and also turns
+  `<tg-button-row>` tags into buttons, which is how `account-rich` posts carry them
+  (`buttonsToRichMarkdown` in `src/markdown.ts`).
 - **Classic posts must be one message.** If a classic (non-rich) post's attachments would
   produce more than one message, it is refused up front (`MIXED_MEDIA_CLASSIC`) rather than
   sent in pieces. The account path also refuses photo+video albums. This is deliberate — don't

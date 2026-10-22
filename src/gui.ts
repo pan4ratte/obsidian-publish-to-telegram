@@ -320,8 +320,8 @@ interface CardRow {
     // Repaints the previewed text for the chosen method — currently the heading downgrade a
     // classic method applies. Late-bound, like the other preview updaters.
     updateTextStyle: () => void;
-    // Set while every chosen method posts from an account: only bots can put buttons under a
-    // message, so the post's buttons callout isn't sent and its preview hides them.
+    // Set while every chosen method is the classic "account" one: it can't send buttons (bots
+    // attach them as reply_markup, "account-rich" as button blocks), so its preview hides them.
     buttonsBlocked: boolean;
     updateButtons: () => void;
     onlineOn: boolean;
@@ -623,7 +623,7 @@ export class MultiPresetModal extends Modal {
         for (const row of this.allCards()) {
             row.richBlocked = anyRich;
             row.classicMethod = methods.length > 0 && !anyRich;
-            row.buttonsBlocked = methods.length > 0 && methods.every(isAccountMethod);
+            row.buttonsBlocked = methods.length > 0 && methods.every(m => m === "account");
             row.applyRichState();
         }
     }
