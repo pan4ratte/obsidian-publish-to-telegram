@@ -118,8 +118,12 @@ haven't added type errors. The repository is checked out inside a development va
 - When you investigate a feature and decide not to build it, add an entry under
   **Deferred ideas** in `CONTRIBUTING.md`: the versions it was checked against, the blocker,
   and when to revisit. Leave a pointer comment in the code where someone would reach for it.
-- For every user-visible feature, add or extend a note in `test-notes/` (error cases go in
-  `13 Ошибки`), in the same commit as the feature.
+- **Every new feature gets its own new test note** in `test-notes/`, in the folder for its
+  section of the user guide, describing the steps and the expected result. That note must pass:
+  the feature isn't finished, and isn't committed, until the maintainer has published the note
+  in Obsidian and confirmed the result matches what it expects. Push it to the vault
+  (`npm run test-notes -- push`) for testing and commit it with the feature. Error cases go in
+  a separate note in `13 Ошибки`. Changes to an existing feature update its existing note.
 
 ## Releases and git
 

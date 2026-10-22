@@ -40,6 +40,10 @@ they never reach the repository. `push` doesn't overwrite a note that was change
 unless you pass `--force`. `pull` only takes files under top-level folders that already exist
 in `test-notes/`, so create a new folder there first. Neither command deletes files.
 
+Every new feature needs its own new test note, and the feature isn't done until that note
+passes: published in Obsidian, the result matches what the note expects. Add the note in the
+same pull request as the feature; put its error cases in a separate note in `13 Ошибки`.
+
 Every attachment is generated or freely licensed — keep it that way: no copyrighted media and
 no personal posts. Don't put a literal `%%` inside a note's instruction block, because it ends
 the comment early.
