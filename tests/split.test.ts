@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { parseLinkComponents, linksMatch, parseChatTargetInput } from '../src/split';
+import { parseLinkComponents, linksMatch, parseChatTargetInput, parseReplyTargetInput } from '../src/split';
 
 test('parses a supergroup/channel private link and marks it -100', () => {
   assert.deepStrictEqual(
@@ -68,4 +68,24 @@ test('manual chat entry: topic links and message-in-topic links set the topic', 
   assert.deepStrictEqual(parseChatTargetInput('https://t.me/c/3882881032/11'), { id: '-1003882881032', topicId: 11 });
   assert.deepStrictEqual(parseChatTargetInput('t.me/c/3882881032/11/345/'), { id: '-1003882881032', topicId: 11 });
   assert.deepStrictEqual(parseChatTargetInput('https://t.me/mygroup/11'), { id: '@mygroup', topicId: 11 });
+});
+
+test('reply target: a post link replies to its message, flagged as a possible topic', () => {
+  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/mychannel/123'), { id: '@mychannel', replyTo: 123, maybeTopic: true });
+  assert.deepStrictEqual(parseReplyTargetInput(' t.me/c/3882881032/45/ '), { id: '-1003882881032', replyTo: 45, maybeTopic: true });
+  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/c/-123456789/7'), { id: '-123456789', replyTo: 7, maybeTopic: true });
+  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/c/+123456789/7'), { id: '123456789', replyTo: 7, maybeTopic: true });
+});
+
+test('reply target: a message-in-topic link replies inside the topic', () => {
+  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/c/3882881032/11/345'), { id: '-1003882881032', topicId: 11, replyTo: 345, maybeTopic: false });
+  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/mygroup/11/345?single'), { id: '@mygroup', topicId: 11, replyTo: 345, maybeTopic: false });
+});
+
+test('reply target: anything that is not a message link is null', () => {
+  assert.equal(parseReplyTargetInput('@mychannel'), null);
+  assert.equal(parseReplyTargetInput('-1003882881032/11'), null);
+  assert.equal(parseReplyTargetInput('https://t.me/mychannel'), null);
+  assert.equal(parseReplyTargetInput('https://t.me/c/3882881032'), null);
+  assert.equal(parseReplyTargetInput('https://example.com/mychannel/123'), null);
 });

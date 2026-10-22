@@ -445,7 +445,7 @@ export default class SendToTelegramPlugin extends Plugin {
             } else {
                 // ── GramJS (User API) path ────────────────────────────────────
                 for (const target of targets) {
-                    const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title, topicId: target.topicId };
+                    const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title, topicId: target.topicId, replyTo: target.replyTo };
                     const { links, commentLinks, errors, scheduled, postLinks } = await sendNoteToTelegram(
                         this.app, file, singleChannel, this.settings, accountSecrets!, silent, attachUnderText,
                         this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,

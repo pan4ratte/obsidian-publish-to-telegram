@@ -58,6 +58,28 @@ export function parseChatTargetInput(value: string): { id: string; topicId?: num
     return { id: trimmed };
 }
 
+// Parses a post link pasted into the advanced modal's one-time target field: the post goes
+// to the link's chat as a reply to that message. `t.me/<chat>/<topicId>/<messageId>` replies
+// inside the topic. `t.me/<chat>/<n>` is ambiguous — Telegram's "Copy link" on a forum topic
+// gives the same form — so it's flagged `maybeTopic` for the caller to check against the chat.
+// Returns null for anything that isn't a link to a message.
+export function parseReplyTargetInput(value: string): { id: string; topicId?: number; replyTo: number; maybeTopic: boolean } | null {
+    const link = value.trim().replace(/[?#].*$/, "").replace(/\/+$/, "");
+    // Usernames are at least four characters, which also keeps `t.me/c/<id>` from passing
+    // as a public username link.
+    const match = link.match(/^(?:https?:\/\/)?t\.me\/(?:c\/([+-]?\d+)|([A-Za-z]\w{3,}))(?:\/(\d+))?\/(\d+)$/i);
+    if (!match) return null;
+    const [, rawId, username, topic, message] = match;
+    const id = rawId === undefined ? `@${username}`
+        : rawId.startsWith("+") ? rawId.slice(1)
+        : rawId.startsWith("-") ? rawId
+        : `-100${rawId}`;
+    const replyTo = parseInt(message, 10);
+    return topic
+        ? { id, topicId: parseInt(topic, 10), replyTo, maybeTopic: false }
+        : { id, replyTo, maybeTopic: true };
+}
+
 // Normalizes a chat id for comparison so "@Channel", "channel" compare consistently.
 function normChatId(id: string): string {
     return id.trim().toLowerCase().replace(/^@/, "");

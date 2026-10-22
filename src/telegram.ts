@@ -724,6 +724,7 @@ async function sendPartViaAccount(
     linkPreviewAboveText?: boolean,
     linkPreviewDisabled?: boolean,
     commentOptions?: CommentOptions[],
+    replyTo?: number,
 ): Promise<SendResult | null> {
     const text = mdToTelegramHtml(body);
     const { attachments, mdEmbeds } = collectMediaFiles(app, body, sourceFile);
@@ -731,6 +732,8 @@ async function sendPartViaAccount(
     const peer = peerFor(channel.chatId);
     const topicId = channel.topicId;
     const threadId = topicId ? topicId : undefined;
+    // Set when the post is a reply to a pasted post link. With a threadId as well the reply
+    // stays inside that topic; without one, replying to a topic's root message posts into it.
 
     // PDFs always upload as documents; embedded .md files join them as document
     // attachments unless they're being sent as comments instead.
@@ -755,11 +758,11 @@ async function sendPartViaAccount(
         const invert = caption.length > 0 && attachUnderText;
         if (files.length === 1) {
             const media = await toInputMedia(files[0], asDocument, caption.length ? htmlText(caption) : undefined);
-            return client.sendMedia(peer, media, { invert, silent, schedule: scheduleDate, threadId });
+            return client.sendMedia(peer, media, { invert, silent, schedule: scheduleDate, threadId, replyTo });
         }
         const medias = await Promise.all(files.map((f, i) =>
             toInputMedia(f, asDocument, i === 0 && caption.length ? htmlText(caption) : undefined)));
-        const msgs = await client.sendMediaGroup(peer, medias, { invertMedia: invert, silent, schedule: scheduleDate, threadId });
+        const msgs = await client.sendMediaGroup(peer, medias, { invertMedia: invert, silent, schedule: scheduleDate, threadId, replyTo });
         return msgs[0];
     };
 
@@ -776,6 +779,7 @@ async function sendPartViaAccount(
                 silent,
                 schedule: scheduleDate,
                 threadId,
+                replyTo,
             });
             result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
             firstMsg = msg;
@@ -819,10 +823,10 @@ async function sendPartViaAccount(
             // text goes out with invertMedia optionally lifting the auto preview above it.
             // Disabling the preview wins over both.
             const msg = linkPreviewDisabled
-                ? await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId, disableWebPreview: true })
+                ? await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId, replyTo, disableWebPreview: true })
                 : linkPreviewUrl
-                    ? await client.sendMedia(peer, InputMedia.webpage(linkPreviewUrl, { caption: htmlText(text) }), { invert: linkPreviewAboveText, silent, schedule: scheduleDate, threadId })
-                    : await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId, invertMedia: linkPreviewAboveText });
+                    ? await client.sendMedia(peer, InputMedia.webpage(linkPreviewUrl, { caption: htmlText(text) }), { invert: linkPreviewAboveText, silent, schedule: scheduleDate, threadId, replyTo })
+                    : await client.sendText(peer, htmlText(text), { silent, schedule: scheduleDate, threadId, replyTo, invertMedia: linkPreviewAboveText });
             result = { link: buildPostLinkFromChatId(channel.chatId, msg.id, topicId), messageId: msg.id };
             if (!firstMsg) firstMsg = msg;
         }
@@ -1018,6 +1022,10 @@ export async function sendNoteToTelegram(
             throw new Error("SCHEDULED_COMMENTS_IN_DISCUSSION");
         }
 
+        // A reply target set in the advanced modal applies to the first post that goes out;
+        // the rest of a split note follows it as ordinary posts.
+        let replyTo = channel.replyTo;
+
         for (let i = 0; i < effectiveParts.length; i++) {
             // Per-part options from the modal's split layout: skip parts the user unchecked and
             // let each part carry its own silent/attachments/schedule values.
@@ -1025,8 +1033,9 @@ export async function sendNoteToTelegram(
             if (opts && !opts.selected) continue;
             const partSchedule = partSchedules[i];
             try {
-                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments);
+                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments, replyTo);
                 if (result) {
+                    replyTo = undefined;
                     // A scheduled part's link points at the scheduled queue, not a real post —
                     // it's resolved later via the scheduled task instead of being recorded now.
                     if (!partSchedule) {

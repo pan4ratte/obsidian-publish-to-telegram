@@ -8,7 +8,7 @@ import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, Spl
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, checkProxy, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
 import { parseProxyLink, isValidMtProxySecret, proxyCarriesBots, defaultProxyPort, type ParsedProxy } from "./proxy-link";
 import { proxiesSupported } from "./proxy";
-import { parseSplitPosts, linksMatch, parseChatTargetInput, type SplitPost } from "./split";
+import { parseSplitPosts, linksMatch, parseChatTargetInput, parseReplyTargetInput, type SplitPost } from "./split";
 import { stripComments, richKindForExt } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
 import { errMessage, retry, withTimeout, formatFileSize } from "./util";
@@ -209,9 +209,16 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
 
 // Chip text for a chat target. Picked chats carry a resolved title; a manually entered
 // forum topic has none, so show it in the same `<id>/<topicId>` form it was typed in.
+// A reply target (a pasted post link) names the message it replies to as well.
 function chatTargetLabel(target: ChatTarget): string {
-    if (target.title) return target.title;
-    return target.topicId ? `${target.id}/${target.topicId}` : target.id;
+    const chat = target.title ?? (target.topicId ? `${target.id}/${target.topicId}` : target.id);
+    if (target.replyTo === undefined) return chat;
+    return t.ADVANCED_ADHOC_REPLY_CHIP.replace("{id}", String(target.replyTo)).replace("{chat}", chat);
+}
+
+// Two chips are the same target when they post to the same chat, topic and reply.
+function sameChatTarget(a: ChatTarget, b: ChatTarget): boolean {
+    return a.id === b.id && a.topicId === b.topicId && a.replyTo === b.replyTo;
 }
 
 // ─── Channel resolution helpers ───────────────────────────────────────────────
@@ -242,6 +249,33 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
         return null;
     } finally {
         await client.destroy();
+    }
+}
+
+// Looks up a pasted reply target for its chip: the chat title, with the topic name for a reply
+// inside a topic. For a `t.me/<chat>/<n>` link (`maybeTopic`) it also checks whether <n> is a
+// forum topic rather than a message, since Telegram's "Copy link" on a topic gives the same
+// form. Null when this account can't read the chat.
+async function fetchReplyTargetInfo(target: ChatTarget, maybeTopic: boolean, secrets: TelegramSecrets): Promise<{ title: string; isTopic: boolean } | null> {
+    const entity: string | number = /^-?\d+$/.test(target.id) ? parseInt(target.id) : target.id;
+    const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash).catch(() => null);
+    if (!client) return null;
+    try {
+        const chat = await client.getPeer(entity);
+        const title = chat.displayName || (chat.username ? `@${chat.username}` : target.id);
+        const topicId = target.topicId ?? (maybeTopic ? target.replyTo : undefined);
+        if (!("isForum" in chat && chat.isForum) || topicId === undefined) return { title, isTopic: false };
+        try {
+            const [topic] = await client.getForumTopicsById(entity, topicId);
+            if (topic?.id === topicId && topic.title) {
+                return { title: `${title}: ${topic.title}`, isTopic: target.topicId === undefined };
+            }
+        } catch { /* not a topic, or its name is unavailable */ }
+        return { title, isTopic: false };
+    } catch {
+        return null;
+    } finally {
+        await client.destroy().catch(() => {});
     }
 }
 
@@ -866,6 +900,11 @@ export class MultiPresetModal extends Modal {
 
         for (const target of this.adhocTargets) {
             const chip = fieldEl.createSpan({ cls: "telegram-chat-chip" });
+            // A pasted post link: the post goes out as a reply to that message.
+            if (target.replyTo !== undefined) {
+                setIcon(chip.createSpan({ cls: "telegram-chat-chip-icon" }), "reply");
+                setTooltip(chip, t.ADVANCED_ADHOC_REPLY_TOOLTIP);
+            }
             chip.createSpan({ text: chatTargetLabel(target), cls: "telegram-chat-chip-text" });
             const removeBtn = chip.createEl("button", { cls: "telegram-chat-chip-remove" });
             setIcon(removeBtn, "x");
@@ -873,7 +912,7 @@ export class MultiPresetModal extends Modal {
             removeBtn.addEventListener("mouseleave", () => chip.classList.remove("remove-hover"));
             removeBtn.addEventListener("click", (e: MouseEvent) => {
                 e.stopPropagation();
-                this.adhocTargets = this.adhocTargets.filter(x => !(x.id === target.id && x.topicId === target.topicId));
+                this.adhocTargets = this.adhocTargets.filter(x => x !== target);
                 this.renderAdhocPickerField();
             });
         }
@@ -922,11 +961,12 @@ export class MultiPresetModal extends Modal {
                     suggest = new ChatSuggest(
                         this.app, input,
                         () => this.dialogsFor(accountId).fetch,
-                        () => this.adhocTargets,
+                        // A reply chip doesn't use up its chat: the chat can still be picked as a target of its own.
+                        () => this.adhocTargets.filter(x => x.replyTo === undefined),
                     );
                     this.adhocActiveSuggest = suggest;
                     suggest.onPick = async (dialog: DialogData) => {
-                        const isDupe = this.adhocTargets.some(x => x.id === dialog.id && x.topicId === dialog.topicId);
+                        const isDupe = this.adhocTargets.some(x => sameChatTarget(x, { id: dialog.id, topicId: dialog.topicId }));
                         if (!isDupe) this.adhocTargets.push({ id: dialog.id, title: dialog.title, topicId: dialog.topicId });
                         this.renderAdhocPickerField();
                     };
@@ -941,14 +981,21 @@ export class MultiPresetModal extends Modal {
         // Keyboard-only path: tabbing in and typing arms the picker too.
         input.addEventListener("input", () => { if (!suggest) this.adhocActivatePicker?.(); });
 
-        // Manual entry: Enter adds an @username/ID chip. Registered after the suggest's own
-        // keydown so it fires second (if the suggest picked an item, input.value is empty).
+        // Manual entry: Enter adds an @username/ID chip, or a reply chip for a pasted post link.
+        // Registered after the suggest's own keydown so it fires second (if the suggest picked
+        // an item, input.value is empty).
         input.addEventListener("keydown", (e: KeyboardEvent) => {
             if (e.key !== "Enter") return;
             if (!input.value.trim()) return;
             e.preventDefault();
-            const target = parseChatTargetInput(input.value);
-            if (!this.adhocTargets.some(x => x.id === target.id && x.topicId === target.topicId)) this.adhocTargets.push(target);
+            const reply = parseReplyTargetInput(input.value);
+            const target: ChatTarget = reply
+                ? { id: reply.id, topicId: reply.topicId, replyTo: reply.replyTo }
+                : parseChatTargetInput(input.value);
+            if (!this.adhocTargets.some(x => sameChatTarget(x, target))) {
+                this.adhocTargets.push(target);
+                if (reply) void this.resolveAdhocReplyTarget(target, reply.maybeTopic);
+            }
             this.renderAdhocPickerField();
             this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
         });
@@ -962,6 +1009,46 @@ export class MultiPresetModal extends Modal {
             this.renderAdhocPickerField();
             this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
         });
+    }
+
+    // Names a reply chip's chat (it starts out showing the bare id from the link) through the
+    // first account that can read the chat, the chosen author's first. A `t.me/<chat>/<n>` link
+    // that turns out to point at a forum topic becomes a plain topic target. Without an
+    // account that can read the chat, the chip keeps the id.
+    private async resolveAdhocReplyTarget(target: ChatTarget, maybeTopic: boolean): Promise<void> {
+        const authorId = this.adhocAuthor?.type === "account" ? this.adhocAuthor.id : undefined;
+        const accountIds = this.plugin.settings.accounts.map(account => account.id)
+            .sort((a, b) => Number(b === authorId) - Number(a === authorId));
+        for (const accountId of accountIds) {
+            const secrets = this.plugin.getAccountSecrets(accountId);
+            if (!secrets.telegramSession) continue;
+            const info = await fetchReplyTargetInfo(target, maybeTopic, secrets);
+            if (!info) continue;
+            // The chip may have been removed while the lookup ran.
+            if (!this.adhocTargets.includes(target)) return;
+            target.title = info.title;
+            if (info.isTopic) {
+                target.topicId = target.replyTo;
+                delete target.replyTo;
+                // Now a topic target, it may duplicate a chip that's already there.
+                this.adhocTargets = this.adhocTargets.filter(x => x === target || !sameChatTarget(x, target));
+            }
+            this.rerenderAdhocPickerKeepingInput();
+            return;
+        }
+    }
+
+    // Rebuilds the ad-hoc field after a background update without losing what the user is
+    // typing in it.
+    private rerenderAdhocPickerKeepingInput(): void {
+        const oldInput = this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search");
+        const value = oldInput?.value ?? "";
+        const focused = oldInput?.isActiveElement() ?? false;
+        this.renderAdhocPickerField();
+        const input = this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search");
+        if (!input) return;
+        input.value = value;
+        if (focused) input.focus();
     }
 
     // Returns (creating + caching on first use) the dialog-fetch state for an account, so the

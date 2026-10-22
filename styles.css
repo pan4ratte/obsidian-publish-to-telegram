@@ -543,6 +543,18 @@ body .telegram-delete-button:hover {
     height: 14px;
 }
 
+/* Reply chip (a pasted post link in the one-time field): a reply arrow before the text */
+.telegram-chat-picker .telegram-chat-chip-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--text-accent);
+}
+
+.telegram-chat-picker .telegram-chat-chip-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
 /* Ad-hoc (preset-less) publishing: bordered box matching the modal's other sections */
 .telegram-adhoc-box {
     padding: 16px;

@@ -86,6 +86,8 @@ export default {
     ADVANCED_ADHOC_HEADING: "Post without a preset",
     ADVANCED_ADHOC_AUTHOR_PLACEHOLDER: "Select post author…",
     ADVANCED_ADHOC_METHOD_PLACEHOLDER: "Select publishing method…",
+    ADVANCED_ADHOC_REPLY_CHIP: "Reply to message {id} in {chat}",
+    ADVANCED_ADHOC_REPLY_TOOLTIP: "The post will be published as a reply to this message",
     ADVANCED_PRESET_HEADING: "Choose a preset",
     ADVANCED_METHOD_DEFAULT: "Default ({method})",
     ADVANCED_POST_SETTINGS_HEADING: "Post settings",

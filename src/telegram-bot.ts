@@ -316,8 +316,8 @@ function baseBody(chatId: string, silent: boolean, topicId?: number, replyTo?: n
     const body: Record<string, unknown> = { chat_id: chatId };
     if (silent) body.disable_notification = true;
     if (topicId) body.message_thread_id = topicId;
-    // Set only when the message is a comment: a reply to the post (or to its copy in the
-    // linked discussion group).
+    // Set when the message is a comment (a reply to the post, or to its copy in the linked
+    // discussion group), or a post published as a reply to a pasted post link.
     if (replyTo) body.reply_to_message_id = replyTo;
     return body;
 }
@@ -358,10 +358,10 @@ function inlineKeyboard(body: string): ReplyMarkup | undefined {
     };
 }
 
-async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean, replyMarkup?: ReplyMarkup): Promise<SendResult> {
+async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean, replyMarkup?: ReplyMarkup, replyTo?: number): Promise<SendResult> {
     const linkPreview = linkPreviewOptions(linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
     const result = await callBotJson(token, "sendMessage", {
-        ...baseBody(chatId, silent, topicId),
+        ...baseBody(chatId, silent, topicId, replyTo),
         text,
         parse_mode: "HTML",
         ...(Object.keys(linkPreview).length > 0 ? { link_preview_options: linkPreview } : {}),
@@ -373,8 +373,13 @@ async function sendTextBot(token: string, chatId: string, text: string, silent: 
 // Sends a Rich Message (Bot API 10.1 — sendRichMessage), with its files and buttons. Rich
 // Markdown preserves headings, tables, task lists, math, footnotes, etc. that the classic
 // HTML path can't express.
-async function sendRichTextBot(token: string, chatId: string, content: BotRichContent, silent: boolean, topicId?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
-    const fields = { ...baseBody(chatId, silent, topicId), ...(replyMarkup ? { reply_markup: replyMarkup } : {}) };
+async function sendRichTextBot(token: string, chatId: string, content: BotRichContent, silent: boolean, topicId?: number, replyMarkup?: ReplyMarkup, replyTo?: number): Promise<SendResult> {
+    const fields = {
+        ...baseBody(chatId, silent, topicId),
+        // sendRichMessage takes a reply as reply_parameters (see sendRichReplyBot).
+        ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}),
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+    };
     const result = await callBotRich(token, "sendRichMessage", fields, content) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
@@ -611,6 +616,7 @@ async function sendPartViaBotApi(
     linkPreviewAboveText?: boolean,
     linkPreviewDisabled?: boolean,
     commentOptions?: CommentOptions[],
+    replyTo?: number,
 ): Promise<SendResult | null> {
     const htmlFallback = mdToBotApiHtml(body);
     const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile);
@@ -656,10 +662,10 @@ async function sendPartViaBotApi(
             if (firstBatch.length === 1) {
                 const f = firstBatch[0];
                 mediaResult = VIDEO_EXTS.has(f.extension)
-                    ? await sendVideoBot(token, chatId, f, cap, silent, attachUnderText, topicId, undefined, replyMarkup)
-                    : await sendPhotoBot(token, chatId, f, cap, silent, attachUnderText, topicId, undefined, replyMarkup);
+                    ? await sendVideoBot(token, chatId, f, cap, silent, attachUnderText, topicId, replyTo, replyMarkup)
+                    : await sendPhotoBot(token, chatId, f, cap, silent, attachUnderText, topicId, replyTo, replyMarkup);
             } else {
-                mediaResult = await sendMediaGroupBot(token, chatId, firstBatch, cap, silent, attachUnderText, topicId);
+                mediaResult = await sendMediaGroupBot(token, chatId, firstBatch, cap, silent, attachUnderText, topicId, replyTo);
             }
             for (const f of remaining) {
                 await (VIDEO_EXTS.has(f.extension)
@@ -669,7 +675,7 @@ async function sendPartViaBotApi(
         }
 
         for (const gif of gifFiles) {
-            const r = await sendAnimationBot(token, chatId, gif, nextCaption(), silent, attachUnderText, topicId, undefined, replyMarkup);
+            const r = await sendAnimationBot(token, chatId, gif, nextCaption(), silent, attachUnderText, topicId, mediaResult ? undefined : replyTo, replyMarkup);
             if (!mediaResult) mediaResult = r;
         }
 
@@ -678,8 +684,8 @@ async function sendPartViaBotApi(
             const remainingDocs = docFiles.slice(10);
             // Documents don't support show_caption_above_media, so attachUnderText is false here.
             const docResult = firstBatch.length === 1
-                ? await sendDocumentBot(token, chatId, firstBatch[0], nextCaption(), silent, false, topicId, undefined, replyMarkup)
-                : await sendMediaGroupBot(token, chatId, firstBatch, nextCaption(), silent, false, topicId);
+                ? await sendDocumentBot(token, chatId, firstBatch[0], nextCaption(), silent, false, topicId, mediaResult ? undefined : replyTo, replyMarkup)
+                : await sendMediaGroupBot(token, chatId, firstBatch, nextCaption(), silent, false, topicId, mediaResult ? undefined : replyTo);
             if (!mediaResult) mediaResult = docResult;
             for (const doc of remainingDocs) await sendDocumentBot(token, chatId, doc, "", silent, false, topicId);
         }
@@ -695,7 +701,7 @@ async function sendPartViaBotApi(
         // One message: the text and every file embedded where the note embeds it. Embedded
         // notes go in as documents unless they're being posted as comments.
         const rich = buildBotRichContent(app, body, sourceFile, !treatMdEmbedsAsComments);
-        if (rich.markdown.length > 0) result = await sendRichTextBot(token, chatId, rich, silent, topicId, buttons);
+        if (rich.markdown.length > 0) result = await sendRichTextBot(token, chatId, rich, silent, topicId, buttons, replyTo);
     } else {
         // ── Classic HTML path ("bot") ────────────────────────────────────────────
         // A classic post must be a single message; if the attachments would produce more
@@ -711,7 +717,7 @@ async function sendPartViaBotApi(
         // All attachments carry the post text as the caption of the first message; a
         // caption over the Bot API limit is refused rather than truncated or split off.
         if (!hasUploadMedia) {
-            if (hasPostText) result = await sendTextBot(token, chatId, htmlFallback, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled, buttons);
+            if (hasPostText) result = await sendTextBot(token, chatId, htmlFallback, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled, buttons, replyTo);
         } else {
             if (hasPostText && captionPlainLength > BOT_CAPTION_LIMIT) throw new Error("MEDIA_CAPTION_TOO_LONG");
             result = await sendUploadMedia(hasPostText ? htmlFallback : "", buttons);
@@ -979,6 +985,9 @@ export async function sendNoteViaBotApi(
     for (const target of targets) {
         const chatId = resolveChatId(target.id);
         const topicId = target.topicId;
+        // A reply target set in the advanced modal applies to the first post that goes out;
+        // the rest of a split note follows it as ordinary posts.
+        let replyTo = target.replyTo;
 
         for (let i = 0; i < effectiveParts.length; i++) {
             // Per-part options from the modal's split layout: skip parts the user unchecked and
@@ -990,8 +999,10 @@ export async function sendNoteViaBotApi(
                     app, effectiveParts[i], token, chatId, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText,
                     treatMdEmbedsAsComments, file, topicId, postAsRich, commentsAsRich,
                     opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments,
+                    replyTo,
                 );
                 if (result) {
+                    replyTo = undefined;
                     links.push(result.link);
                     postLinks[i].push(result.link);
                     if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);

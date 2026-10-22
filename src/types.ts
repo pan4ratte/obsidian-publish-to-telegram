@@ -2,6 +2,7 @@ export interface ChatTarget {
     id: string;
     title?: string;
     topicId?: number;
+    replyTo?: number;      // one-time publish only: the message the post replies to (from a pasted post link)
 }
 
 export interface BotToken {
@@ -53,6 +54,7 @@ export interface TelegramChannel {
     chatTitle?: string;    // legacy field — synced to chatTargets[0].title
     isDefault: boolean;
     topicId?: number;
+    replyTo?: number;      // per-target send copy of ChatTarget.replyTo (account path)
 }
 
 // Per-comment publish options for the pre-written comments (embedded .md notes) that ride

@@ -8,6 +8,7 @@
 * **Local attachments in bot posts.** The "Bot + rich text" method now supports local photos, videos, GIFs and audio — previously only web attachments were available.
 * **Files in the preview.** Attached files in the advanced publishing menu are now shown the way Telegram shows them — as blocks with a file icon, name and size.
 * **Buttons under posts.** The "Bot", "Bot + rich text" and "Account + rich text" methods now publish buttons under the post: links, text copying, coloured and inactive buttons, and buttons with custom emoji. Buttons are inserted from the editor context menu and look the same in the note and in the preview as they do in Telegram.
+* **Reply to a message.** A link to a message can now be pasted into the "Post without a preset" field of the advanced publishing menu — the post will be published as a reply to it.
 
 ### Improvements and bug fixes
 

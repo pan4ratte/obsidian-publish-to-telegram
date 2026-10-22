@@ -86,6 +86,8 @@ export default {
     ADVANCED_ADHOC_HEADING: "Публикация без пресета",
     ADVANCED_ADHOC_AUTHOR_PLACEHOLDER: "Выберите автора…",
     ADVANCED_ADHOC_METHOD_PLACEHOLDER: "Выберите метод публикации…",
+    ADVANCED_ADHOC_REPLY_CHIP: "Ответ на сообщение {id} в {chat}",
+    ADVANCED_ADHOC_REPLY_TOOLTIP: "Пост будет опубликован как ответ на это сообщение",
     ADVANCED_PRESET_HEADING: "Выберите пресет",
     ADVANCED_METHOD_DEFAULT: "По умолчанию ({method})",
     ADVANCED_POST_SETTINGS_HEADING: "Настройки поста",
