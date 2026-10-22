@@ -7,6 +7,7 @@
 * **Any files in rich-text posts.** The "Account + rich text" and "Bot + rich text" methods now embed PDFs and files of any other format in the message, including .md attachments.
 * **Local attachments in bot posts.** The "Bot + rich text" method now supports local photos, videos, GIFs and audio — previously only web attachments were available.
 * **Files in the preview.** Attached files in the advanced publishing menu are now shown the way Telegram shows them — as blocks with a file icon, name and size.
+* **Buttons under posts.** The "Bot" and "Bot + rich text" methods now publish buttons under the post: links, text copying, coloured and inactive buttons, and buttons with custom emoji. Buttons are inserted from the editor context menu and look the same in the note and in the preview as they do in Telegram.
 
 ### Improvements and bug fixes
 

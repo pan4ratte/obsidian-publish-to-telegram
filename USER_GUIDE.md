@@ -176,6 +176,40 @@ Audio files (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) and files of any other for
 
 **One post per publish (classic methods).** The "Account" and "Bot" methods send your attachments as a single Telegram message — a photo/video album, or a document album. If your attachments can't fit in one message, the whole post is refused with an error (nothing is sent in fragments). This happens when you combine things Telegram can't group in one album (an album together with an animation/GIF or a document, or several GIFs), when an album would exceed 10 items, and — on the "Account" method only — when you mix photos and videos in the same album (the "Bot" method handles that combination). To publish such a set, use a rich-text method (which places everything in one rich message) or split the attachments across separate posts.
 
+### 3.4 Buttons under a post
+
+The "Bot" and "Bot + rich text" methods can publish buttons under a post. Add a `tg-buttons` code block to the note: each line is a row of buttons, each `<button>` element on the line is a button.
+
+````markdown
+```tg-buttons
+<button href="https://example.com" color="green">Website</button> <button copy="PROMO2026">Promo code</button>
+<button href="https://t.me/example" emoji="5368324170671202286">Channel</button>
+<button disabled>Sold out</button>
+```
+````
+
+| Attribute | Meaning |
+| --- | --- |
+| `href="…"` | The link the button opens (`https://` or `tg://`) |
+| `copy="…"` | The text the button copies to the clipboard (up to 256 characters) |
+| `disabled` | An inactive button that does nothing |
+| `color="…"` | The button's colour: `red`, `green` or `blue` |
+| `emoji="…"` | A custom emoji before the button's text: its ID, or a `[👍](tg://emoji?id=…)` inserted from the emoji panel |
+
+* Every button needs one action: `href`, `copy` or `disabled`. A button without one is outlined with a dashed border in the note, and a post containing it isn't published.
+
+* Telegram shows a custom emoji in a button only if the bot has a username bought on Fragment, or if the bot's owner has Telegram Premium and the post goes to a private chat or a group, not a channel.
+
+* You can insert the block with the **Insert buttons under the post** command in the note's editor context menu. In the note and in the preview it looks the same as buttons do in Telegram.
+
+* Buttons aren't part of the post's text; they sit under it. In a split note each post can have its own buttons — the block must come *before the split command* that marks the end of the post.
+
+* Editing a post updates its buttons: remove the block from the note, and the buttons disappear from the post too.
+
+* The account publishing methods don't publish buttons — Telegram only lets bots attach them. Pre-written comments are published without buttons.
+
+* Telegram can't attach buttons to an album, so a "Bot" post with several photos, videos or documents plus buttons is rejected with an error. The "Bot + rich text" method has no such limit.
+
 ## 4. Rich-text formatting
 
 Rich-text formatting is available for posts made via the "Bot + rich text" and "Account + rich text" methods (the account method requires Telegram Premium). Telegram's Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note's Markdown through almost verbatim: everything in the Formatting section above is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
@@ -408,6 +442,10 @@ The "Comments follow post settings" option in the plugin settings repeats the ch
 * When one of the classic publishing methods is selected, attachments are lifted out of the text and shown as an album above or below it — depending on the "Attachments below the text" setting.
 
 * Click a link in the preview window to make it the source of Telegram's link preview (while Ctrl+Click opens the link). The resulting link preview is loaded right in the window.
+
+* Attached files are shown the way Telegram shows them — as blocks with a file icon, name and size.
+
+* Buttons under the post are shown below its text and attachments when a bot publishing method is selected.
 
 Also, the publishing settings let you specify whether a post will be published, edited or ignored on publication (the last one is only available when there are several posts in one note).
 

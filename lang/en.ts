@@ -166,6 +166,8 @@ export default {
     NOTICE_ERR_TOO_LONG_TEXT: "Error: This publication method supports texts of no more than 4096 symbols.",
     NOTICE_ERR_TOO_LONG_CAPTION: "Error: This publishing method supports texts with media attachments of no more than 1024 symbols.",
     NOTICE_ERR_MIXED_MEDIA: "Error: The attached combination of attachments can't be sent with the selected method. Use a rich-text method, or send them separately.",
+    NOTICE_ERR_BUTTONS_ALBUM: "Error: Telegram can't attach buttons to an album. Leave one attachment, or use the \"Bot + rich text\" method.",
+    NOTICE_ERR_BUTTON_NO_ACTION: "Error: Every button needs a link (href), a text to copy (copy) or the disabled attribute.",
     NOTICE_ERR_SCHEDULED_COMMENTS: "Error: A scheduled post can't take its comments along into a discussion group — a comment there has nothing to reply to until the post is actually published. Personal chats and groups have no such limitation. Nothing was sent to that chat — remove the schedule, or leave the comments out of this publication.",
     NOTICE_ERR_SPLIT_LINK_NOT_FOUND: "Error: This link isn't inside any split command. Add it to the desired `%% \\split %%` command so the plugin knows which part to edit.",
     NOTICE_ERR_ACCOUNT_RICH_PREMIUM: "Error: Sending rich-text messages from a user account requires Telegram Premium on that account.",
@@ -182,6 +184,10 @@ export default {
 
     // ─── Editor context menu ──────────────────────────────────────────────────────
     MENU_INSERT_SPLIT: "Insert post split marker",
+    MENU_INSERT_BUTTONS: "Insert buttons under the post",
+    BUTTONS_EMPTY: "No buttons yet: add <button href=\"…\">Text</button> lines.",
+    BUTTON_COPY_TOOLTIP: "Copies: {text}",
+    BUTTON_NO_ACTION_TOOLTIP: "This button does nothing: add href, copy or disabled",
     MENU_RICH_FORMATTING: "Rich-text formatting",
     MENU_FMT_ACCORDION: "Accordion",
     MENU_FMT_CENTERED_QUOTE: "Centered quote",

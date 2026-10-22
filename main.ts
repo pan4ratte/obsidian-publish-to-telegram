@@ -6,6 +6,7 @@ import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
 import { CustomEmojiThumbnails, PreviewStore, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
 import { hasCustomEmoji } from "./src/markdown";
 import { customEmojiEditorExtension, customEmojiPostProcessor, refreshInlineEmoji } from "./src/emoji-inline";
+import { buttonsCodeBlockProcessor } from "./src/buttons";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
 import { setProxies, type ProxyConfig } from "./src/proxy";
@@ -95,6 +96,7 @@ export default class SendToTelegramPlugin extends Plugin {
         // as the real artwork in the editor and in rendered notes.
         this.registerEditorExtension(customEmojiEditorExtension(() => this.customEmojiPreviews()));
         this.registerMarkdownPostProcessor(customEmojiPostProcessor(() => this.customEmojiPreviews()));
+        this.registerMarkdownCodeBlockProcessor("tg-buttons", buttonsCodeBlockProcessor(() => this.customEmojiPreviews()));
 
         // The emoji bar lives on document.body, outside any leaf — make sure it goes away
         // with the plugin (disable / reload) instead of being orphaned there, and release
@@ -116,6 +118,11 @@ export default class SendToTelegramPlugin extends Plugin {
                 menu.addItem((item) => {
                     item.setTitle(t.MENU_INSERT_SPLIT).setIcon("scissors").setSection(MENU_SECTION);
                     item.onClick(() => this.insertSplitMarker(editor));
+                });
+
+                menu.addItem((item) => {
+                    item.setTitle(t.MENU_INSERT_BUTTONS).setIcon("mouse-pointer-click").setSection(MENU_SECTION);
+                    item.onClick(() => this.insertButtons(editor));
                 });
 
                 menu.addItem((item) => {
@@ -158,6 +165,22 @@ export default class SendToTelegramPlugin extends Plugin {
         const before = line.slice(0, cursor.ch).trim().length > 0 ? "\n\n" : "";
         const after = line.slice(cursor.ch).trim().length > 0 ? "\n\n" : "";
         editor.replaceSelection(`${before}%% \\split %%${after}`);
+        editor.focus();
+    }
+
+    // Inserts a `tg-buttons` block (see parseButtonRows in src/markdown.ts) as its own block at
+    // the cursor: one row with one link button, its label selected so the user can type over it.
+    // A code fence has to start a line, so text on either side is pushed to its own paragraph.
+    private insertButtons(editor: Editor): void {
+        const cursor = editor.getCursor("from");
+        const end = editor.getCursor("to");
+        const before = editor.getLine(cursor.line).slice(0, cursor.ch).trim().length > 0 ? "\n\n" : "";
+        const after = editor.getLine(end.line).slice(end.ch).trim().length > 0 ? "\n\n" : "";
+        const head = `${before}\`\`\`tg-buttons\n<button href="https://example.com">`;
+        const label = "Button";
+        editor.replaceSelection(`${head}${label}</button>\n\`\`\`${after}`);
+        const start = editor.offsetToPos(editor.posToOffset(cursor) + head.length);
+        editor.setSelection(start, { line: start.line, ch: start.ch + label.length });
         editor.focus();
     }
 
@@ -489,6 +512,10 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_TOO_LONG_TEXT);
                 } else if (msg.includes("MEDIA_CAPTION_TOO_LONG") || msg.includes("CAPTION IS TOO LONG")) {
                     new Notice(t.NOTICE_ERR_TOO_LONG_CAPTION);
+                } else if (msg.includes("BUTTONS_ALBUM")) {
+                    new Notice(t.NOTICE_ERR_BUTTONS_ALBUM);
+                } else if (msg.includes("BUTTON_NO_ACTION")) {
+                    new Notice(t.NOTICE_ERR_BUTTON_NO_ACTION);
                 } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                     new Notice(t.NOTICE_ERR_MIXED_MEDIA);
                 } else if (msg.includes("SCHEDULED_COMMENTS_IN_DISCUSSION")) {
@@ -518,6 +545,10 @@ export default class SendToTelegramPlugin extends Plugin {
                 new Notice(t.NOTICE_ERR_TOO_LONG_TEXT);
             } else if (msg.includes("MEDIA_CAPTION_TOO_LONG") || msg.includes("CAPTION IS TOO LONG")) {
                 new Notice(t.NOTICE_ERR_TOO_LONG_CAPTION);
+            } else if (msg.includes("BUTTONS_ALBUM")) {
+                new Notice(t.NOTICE_ERR_BUTTONS_ALBUM);
+            } else if (msg.includes("BUTTON_NO_ACTION")) {
+                new Notice(t.NOTICE_ERR_BUTTON_NO_ACTION);
             } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                 new Notice(t.NOTICE_ERR_MIXED_MEDIA);
             } else if (msg.includes("SCHEDULED_COMMENTS_IN_DISCUSSION")) {

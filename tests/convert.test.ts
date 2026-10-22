@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt } from '../src/markdown';
+import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt, parseButtons, parseButtonRows, removeButtonBlocks } from '../src/markdown';
 
 // `expect(x).toBe(y)` over node:assert, so the ported test bodies stay unchanged.
 function expect(received: unknown) {
@@ -347,4 +347,44 @@ test('Rich: rewriteEmbeds offers every embed form and skips commented-out ones',
   );
   assert.deepEqual(seen, ['a.pdf', 'keep.md', 'b.png "title"', 'c.zip']);
   expect(out).toBe('R R R  ![[keep.md]]');
+});
+
+const BUTTONS_NOTE = [
+  'Post text.',
+  '',
+  '```tg-buttons',
+  '<button href="https://example.com" color="green">Website</button> <button copy="PROMO &amp; CO">Copy code</button>',
+  `<button href='https://t.me/example' emoji="[👍](tg://emoji?id=5368324170671202286)" color="danger">Channel</button>`,
+  '<button disabled>Sold out</button> <button>Nothing</button>',
+  '```',
+  '',
+  'After.',
+].join('\n');
+
+test('Buttons: each line is a row, each <button> a button with its properties', () => {
+  assert.deepEqual(parseButtons(BUTTONS_NOTE), [
+    [
+      { text: 'Website', url: 'https://example.com', color: 'success' },
+      { text: 'Copy code', copy: 'PROMO & CO' },
+    ],
+    [{ text: 'Channel', url: 'https://t.me/example', color: 'danger', emojiId: '5368324170671202286', emojiFallback: '👍' }],
+    [{ text: 'Sold out', disabled: true }, { text: 'Nothing' }],
+  ]);
+});
+
+test('Buttons: colour names and a bare emoji id', () => {
+  assert.deepEqual(parseButtonRows('<button href="https://a.com" color="Blue" emoji="123456789">A</button>'), [
+    [{ text: 'A', url: 'https://a.com', color: 'primary', emojiId: '123456789' }],
+  ]);
+});
+
+test('Buttons: commented-out blocks and other code blocks are ignored', () => {
+  const note = '%%\n```tg-buttons\n<button href="https://a.com">A</button>\n```\n%%\n```html\n<button href="https://b.com">B</button>\n```';
+  assert.deepEqual(parseButtons(note), []);
+  assert.ok(removeButtonBlocks(note).includes('https://b.com'));
+});
+
+test('Buttons: the block never reaches the message text', () => {
+  expect(mdToTelegramHtml(BUTTONS_NOTE)).toBe('Post text.\n\nAfter.');
+  assert.ok(!obsidianToRichMarkdown(BUTTONS_NOTE).includes('button'));
 });

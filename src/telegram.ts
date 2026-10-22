@@ -209,7 +209,7 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
 // The markdown here is parsed SERVER-side (type: "markdown"). That's what buys headings,
 // tables, task lists, <tg-collage> and the rest for free — and it's also why a rich post
 // can't carry inline buttons, those living only in the mutually exclusive blocks form. See
-// "Inline buttons under a post" in CONTRIBUTING.md before reaching for Rich.buttonRow().
+// "Inline buttons under `account-rich` posts" in CONTRIBUTING.md before reaching for Rich.buttonRow().
 async function buildRichMessageContent(app: App, body: string, sourceFile: TFile, mdAsDocument = false): Promise<{ markdown: string; attachments?: Record<string, RichAttachment> }> {
     const { body: richBody, media } = collectRichMedia(app, body, sourceFile, mdAsDocument);
     const markdown = obsidianToRichMarkdown(richBody);

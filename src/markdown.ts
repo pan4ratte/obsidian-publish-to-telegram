@@ -59,7 +59,7 @@ function stripCommentsPreservingCode(text: string): string {
 // preserved so Telegram renders them as media blocks. The GramJS HTML path leaves
 // it false because that parser can't express URL media blocks.
 export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: boolean } = {}): string {
-    return stripCommentsPreservingCode(body)         // comments (but keep those inside code)
+    return removeButtonBlocks(stripCommentsPreservingCode(body))   // comments (but keep those inside code), then buttons
         .replace(/!\[\[[^\]]*\]\]/g, "")           // Strip wikilink embeds (always local)
         .replace(/!\[[^\]]*\]\(([^)]*)\)/g, (match, target: string) =>
             opts.keepRichMediaEmbeds && (isRichEmbeddableUrl(target) || isRichAttachmentRef(target)) ? match : "")
@@ -76,6 +76,105 @@ export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: 
 // block should still be excluded from the actual attachments.
 export function stripComments(body: string): string {
     return removeCommentRegions(body);
+}
+
+// ─── Inline buttons ───────────────────────────────────────────────────────────
+
+// Buttons under a post are written as a `tg-buttons` code block: one line per row, one
+// <button> element per button, its attributes being Telegram's button properties.
+//
+//   ```tg-buttons
+//   <button href="https://example.com" color="green">Website</button> <button copy="PROMO">Copy code</button>
+//   <button href="https://t.me/example" emoji="5368324170671202286">Channel</button>
+//   <button disabled>Sold out</button>
+//   ```
+//
+// A code block rather than raw HTML because Obsidian's sanitizer strips unknown elements and
+// their attributes, while a code block processor (src/buttons.ts) renders the same way in the
+// editor, reading view and the publishing preview. The block is never part of the message text
+// (stripObsidianSyntax removes it); only bots can attach buttons, so only the bot send path
+// reads it (parseButtons).
+
+// Telegram's button styles. `color` takes these or the colour each one is drawn in.
+export type ButtonColor = "danger" | "success" | "primary";
+const BUTTON_COLORS: Record<string, ButtonColor> = {
+    red: "danger", danger: "danger",
+    green: "success", success: "success",
+    blue: "primary", primary: "primary",
+};
+
+// One button. Exactly one action is sent: `disabled`, else `url`, else `copy`; a button with
+// none of them is refused on publish (BUTTON_NO_ACTION).
+export interface InlineButton {
+    text: string;
+    url?: string;
+    copy?: string;
+    disabled?: boolean;
+    color?: ButtonColor;
+    emojiId?: string;
+    // The emoji the picker wrote as the custom emoji's stand-in, when `emoji` was given in the
+    // picker's own `[👍](tg://emoji?id=…)` form.
+    emojiFallback?: string;
+}
+
+// A `tg-buttons` code block, fence included: the closing fence repeats the opening one.
+const BUTTON_BLOCK = /^[ \t]*(`{3,}|~{3,})[ \t]*tg-buttons[ \t]*\n([\s\S]*?)^[ \t]*\1[ \t]*$\n?/gm;
+const BUTTON_TAG = /<button\b([^>]*)>([\s\S]*?)<\/button\s*>/gi;
+const BUTTON_ATTR = /([a-zA-Z][\w-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+
+function decodeEntities(text: string): string {
+    return text
+        .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(parseInt(n, 10)))
+        .replace(/&#x([\da-f]+);/gi, (_, n: string) => String.fromCodePoint(parseInt(n, 16)))
+        .replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'")
+        .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&");
+}
+
+function parseButton(attrText: string, inner: string): InlineButton {
+    const attrs = new Map<string, string>();
+    for (const m of attrText.matchAll(BUTTON_ATTR)) {
+        attrs.set(m[1].toLowerCase(), decodeEntities(m[2] ?? m[3] ?? m[4] ?? ""));
+    }
+    const button: InlineButton = { text: decodeEntities(inner.replace(/<[^>]*>/g, "").trim()) };
+    if (attrs.has("disabled")) button.disabled = true;
+    const href = attrs.get("href")?.trim();
+    if (href) button.url = href;
+    const copy = attrs.get("copy");
+    if (copy) button.copy = copy;
+    const color = BUTTON_COLORS[attrs.get("color")?.trim().toLowerCase() ?? ""];
+    if (color) button.color = color;
+    // An id, or the picker's `[👍](tg://emoji?id=…)` pasted in whole.
+    const emoji = attrs.get("emoji") ?? "";
+    const emojiId = /(\d{5,})/.exec(emoji)?.[1];
+    if (emojiId) {
+        button.emojiId = emojiId;
+        const fallback = /^\s*\[([^\]]+)\]/.exec(emoji)?.[1];
+        if (fallback) button.emojiFallback = fallback;
+    }
+    return button;
+}
+
+// The rows one `tg-buttons` block's content describes: each line holding at least one
+// <button> is a row. Used both to send the block and to render it.
+export function parseButtonRows(source: string): InlineButton[][] {
+    const rows: InlineButton[][] = [];
+    for (const line of source.split("\n")) {
+        const row = Array.from(line.matchAll(BUTTON_TAG), m => parseButton(m[1], m[2]));
+        if (row.length > 0) rows.push(row);
+    }
+    return rows;
+}
+
+// Removes every `tg-buttons` block from the text.
+export function removeButtonBlocks(body: string): string {
+    return body.replace(BUTTON_BLOCK, "");
+}
+
+// The button rows of every `tg-buttons` block in a post, in order. Commented-out blocks are
+// skipped.
+export function parseButtons(body: string): InlineButton[][] {
+    return Array.from(stripComments(body).matchAll(BUTTON_BLOCK), m => parseButtonRows(m[2])).flat();
 }
 
 // ─── Rich-message attachments ─────────────────────────────────────────────────

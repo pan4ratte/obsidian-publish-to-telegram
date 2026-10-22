@@ -16,7 +16,7 @@ import { customEmojiRefRegex } from "./markdown";
 
 // Fills `el` with the emoji's artwork, or its fallback glyph until that arrives. Returns
 // nothing: late-arriving previews come back through the loader's subscription.
-function renderCustomEmoji(el: HTMLElement, alt: string, id: string, previews: CustomEmojiThumbnails | null): void {
+export function renderCustomEmoji(el: HTMLElement, alt: string, id: string, previews: CustomEmojiThumbnails | null): void {
     el.empty();
     el.addClass("telegram-inline-emoji");
     el.dataset.emojiId = id;

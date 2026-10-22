@@ -4,7 +4,7 @@
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings, SplitPartOptions, CommentOptions } from "./types";
-import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments, rewriteEmbeds, richKindForExt, type RichKind } from "./markdown";
+import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments, rewriteEmbeds, richKindForExt, parseButtons, type RichKind } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
 import { activeBotProxy, proxiedHttpsRequest } from "./proxy";
 import { t } from "../lang/helpers";
@@ -336,22 +336,46 @@ function linkPreviewOptions(linkPreviewUrl?: string, linkPreviewAboveText?: bool
     return linkPreview;
 }
 
-async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<SendResult> {
+// A post's buttons as Telegram's reply_markup, or undefined when it has none. Only bots can
+// attach buttons, which is why the `tg-buttons` block is read here and nowhere on the account
+// path. A button carries exactly one action (Telegram rejects two); one with none is refused
+// before anything is sent.
+type ReplyMarkup = { inline_keyboard: Array<Array<Record<string, unknown>>> };
+function inlineKeyboard(body: string): ReplyMarkup | undefined {
+    const rows = parseButtons(body);
+    if (rows.length === 0) return undefined;
+    return {
+        inline_keyboard: rows.map(row => row.map(button => {
+            const out: Record<string, unknown> = { text: button.text };
+            if (button.disabled) out.disabled = {};
+            else if (button.url) out.url = button.url;
+            else if (button.copy) out.copy_text = { text: button.copy };
+            else throw new Error("BUTTON_NO_ACTION");
+            if (button.color) out.style = button.color;
+            if (button.emojiId) out.icon_custom_emoji_id = button.emojiId;
+            return out;
+        })),
+    };
+}
+
+async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const linkPreview = linkPreviewOptions(linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
     const result = await callBotJson(token, "sendMessage", {
         ...baseBody(chatId, silent, topicId),
         text,
         parse_mode: "HTML",
         ...(Object.keys(linkPreview).length > 0 ? { link_preview_options: linkPreview } : {}),
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
     }) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-// Sends a Rich Message (Bot API 10.1 — sendRichMessage), with its files. Rich Markdown
-// preserves headings, tables, task lists, math, footnotes, etc. that the classic
+// Sends a Rich Message (Bot API 10.1 — sendRichMessage), with its files and buttons. Rich
+// Markdown preserves headings, tables, task lists, math, footnotes, etc. that the classic
 // HTML path can't express.
-async function sendRichTextBot(token: string, chatId: string, content: BotRichContent, silent: boolean, topicId?: number): Promise<SendResult> {
-    const result = await callBotRich(token, "sendRichMessage", baseBody(chatId, silent, topicId), content) as { chat: { id: number; username?: string }; message_id: number };
+async function sendRichTextBot(token: string, chatId: string, content: BotRichContent, silent: boolean, topicId?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
+    const fields = { ...baseBody(chatId, silent, topicId), ...(replyMarkup ? { reply_markup: replyMarkup } : {}) };
+    const result = await callBotRich(token, "sendRichMessage", fields, content) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
@@ -363,42 +387,46 @@ async function appendMediaField(form: FormData, field: string, file: MediaFile):
     else form.append(field, await file.getBlob(), file.name);
 }
 
-async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
+async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "photo", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
+    if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
     const result = await callBotFetch(token, "sendPhoto", form) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendVideoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
+async function sendVideoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "video", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
+    if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
     const result = await callBotFetch(token, "sendVideo", form) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendAnimationBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
+async function sendAnimationBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "animation", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
+    if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
     const result = await callBotFetch(token, "sendAnimation", form) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendDocumentBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
+async function sendDocumentBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
     Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
     await appendMediaField(form, "document", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
+    if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
     const result = await callBotFetch(token, "sendDocument", form) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
@@ -614,8 +642,9 @@ async function sendPartViaBotApi(
 
     // Uploads the classic post's media files. The post text rides as the caption of the
     // first message produced (consumed once); the rest go caption-less. attachUnderText
-    // positions the caption above photo/video media. Returns the first message's SendResult.
-    async function sendUploadMedia(caption: string): Promise<SendResult | null> {
+    // positions the caption above photo/video media, and the post's buttons go on a single
+    // message (an album can't carry them). Returns the first message's SendResult.
+    async function sendUploadMedia(caption: string, replyMarkup?: ReplyMarkup): Promise<SendResult | null> {
         let mediaResult: SendResult | null = null;
         let captionLeft = caption;
         const nextCaption = () => { const c = captionLeft; captionLeft = ""; return c; };
@@ -627,8 +656,8 @@ async function sendPartViaBotApi(
             if (firstBatch.length === 1) {
                 const f = firstBatch[0];
                 mediaResult = VIDEO_EXTS.has(f.extension)
-                    ? await sendVideoBot(token, chatId, f, cap, silent, attachUnderText, topicId)
-                    : await sendPhotoBot(token, chatId, f, cap, silent, attachUnderText, topicId);
+                    ? await sendVideoBot(token, chatId, f, cap, silent, attachUnderText, topicId, undefined, replyMarkup)
+                    : await sendPhotoBot(token, chatId, f, cap, silent, attachUnderText, topicId, undefined, replyMarkup);
             } else {
                 mediaResult = await sendMediaGroupBot(token, chatId, firstBatch, cap, silent, attachUnderText, topicId);
             }
@@ -640,7 +669,7 @@ async function sendPartViaBotApi(
         }
 
         for (const gif of gifFiles) {
-            const r = await sendAnimationBot(token, chatId, gif, nextCaption(), silent, attachUnderText, topicId);
+            const r = await sendAnimationBot(token, chatId, gif, nextCaption(), silent, attachUnderText, topicId, undefined, replyMarkup);
             if (!mediaResult) mediaResult = r;
         }
 
@@ -649,7 +678,7 @@ async function sendPartViaBotApi(
             const remainingDocs = docFiles.slice(10);
             // Documents don't support show_caption_above_media, so attachUnderText is false here.
             const docResult = firstBatch.length === 1
-                ? await sendDocumentBot(token, chatId, firstBatch[0], nextCaption(), silent, false, topicId)
+                ? await sendDocumentBot(token, chatId, firstBatch[0], nextCaption(), silent, false, topicId, undefined, replyMarkup)
                 : await sendMediaGroupBot(token, chatId, firstBatch, nextCaption(), silent, false, topicId);
             if (!mediaResult) mediaResult = docResult;
             for (const doc of remainingDocs) await sendDocumentBot(token, chatId, doc, "", silent, false, topicId);
@@ -659,13 +688,14 @@ async function sendPartViaBotApi(
     }
 
     let result: SendResult | null = null;
+    const buttons = inlineKeyboard(body);
 
     if (postAsRich) {
         // ── Rich Message path ("bot + rich") ─────────────────────────────────────
         // One message: the text and every file embedded where the note embeds it. Embedded
         // notes go in as documents unless they're being posted as comments.
         const rich = buildBotRichContent(app, body, sourceFile, !treatMdEmbedsAsComments);
-        if (rich.markdown.length > 0) result = await sendRichTextBot(token, chatId, rich, silent, topicId);
+        if (rich.markdown.length > 0) result = await sendRichTextBot(token, chatId, rich, silent, topicId, buttons);
     } else {
         // ── Classic HTML path ("bot") ────────────────────────────────────────────
         // A classic post must be a single message; if the attachments would produce more
@@ -676,13 +706,15 @@ async function sendPartViaBotApi(
         // the User API, so it's allowed here.)
         const messageCount = Math.ceil(photoAndVideoFiles.length / ALBUM_LIMIT) + gifFiles.length + Math.ceil(docFiles.length / ALBUM_LIMIT);
         if (messageCount > 1) throw new Error("MIXED_MEDIA_CLASSIC");
+        // Telegram doesn't let an album carry buttons, so a post with both is refused too.
+        if (buttons && (photoAndVideoFiles.length > 1 || docFiles.length > 1)) throw new Error("BUTTONS_ALBUM");
         // All attachments carry the post text as the caption of the first message; a
         // caption over the Bot API limit is refused rather than truncated or split off.
         if (!hasUploadMedia) {
-            if (hasPostText) result = await sendTextBot(token, chatId, htmlFallback, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
+            if (hasPostText) result = await sendTextBot(token, chatId, htmlFallback, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled, buttons);
         } else {
             if (hasPostText && captionPlainLength > BOT_CAPTION_LIMIT) throw new Error("MEDIA_CAPTION_TOO_LONG");
-            result = await sendUploadMedia(hasPostText ? htmlFallback : "");
+            result = await sendUploadMedia(hasPostText ? htmlFallback : "", buttons);
         }
     }
 
@@ -733,13 +765,17 @@ function isNotModifiedError(err: unknown): boolean {
     return (err instanceof Error ? err.message : String(err)).toLowerCase().includes("message is not modified");
 }
 
-async function editMessageBot(token: string, chatId: string, messageId: number, text: string): Promise<void> {
+// The edit carries the buttons the note has now; leaving reply_markup out removes any the
+// message had, so deleting the callout and editing takes them off the post.
+async function editMessageBot(token: string, chatId: string, messageId: number, text: string, replyMarkup?: ReplyMarkup): Promise<void> {
+    const markup = replyMarkup ? { reply_markup: replyMarkup } : {};
     try {
         await callBotJson(token, "editMessageText", {
             chat_id: chatId,
             message_id: messageId,
             text,
             parse_mode: "HTML",
+            ...markup,
         });
     } catch (err) {
         if (isNotModifiedError(err)) return;
@@ -751,6 +787,7 @@ async function editMessageBot(token: string, chatId: string, messageId: number, 
                     message_id: messageId,
                     caption: text,
                     parse_mode: "HTML",
+                    ...markup,
                 });
             } catch (capErr) {
                 if (isNotModifiedError(capErr)) return;
@@ -766,9 +803,10 @@ async function editMessageBot(token: string, chatId: string, messageId: number, 
 // with a rich_message field instead of text/parse_mode), re-uploading its files. There is no
 // time limit on a bot editing its own messages, and this works for channel posts the bot can
 // edit.
-async function editRichMessageBot(token: string, chatId: string, messageId: number, content: BotRichContent): Promise<void> {
+async function editRichMessageBot(token: string, chatId: string, messageId: number, content: BotRichContent, replyMarkup?: ReplyMarkup): Promise<void> {
     try {
-        await callBotRich(token, "editMessageText", { chat_id: chatId, message_id: messageId }, content);
+        const fields = { chat_id: chatId, message_id: messageId, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) };
+        await callBotRich(token, "editMessageText", fields, content);
     } catch (err) {
         if (isNotModifiedError(err)) return;
         throw err;
@@ -782,10 +820,11 @@ async function editRichMessageBot(token: string, chatId: string, messageId: numb
 // media caption. Note: the Bot API can only *replace* media on a message that already has
 // media of a compatible kind — Telegram rejects turning a pure-text message into a media
 // message, and that error is surfaced to the caller rather than swallowed.
-async function editMessageMediaBot(token: string, chatId: string, messageId: number, file: MediaFile, caption: string, attachUnderText: boolean): Promise<void> {
+async function editMessageMediaBot(token: string, chatId: string, messageId: number, file: MediaFile, caption: string, attachUnderText: boolean, replyMarkup?: ReplyMarkup): Promise<void> {
     const form = new FormData();
     form.append("chat_id", chatId);
     form.append("message_id", String(messageId));
+    if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
 
     const type = file.extension === "gif" ? "animation" : botMediaType(file.extension);
     const inputMedia: Record<string, unknown> = { type, media: "" };
@@ -904,6 +943,7 @@ export async function sendNoteViaBotApi(
             // Built exactly as on the send path, so files can be added to a rich post on edit.
             const rich = postAsRich ? buildBotRichContent(app, editBody, file, !treatMdEmbedsAsComments) : null;
             const htmlContent = mdToBotApiHtml(editBody);
+            const buttons = inlineKeyboard(editBody);
             // For the classic method, attach the note's media so adding e.g. a photo on edit
             // actually shows up (via editMessageMedia). Only a single attachment can ride on
             // an edit — an album can't be formed this way — so with 0 or >1 attachments we
@@ -913,11 +953,11 @@ export async function sendNoteViaBotApi(
             for (const target of targets) {
                 const chatId = resolveChatId(target.id);
                 if (rich && rich.markdown.length > 0) {
-                    await editRichMessageBot(token, chatId, messageId, rich);
+                    await editRichMessageBot(token, chatId, messageId, rich, buttons);
                 } else if (singleMedia) {
-                    await editMessageMediaBot(token, chatId, messageId, singleMedia, htmlContent, attachUnderText);
+                    await editMessageMediaBot(token, chatId, messageId, singleMedia, htmlContent, attachUnderText, buttons);
                 } else {
-                    await editMessageBot(token, chatId, messageId, htmlContent);
+                    await editMessageBot(token, chatId, messageId, htmlContent, buttons);
                 }
             }
             return { links: [updateLink], commentLinks: [], errors: [], postLinks: [] };

@@ -320,6 +320,10 @@ interface CardRow {
     // Repaints the previewed text for the chosen method — currently the heading downgrade a
     // classic method applies. Late-bound, like the other preview updaters.
     updateTextStyle: () => void;
+    // Set while every chosen method posts from an account: only bots can put buttons under a
+    // message, so the post's buttons callout isn't sent and its preview hides them.
+    buttonsBlocked: boolean;
+    updateButtons: () => void;
     onlineOn: boolean;
     scheduleValue: string;
     // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no active
@@ -619,6 +623,7 @@ export class MultiPresetModal extends Modal {
         for (const row of this.allCards()) {
             row.richBlocked = anyRich;
             row.classicMethod = methods.length > 0 && !anyRich;
+            row.buttonsBlocked = methods.length > 0 && methods.every(isAccountMethod);
             row.applyRichState();
         }
     }
@@ -1292,6 +1297,8 @@ export class MultiPresetModal extends Modal {
             hasMedia: false,
             updateMediaPlacement: () => {},
             updateTextStyle: () => {},
+            buttonsBlocked: false,
+            updateButtons: () => {},
             onlineOn: false,
             scheduleValue: "",
             richBlocked: false,
@@ -1456,9 +1463,10 @@ export class MultiPresetModal extends Modal {
             previewModeBtn.toggleClass("is-disabled", row.richBlocked || row.editBlocked || row.ignoreBlocked || row.hasMedia);
             applyAttach();
             applyPreviewMode();
-            // The method also decides how the text itself reads (headings). Late-bound —
-            // a noop until the preview block below is built.
+            // The method also decides how the text itself reads (headings) and whether the
+            // post's buttons go out. Late-bound — noops until the preview block below is built.
             row.updateTextStyle();
+            row.updateButtons();
         };
         // A scheduled date is the one option a comment genuinely can't hold: it is sent as a
         // reply to its post, so it goes out when the post does. "Send when online" is a
@@ -1511,6 +1519,27 @@ export class MultiPresetModal extends Modal {
         // left reading exactly as the note does — as is a preview with no method chosen yet,
         // where there's nothing to predict.
         const mediaEl = previewContentEl.createDiv("telegram-split-media is-hidden");
+        // Telegram draws a post's buttons under the whole message, so each rendered `tg-buttons`
+        // block (src/buttons.ts) is lifted out of wherever the note has it into this row, which
+        // always closes the previewed content — inside it, so the collapsed clamp hides the
+        // buttons along with the rest. A comment's buttons aren't sent at all and are dropped
+        // from its preview.
+        const buttonsEl = createDiv("telegram-split-buttons");
+        const collectButtons = () => {
+            previewContentEl.querySelectorAll<HTMLElement>(".block-language-tg-buttons").forEach(block => {
+                if (isPost) buttonsEl.appendChild(block);
+                else block.remove();
+            });
+        };
+        // Whatever goes at the end of the message (the attachments, the link preview) goes in
+        // just before the buttons while they're shown.
+        const appendToEnd = (el: HTMLElement) => {
+            if (buttonsEl.parentElement === previewContentEl) previewContentEl.insertBefore(el, buttonsEl);
+            else previewContentEl.appendChild(el);
+        };
+        const isAtEnd = (el: HTMLElement): boolean => buttonsEl.parentElement === previewContentEl
+            ? el.nextSibling === buttonsEl
+            : previewContentEl.lastChild === el;
         // Every embed, each with an anchor left where it sits in the text so the inline layout
         // can be restored when the method changes back.
         const mediaNodes: Array<{ el: HTMLElement; anchor: Comment }> = [];
@@ -1537,6 +1566,20 @@ export class MultiPresetModal extends Modal {
             const clipped = previewContentEl.scrollHeight > previewContentEl.clientHeight + 1;
             expandBtn.toggle(clipped);
             previewEl.toggleClass("no-expand", !clipped);
+        };
+        // Shown while a bot method is among those chosen, or none is chosen yet. A skipped post
+        // keeps them, like the rest of its preview. Hidden, the row leaves the content
+        // altogether: as its last child it would otherwise take the spacing reset the real last
+        // block needs.
+        // Runs on every repaint of the card's settings, so the clamp is only measured again when
+        // the row actually came or went.
+        row.updateButtons = () => {
+            const show = buttonsEl.hasChildNodes() && !row.buttonsBlocked;
+            const shown = buttonsEl.parentElement === previewContentEl;
+            if (show && previewContentEl.lastChild !== buttonsEl) previewContentEl.appendChild(buttonsEl);
+            else if (!show && shown) buttonsEl.remove();
+            else return;
+            window.requestAnimationFrame(refreshExpand);
         };
         // Telegram shows a document — any file that isn't a photo, video or audio — as a row: a
         // round icon, the file name and its size. Obsidian renders those embeds as a PDF viewer,
@@ -1642,7 +1685,7 @@ export class MultiPresetModal extends Modal {
                 mediaEl.toggleClass("is-album", shown.length > 1 && !documents);
                 mediaEl.toggleClass("is-documents", documents);
                 mediaEl.removeClass("is-hidden");
-                if (row.attachOn && !row.ignoreBlocked) previewContentEl.appendChild(mediaEl);
+                if (row.attachOn && !row.ignoreBlocked) appendToEnd(mediaEl);
                 else previewContentEl.insertBefore(mediaEl, previewContentEl.firstChild);
             } else {
                 for (const { el, anchor } of mediaNodes) anchor.after(el);
@@ -1685,6 +1728,7 @@ export class MultiPresetModal extends Modal {
             // text — so with no explicit selection the card falls back to that link.
             const autoUrl = (): string | null => {
                 for (const a of Array.from(previewContentEl.querySelectorAll("a"))) {
+                    if (buttonsEl.contains(a)) continue;
                     const href = a.getAttribute("href") ?? "";
                     if (/^https?:\/\//i.test(href)) return href;
                 }
@@ -1720,8 +1764,8 @@ export class MultiPresetModal extends Modal {
             if (wantTop && previewContentEl.firstChild !== linkCardEl) {
                 previewContentEl.insertBefore(linkCardEl, previewContentEl.firstChild);
                 moved = true;
-            } else if (!wantTop && previewContentEl.lastChild !== linkCardEl) {
-                previewContentEl.appendChild(linkCardEl);
+            } else if (!wantTop && !isAtEnd(linkCardEl)) {
+                appendToEnd(linkCardEl);
                 moved = true;
             }
             // The card always arrives with a fold, wherever it arrives from. A move is a remove
@@ -1763,7 +1807,8 @@ export class MultiPresetModal extends Modal {
         // behaviour of opening the link. Capture phase so the anchor's own handlers never fire.
         previewContentEl.addEventListener("click", (e: MouseEvent) => {
             const anchor = (e.target as HTMLElement).closest("a");
-            if (!anchor || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
+            // A button's link isn't part of the text, so it's never a link-preview source.
+            if (!anchor || buttonsEl.contains(anchor) || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
             if (e.ctrlKey || e.metaKey) return;
             // Nothing to choose on a message that carries attachments: it renders those and no
             // web preview, and unlike a method restriction that can't change while the modal is
@@ -1784,8 +1829,12 @@ export class MultiPresetModal extends Modal {
 
         void params.render(previewContentEl)
             .then(source => window.requestAnimationFrame(() => {
+                // First, so a button's link is neither the message's link preview nor offered
+                // as one.
+                collectButtons();
                 // Explain the click behaviour on every selectable web link.
                 previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
+                    if (buttonsEl.contains(a)) return;
                     if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.ADVANCED_CARD_LINK_TOOLTIP);
                 });
                 // Now that the embeds and links exist, whether this message carries media is
