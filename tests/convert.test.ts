@@ -320,3 +320,11 @@ test('Classic HTML still collapses the blank lines its own conversion introduces
   const markdown = 'first\n\n\n\nsecond';
   expect(mdToTelegramHtml(markdown)).toBe('first\n\nsecond');
 });
+
+test('Rich: uploaded-attachment refs are kept, unresolved local embeds dropped', () => {
+  const markdown = 'Before\n\n![](tg://photo?id=m0)\n\n![](tg://document?id=m1)\n\n![[note.md]]\n\nAfter';
+  const out = obsidianToRichMarkdown(markdown);
+  assert.ok(out.includes('![](tg://photo?id=m0)'), out);
+  assert.ok(out.includes('![](tg://document?id=m1)'), out);
+  assert.ok(!out.includes('note.md'), out);
+});

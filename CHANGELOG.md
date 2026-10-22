@@ -1,5 +1,16 @@
 # Changelog
 
+## 6.4.0
+
+### New features
+
+* **Any files in rich-text posts.** The "Account + rich text" method now embeds PDFs and files of any other format in the message, including .md attachments.
+
+### Improvements and bug fixes
+
+* The mtcute library was updated to 0.32.6 — connecting to Telegram is now more reliable.
+
+
 ## 6.3.0
 
 ### New features

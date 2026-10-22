@@ -120,5 +120,8 @@ haven't added type errors. The repository is checked out inside a development va
   which builds, attests and publishes a GitHub release. Its notes are the `## x.y.z` section of
   `CHANGELOG.md`. `manifest.json` and `package.json` versions must match or the workflow fails;
   also update `package-lock.json` and add the version to `versions.json`.
-- Don't commit, push or release unless the maintainer asks.
+- Commit each finished piece of work without being asked (after the maintainer confirms it works,
+  if it needs testing in Obsidian), under the configured git identity, with one short English
+  subject line in the existing style ("New feature: Full proxy support", "mtcute upgraded",
+  "Docs"). Don't push or release unless the maintainer asks.
 - Don't add `Co-Authored-By` or other AI attribution trailers to commits.

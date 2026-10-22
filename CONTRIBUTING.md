@@ -75,22 +75,9 @@ row of buttons.
 
 A narrower alternative that does **not** require any of the above: the Bot API's
 `reply_markup` / `inline_keyboard` on the `bot` and `bot-rich` methods. That leaves rendering
-untouched, but gives nothing to the `account-rich` method, and it has not been checked whether
-`sendRichMessage` accepts `reply_markup`.
-
-### Local documents (PDFs) in `account-rich` posts
-
-**Status:** deferred (checked against mtcute 0.32.6, layer 232).
-
-A rich post refuses a local PDF embed with `RICH_LOCAL_DOC`. mtcute 0.32.4 added
-`Rich.document()` and accepts `InputMedia.document()` as a rich attachment, which looks like
-the fix. It isn't: `Rich.document()` builds a `pageBlockDocument`, which exists only in the
-blocks form (see "Inline buttons under a post" above). The markdown form this plugin sends
-documents only `tg://photo`, `tg://video` and `tg://audio` references — there is no
-`tg://document?id=…` to point at an uploaded file.
-
-**Revisit when** Telegram's Rich Markdown gains a document reference, or the plugin moves to
-the blocks form for another reason.
+untouched, but gives nothing to the `account-rich` method. `sendRichMessage` does accept
+`reply_markup` (per the Bot API docs, checked against Bot API 10.3), so this works for
+`bot-rich` too; what's missing is a way to write buttons in a note.
 
 ### Built-in VPN protocols (VLESS, Shadowsocks, Trojan, …)
 

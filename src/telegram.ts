@@ -27,7 +27,7 @@ export { parseLinkComponents } from "./split";
 
 // InputMedia factories for uploaded rich-message attachments; the union is what
 // sendRichMessage's `attachments` map accepts (InputRichMessageMedia).
-type RichAttachment = ReturnType<typeof InputMedia.photo> | ReturnType<typeof InputMedia.video> | ReturnType<typeof InputMedia.audio>;
+type RichAttachment = ReturnType<typeof InputMedia.photo> | ReturnType<typeof InputMedia.video> | ReturnType<typeof InputMedia.audio> | ReturnType<typeof InputMedia.document>;
 
 // ─── Internal result & media types ────────────────────────────────────────────
 
@@ -67,14 +67,14 @@ const RICH_AUDIO_EXTS = new Set(["mp3", "ogg", "m4a", "wav", "flac"]);
 const ALBUM_LIMIT = 10;
 
 // The rich-message reference kind (tg://<kind>?id=…) for a local file extension. GIFs
-// ride as videos (animations). Returns null for anything a rich message can't embed
-// inline (e.g. PDFs — there's no document reference).
-type RichKind = "photo" | "video" | "audio";
-function richKindForExt(ext: string): RichKind | null {
+// ride as videos (animations); any other file (PDF, .docx, .zip, an embedded note…) is a
+// document (tg://document, Bot API 10.3).
+type RichKind = "photo" | "video" | "audio" | "document";
+function richKindForExt(ext: string): RichKind {
     if (RICH_PHOTO_EXTS.has(ext)) return "photo";
     if (VIDEO_EXTS.has(ext) || ext === "gif") return "video";
     if (RICH_AUDIO_EXTS.has(ext)) return "audio";
-    return null;
+    return "document";
 }
 
 // ─── Frontmatter extraction ───────────────────────────────────────────────────
@@ -163,33 +163,27 @@ function mdEmbedToMedia(app: App, file: TFile): MediaFile {
 
 interface RichMediaItem { id: string; kind: RichKind; file: MediaFile; }
 
-// For a rich (account) post, rewrites each LOCAL media embed (photo/video/GIF/audio) into a
-// `tg://<kind>?id=…` reference and returns the files to upload as rich-message attachments —
-// the User-API rich message can carry uploaded media, unlike the Bot API. Web (HTTP/S)
-// embeds are left as their URL (Telegram renders them inline). `.md` embeds are left alone
-// (they're handled by the comment path and stripped from the body afterwards). A local
-// document (e.g. PDF) can't be embedded inline, so it sets `hasUnsupportedLocal` and the
-// caller refuses. Only the returned `body` should be fed to obsidianToRichMarkdown.
-function collectRichMedia(app: App, body: string, sourceFile: TFile): { body: string; media: RichMediaItem[]; hasUnsupportedLocal: boolean } {
+// For a rich (account) post, rewrites each LOCAL file embed into a `tg://<kind>?id=…`
+// reference and returns the files to upload as rich-message attachments — photos, videos,
+// GIFs and audio render inline, anything else as a document. Web (HTTP/S) embeds are left as
+// their URL (Telegram renders them inline). `.md` embeds become documents only with
+// `mdAsDocument`; otherwise they're left alone (the comment path handles them, and they're
+// stripped from the body afterwards). Only the returned `body` should be fed to
+// obsidianToRichMarkdown.
+function collectRichMedia(app: App, body: string, sourceFile: TFile, mdAsDocument: boolean): { body: string; media: RichMediaItem[] } {
     const media: RichMediaItem[] = [];
-    let hasUnsupportedLocal = false;
     let counter = 0;
 
-    // Given a raw embed target, returns the `![](tg://…)` replacement for a local media
-    // file, or null to leave the embed text untouched (web media, .md, unresolved, …).
+    // Given a raw embed target, returns the `![](tg://…)` replacement for a local file, or
+    // null to leave the embed text untouched (web media, .md as comment, unresolved, …).
     const refFor = (rawPath: string): string | null => {
         let cleanPath = rawPath.split(/\s+["']/)[0].split(/[?#]/)[0].trim();
         if (/^https?:\/\//i.test(cleanPath)) return null;               // web media: keep the URL
         try { cleanPath = decodeURIComponent(cleanPath); } catch { /* keep raw path */ }
         const resolved = app.metadataCache.getFirstLinkpathDest(cleanPath, sourceFile.path);
         if (!(resolved instanceof TFile)) return null;
+        if (resolved.extension === "md" && !mdAsDocument) return null;
         const kind = richKindForExt(resolved.extension);
-        if (!kind) {
-            // A document (PDF) is media but has no rich reference; .md is an embedded note
-            // left to the comment path. Only the former should block the post.
-            if (resolved.extension !== "md") hasUnsupportedLocal = true;
-            return null;
-        }
         const id = `m${counter++}`;
         media.push({
             id, kind,
@@ -214,7 +208,7 @@ function collectRichMedia(app: App, body: string, sourceFile: TFile): { body: st
         .replace(mdLinkRegex, (m, p1: string) => refFor(p1) ?? m)
         .replace(reverseMdLinkRegex, (m, p1: string) => refFor(p1) ?? m);
 
-    return { body: rewritten, media, hasUnsupportedLocal };
+    return { body: rewritten, media };
 }
 
 // Builds an uploaded-media InputMedia for a rich attachment of the given kind.
@@ -222,14 +216,14 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
     const file = new File([await item.file.getBlob()], item.file.name);
     if (item.kind === "photo") return InputMedia.photo(file);
     if (item.kind === "audio") return InputMedia.audio(file, { fileName: item.file.name });
+    if (item.kind === "document") return InputMedia.document(file, { fileName: item.file.name });
     if (item.file.extension === "gif") return InputMedia.animation(file, { fileName: item.file.name });
     return InputMedia.video(file, { fileName: item.file.name });
 }
 
 // Builds a rich message's markdown + uploaded-media attachments from a note body: local
-// media embeds become tg://…?id= references backed by the `attachments` map, web embeds
-// stay as URLs. `hasUnsupportedLocal` flags a local document (PDF) the caller may refuse.
-// Both sendRichMessage and editMessage take this `attachments` map directly — each entry's
+// file embeds become tg://…?id= references backed by the `attachments` map, web embeds
+// stay as URLs, and `mdAsDocument` decides whether embedded notes go in as documents. Both sendRichMessage and editMessage take this `attachments` map directly — each entry's
 // key is the id its `tg://<kind>?id=…` reference in the markdown points at — so the same
 // content build serves sending and editing, for the main post and for md-embed comments
 // (each resolved against its own file).
@@ -238,15 +232,15 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
 // tables, task lists, <tg-collage> and the rest for free — and it's also why a rich post
 // can't carry inline buttons, those living only in the mutually exclusive blocks form. See
 // "Inline buttons under a post" in CONTRIBUTING.md before reaching for Rich.buttonRow().
-async function buildRichMessageContent(app: App, body: string, sourceFile: TFile): Promise<{ markdown: string; attachments?: Record<string, RichAttachment>; hasUnsupportedLocal: boolean }> {
-    const { body: richBody, media, hasUnsupportedLocal } = collectRichMedia(app, body, sourceFile);
+async function buildRichMessageContent(app: App, body: string, sourceFile: TFile, mdAsDocument = false): Promise<{ markdown: string; attachments?: Record<string, RichAttachment> }> {
+    const { body: richBody, media } = collectRichMedia(app, body, sourceFile, mdAsDocument);
     const markdown = obsidianToRichMarkdown(richBody);
     let attachments: Record<string, RichAttachment> | undefined;
     if (media.length) {
         const entries = await Promise.all(media.map(async m => [m.id, await toRichAttachment(m)] as const));
         attachments = Object.fromEntries(entries);
     }
-    return { markdown, attachments, hasUnsupportedLocal };
+    return { markdown, attachments };
 }
 
 // ─── Post link helpers ────────────────────────────────────────────────────────
@@ -557,9 +551,8 @@ async function prepareComments(
         const text = mdToTelegramHtml(mdBody);
 
         // Comments follow the post method: rich for "account-rich", classic otherwise. Rich
-        // comments carry their own local media inside the rich content (resolved against the
-        // embedded note); an unembeddable local document there is dropped, comments being
-        // best-effort.
+        // comments carry their own local files inside the rich content (resolved against the
+        // embedded note). Notes embedded in a comment are left out, as on the classic path.
         let richMarkdown = "";
         let richAttachments: Record<string, RichAttachment> | undefined;
         if (postAsRich) {
@@ -790,15 +783,12 @@ async function sendPartViaAccount(
     };
 
     // ── Rich post: send as a Rich Message ─────────────────────────────────────
-    // Unlike the Bot API, a User-API rich message can carry uploaded (local) media: local
-    // media embeds are rewritten to tg://…?id= references and uploaded as attachments, while
-    // web embeds ride along as their URL. Only local documents (PDFs) can't be embedded.
+    // Unlike the Bot API, a User-API rich message can carry uploaded (local) files: local
+    // embeds are rewritten to tg://…?id= references and uploaded as attachments, while web
+    // embeds ride along as their URL. Embedded notes go in as documents unless they're
+    // being posted as comments.
     if (postAsRich) {
-        const { markdown: richMarkdown, attachments: richAttachments, hasUnsupportedLocal } = await buildRichMessageContent(app, body, sourceFile);
-        // A rich message can't embed a document: a local PDF (hasUnsupportedLocal), or — when
-        // md embeds are attached as files rather than posted as comments — a local .md embed.
-        // Rich.document() doesn't help here — see "Local documents" in CONTRIBUTING.md.
-        if (hasUnsupportedLocal || (!treatMdEmbedsAsComments && mdEmbeds.length > 0)) throw new Error("RICH_LOCAL_DOC");
+        const { markdown: richMarkdown, attachments: richAttachments } = await buildRichMessageContent(app, body, sourceFile, !treatMdEmbedsAsComments);
         if (richMarkdown.length > 0) {
             const msg = await client.sendRichMessage(peer, {
                 content: { type: "markdown", content: richMarkdown, attachments: richAttachments },
@@ -968,11 +958,8 @@ export async function sendNoteToTelegram(
                         // Built exactly as on the send path: web-media embeds ride inside the
                         // markdown (Telegram renders them inline), local media becomes tg://…?id=
                         // refs backed by the attachments map, which editMessage uploads and binds
-                        // by key — so media can be added to a post that was sent without any. A
-                        // local document is still refused up front, as on send — there's no rich
-                        // reference kind for one.
-                        const { markdown, attachments, hasUnsupportedLocal } = await buildRichMessageContent(app, editBody, file);
-                        if (hasUnsupportedLocal) throw new Error("RICH_LOCAL_DOC");
+                        // by key — so media can be added to a post that was sent without any.
+                        const { markdown, attachments } = await buildRichMessageContent(app, editBody, file, !treatMdEmbedsAsComments);
                         await client.editMessage({
                             chatId: peer,
                             message: messageId,
@@ -1106,9 +1093,7 @@ export async function editNoteCommentsOnly(
             const { body: mdBody } = extractFrontmatter(mdContent);
             const formattedContent = mdToTelegramHtml(mdBody);
             // As on the post path, local embeds become tg://…?id= refs backed by the
-            // attachments map; each comment resolves its embeds against its own note. An
-            // unembeddable local document is dropped rather than refused, matching the way
-            // comments are sent — they're best-effort.
+            // attachments map; each comment resolves its embeds against its own note.
             const rich = postAsRich ? await buildRichMessageContent(app, mdBody, mdEmbeds[i + embedOffset]) : null;
             const richMarkdown = rich?.markdown ?? "";
             if (!formattedContent.length && !richMarkdown.length) continue;

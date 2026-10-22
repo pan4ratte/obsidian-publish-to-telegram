@@ -15,12 +15,12 @@ export function isRichEmbeddableUrl(rawTarget: string): boolean {
     return /^https?:\/\//i.test(url) && RICH_MEDIA_EXT.test(url);
 }
 
-// True for a `tg://photo|video|audio?id=…` reference to an uploaded rich-message
+// True for a `tg://photo|video|audio|document?id=…` reference to an uploaded rich-message
 // attachment (see telegram.ts collectRichMedia). Such embeds are kept in the Rich Markdown
 // so Telegram renders the uploaded local file inline, just like a web media URL.
 export function isRichAttachmentRef(rawTarget: string): boolean {
     const url = rawTarget.split(/\s+["']/)[0].trim();
-    return /^tg:\/\/(?:photo|video|audio)\?id=/i.test(url);
+    return /^tg:\/\/(?:photo|video|audio|document)\?id=/i.test(url);
 }
 
 // Removes %% … %% and <!-- … --> comment regions (and any orphaned <!-- opener). Callers

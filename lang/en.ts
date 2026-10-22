@@ -165,7 +165,6 @@ export default {
     NOTICE_ERR_TOO_LONG_TEXT: "Error: This publication method supports texts of no more than 4096 symbols.",
     NOTICE_ERR_TOO_LONG_CAPTION: "Error: This publishing method supports texts with media attachments of no more than 1024 symbols.",
     NOTICE_ERR_RICH_LOCAL_MEDIA: "Error: This publication method supports only web attachments. Local attachments are not supported.",
-    NOTICE_ERR_RICH_LOCAL_DOC: "Error: Local documents can't be attached to rich-text messages. Send them with a classic method, or remove them.",
     NOTICE_ERR_MIXED_MEDIA: "Error: The attached combination of attachments can't be sent with the selected method. Use a rich-text method, or send them separately.",
     NOTICE_ERR_SCHEDULED_COMMENTS: "Error: A scheduled post can't take its comments along into a discussion group — a comment there has nothing to reply to until the post is actually published. Personal chats and groups have no such limitation. Nothing was sent to that chat — remove the schedule, or leave the comments out of this publication.",
     NOTICE_ERR_SPLIT_LINK_NOT_FOUND: "Error: This link isn't inside any split command. Add it to the desired `%% \\split %%` command so the plugin knows which part to edit.",
