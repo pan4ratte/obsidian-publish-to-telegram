@@ -1,4 +1,4 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Menu, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, displayTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest, Platform } from "obsidian";
+import { App, Modal, Component, ButtonComponent, ToggleComponent, Menu, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, displayTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest, Platform, parseLinktext, moment } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
@@ -9,9 +9,9 @@ import { createClient, buildClient, getUserDialogs, DialogData, parseLinkCompone
 import { parseProxyLink, isValidMtProxySecret, proxyCarriesBots, defaultProxyPort, type ParsedProxy } from "./proxy-link";
 import { proxiesSupported } from "./proxy";
 import { parseSplitPosts, linksMatch, parseChatTargetInput, type SplitPost } from "./split";
-import { stripComments } from "./markdown";
+import { stripComments, richKindForExt } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
-import { errMessage, retry, withTimeout } from "./util";
+import { errMessage, retry, withTimeout, formatFileSize } from "./util";
 
 // How long to wait on each network step of revoking a superseded session (connect,
 // then log out) before giving up and completing the login regardless.
@@ -174,6 +174,27 @@ function swapIcon(el: HTMLElement, icon: string): void {
 // expected (e.g. addEventListener); the returned promise is explicitly discarded.
 function voidListener<E extends Event = Event>(handler: (evt: E) => Promise<void>): (evt: E) => void {
     return (evt: E) => { void handler(evt); };
+}
+
+// Files classic methods send as documents; any other file goes out with a rich method only.
+const CLASSIC_DOCUMENT_EXTS = new Set(["pdf", "md"]);
+// Files that read as text get the lined page icon; anything else the plain one.
+const TEXT_DOCUMENT_EXTS = new Set(["pdf", "md", "txt", "rtf", "doc", "docx", "odt", "pages"]);
+
+// A document as Telegram draws it in a message: a round accent badge with a file icon, then the
+// file name over its size. A web file has no size to show, so its extension stands in.
+function createFileBlock(name: string, extension: string, size?: number): HTMLElement {
+    const ext = extension.toLowerCase();
+    const block = createDiv({ cls: "telegram-file" });
+    if (!CLASSIC_DOCUMENT_EXTS.has(ext)) block.addClass("is-rich-only");
+    setIcon(block.createDiv("telegram-file-icon"), TEXT_DOCUMENT_EXTS.has(ext) ? "file-text" : "file");
+    const info = block.createDiv("telegram-file-info");
+    info.createDiv({ cls: "telegram-file-name", text: name });
+    info.createDiv({
+        cls: "telegram-file-meta",
+        text: size === undefined ? ext.toUpperCase() : formatFileSize(size, t.FILE_SIZE_UNITS, moment.locale()),
+    });
+    return block;
 }
 
 // The nearest ancestor that actually scrolls `el` — the settings pane, or the modal content
@@ -1169,6 +1190,7 @@ export class MultiPresetModal extends Modal {
                 links: this.splitPosts.length === 1 ? this.storedPostLinks : post.links,
                 previewCls: "telegram-split-preview",
                 contentCls: "telegram-split-preview-content",
+                sourcePath: this.file.path,
                 render: async contentEl => {
                     await MarkdownRenderer.render(this.app, cleaned, contentEl, this.file.path, this.splitRenderComponent);
                     return cleaned;
@@ -1212,6 +1234,7 @@ export class MultiPresetModal extends Modal {
                     embedIndex,
                     previewCls: "telegram-split-comment-preview",
                     contentCls: "telegram-split-comment-content",
+                    sourcePath: commentFile.path,
                     render: async contentEl => {
                         const raw = await this.app.vault.cachedRead(commentFile);
                         const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
@@ -1243,6 +1266,8 @@ export class MultiPresetModal extends Modal {
         previewCls: string;
         contentCls: string;
         embedIndex?: number;
+        // The note the message's markdown comes from, which its embeds resolve against.
+        sourcePath: string;
         // Renders the message's markdown into the element and returns that markdown: the
         // classic preview needs the source to size its thematic breaks (collectPlainSwaps).
         render: (contentEl: HTMLElement) => Promise<string>;
@@ -1513,12 +1538,35 @@ export class MultiPresetModal extends Modal {
             expandBtn.toggle(clipped);
             previewEl.toggleClass("no-expand", !clipped);
         };
+        // Telegram shows a document — any file that isn't a photo, video or audio — as a row: a
+        // round icon, the file name and its size. Obsidian renders those embeds as a PDF viewer,
+        // a transcluded note or a bare file box, so each one is swapped for that row before the
+        // embeds are collected. A web link to a PDF renders as a broken image and is swapped
+        // too. Run once, after the markdown is on the page.
+        const renderFileBlocks = () => {
+            previewContentEl.querySelectorAll<HTMLElement>(".internal-embed[src]").forEach(embed => {
+                if (embed.parentElement?.closest(".internal-embed")) return;
+                const linkpath = parseLinktext(embed.getAttribute("src") ?? "").path;
+                const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, params.sourcePath);
+                if (!(file instanceof TFile) || richKindForExt(file.extension) !== "document") return;
+                embed.replaceWith(createFileBlock(file.name, file.extension, file.stat.size));
+            });
+            previewContentEl.querySelectorAll<HTMLImageElement>("img[src^='http']").forEach(img => {
+                if (linkCardEl.contains(img)) return;
+                const path = img.getAttribute("src")?.split(/[?#]/)[0] ?? "";
+                if (!path.toLowerCase().endsWith(".pdf")) return;
+                let name = path.split("/").pop() || path;
+                try { name = decodeURIComponent(name); } catch { /* keep the raw name */ }
+                img.replaceWith(createFileBlock(name, "pdf"));
+            });
+        };
+
         // Finds the embeds Obsidian rendered and anchors each one in place. Run once, after the
         // markdown is on the page. An <img>/<video> inside a wikilink embed belongs to that
         // embed rather than being an attachment of its own, and the link-preview card's own
         // image isn't part of the note at all.
         const collectMediaNodes = () => {
-            previewContentEl.querySelectorAll<HTMLElement>(".internal-embed, img, video, audio").forEach(el => {
+            previewContentEl.querySelectorAll<HTMLElement>(".internal-embed, .telegram-file, img, video, audio").forEach(el => {
                 if (linkCardEl.contains(el) || mediaEl.contains(el)) return;
                 if (el.parentElement?.closest(".internal-embed")) return;
                 const anchor = document.createComment("tg-media");
@@ -1581,9 +1629,18 @@ export class MultiPresetModal extends Modal {
         row.updateMediaPlacement = () => {
             if (mediaNodes.length === 0) return;
             const asAlbum = row.classicMethod;
+            // Classic methods send only PDFs and notes as documents; any other file goes out
+            // with a rich method alone, so the classic layout leaves it out.
+            for (const { el } of mediaNodes) {
+                if (el.hasClass("telegram-file")) el.toggleClass("is-hidden", asAlbum && el.hasClass("is-rich-only"));
+            }
             if (asAlbum) {
                 for (const { el } of mediaNodes) mediaEl.appendChild(el);
-                mediaEl.toggleClass("is-album", mediaNodes.length > 1);
+                // Telegram tiles a photo/video album but lists documents one under another.
+                const shown = mediaNodes.filter(({ el }) => !el.hasClass("is-hidden"));
+                const documents = shown.length > 0 && shown.every(({ el }) => el.hasClass("telegram-file"));
+                mediaEl.toggleClass("is-album", shown.length > 1 && !documents);
+                mediaEl.toggleClass("is-documents", documents);
                 mediaEl.removeClass("is-hidden");
                 if (row.attachOn && !row.ignoreBlocked) previewContentEl.appendChild(mediaEl);
                 else previewContentEl.insertBefore(mediaEl, previewContentEl.firstChild);
@@ -1596,7 +1653,7 @@ export class MultiPresetModal extends Modal {
             // the album holds its contents.
             previewContentEl.querySelectorAll("p").forEach(p => p.toggleClass(
                 "is-emptied",
-                asAlbum && !p.textContent?.trim() && !p.querySelector("img, video, audio, .internal-embed"),
+                asAlbum && !p.textContent?.trim() && !p.querySelector("img, video, audio, .internal-embed, .telegram-file"),
             ));
             window.requestAnimationFrame(refreshExpand);
         };
@@ -1734,6 +1791,7 @@ export class MultiPresetModal extends Modal {
                 // Now that the embeds and links exist, whether this message carries media is
                 // settled — which decides both how the media is laid out and whether the
                 // link-preview options apply at all, so the whole state is re-applied.
+                renderFileBlocks();
                 collectMediaNodes();
                 // Same for the blocks a classic method flattens to text — they are read off
                 // the rendered markdown and the source it came from.

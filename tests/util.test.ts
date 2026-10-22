@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { withTimeout, retry } from '../src/util';
+import { withTimeout, retry, formatFileSize } from '../src/util';
 
 // util.ts uses the `window.`-prefixed timers Obsidian's lint rules require. Node has no
 // `window`, so stand one up backed by the real timers before the helpers run.
@@ -69,4 +69,14 @@ test('retry waits between attempts', async () => {
   await assert.rejects(retry(async () => { throw new Error('x'); }, 3, 50));
   // Two gaps between three attempts.
   assert.ok(Date.now() - started >= 100, 'expected ~100ms of backoff across retries');
+});
+
+test('formatFileSize uses binary units with at most one decimal', () => {
+  const units = ['B', 'KB', 'MB', 'GB'] as const;
+  assert.equal(formatFileSize(621, units, 'en'), '621 B');
+  assert.equal(formatFileSize(1024, units, 'en'), '1 KB');
+  assert.equal(formatFileSize(12_595, units, 'en'), '12.3 KB');
+  assert.equal(formatFileSize(1_258_291, units, 'en'), '1.2 MB');
+  assert.equal(formatFileSize(1_258_291, ['Б', 'КБ', 'МБ', 'ГБ'], 'ru'), '1,2 МБ');
+  assert.equal(formatFileSize(5 * 1024 ** 4, units, 'en'), '5,120 GB');
 });

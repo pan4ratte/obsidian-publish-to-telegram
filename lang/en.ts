@@ -112,6 +112,7 @@ export default {
     ADVANCED_CARD_PREVIEW_TOP_TOOLTIP: "Link preview above the text",
     ADVANCED_CARD_PREVIEW_OFF_TOOLTIP: "Link preview disabled",
     ADVANCED_CARD_LINK_TOOLTIP: "Click — use as the link preview • Ctrl+Click — open",
+    FILE_SIZE_UNITS: ["B", "KB", "MB", "GB"] as [string, string, string, string],
     ADVANCED_CARD_EXPAND_TOOLTIP: "Expand preview",
     ADVANCED_CARD_COLLAPSE_TOOLTIP: "Collapse preview",
     ADVANCED_CARD_MODE_IGNORE: "Ignore",

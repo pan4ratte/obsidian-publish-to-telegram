@@ -112,6 +112,7 @@ export default {
     ADVANCED_CARD_PREVIEW_TOP_TOOLTIP: "Предпросмотр ссылки над текстом",
     ADVANCED_CARD_PREVIEW_OFF_TOOLTIP: "Предпросмотр ссылки отключён",
     ADVANCED_CARD_LINK_TOOLTIP: "Клик — выбрать для предпросмотра ссылки • Ctrl+клик — открыть",
+    FILE_SIZE_UNITS: ["Б", "КБ", "МБ", "ГБ"] as [string, string, string, string],
     ADVANCED_CARD_EXPAND_TOOLTIP: "Развернуть предпросмотр",
     ADVANCED_CARD_COLLAPSE_TOOLTIP: "Свернуть предпросмотр",
     ADVANCED_CARD_MODE_IGNORE: "Пропустить",

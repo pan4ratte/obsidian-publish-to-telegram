@@ -1,4 +1,4 @@
-// Shared error-handling helpers.
+// Shared helpers: error handling, timing and formatting.
 
 // These use the `window.`-prefixed timers Obsidian's lint rules require for popout
 // window compatibility; tests/util.test.ts shims `window` to exercise them under Node.
@@ -41,4 +41,18 @@ export function errCode(err: unknown): string {
         if (typeof e.message === "string") return e.message;
     }
     return "";
+}
+
+// A file size the way Telegram writes it under a document: whole bytes, then binary units
+// with at most one decimal ("621 B", "12.3 KB", "1.2 MB"). `units` are the localised labels
+// for B, KB, MB and GB; `locale` picks the decimal separator.
+export function formatFileSize(bytes: number, units: readonly [string, string, string, string], locale: string): string {
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit++;
+    }
+    const number = new Intl.NumberFormat(locale, { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(value);
+    return `${number} ${units[unit]}`;
 }

@@ -2059,14 +2059,6 @@ body .telegram-split-mode-option .svg-icon {
     max-width: 100%;
 }
 
-/* Obsidian's PDF viewer keeps a 350px minimum width, wider than a preview card on a narrow
-   modal, so a PDF embed made the whole modal scroll sideways. Inside the preview it shrinks to
-   the card instead; its toolbar and pages scroll within the viewer. */
-.telegram-split-preview-content :is(.pdf-container, .pdf-content-container),
-.telegram-split-comment-content :is(.pdf-container, .pdf-content-container) {
-    min-width: 0;
-}
-
 /* Media outside an embed (`.telegram-split-media img` / `video`) gets the same sizing under
    "Least-specific rules" at the top of the file. Keep the two rules in sync. */
 
@@ -2090,6 +2082,77 @@ body .telegram-split-mode-option .svg-icon {
     height: auto;
     max-height: 320px;
     object-fit: cover;
+}
+
+/* ── Documents ──
+   A file Telegram sends as a document (createFileBlock in gui.ts), drawn the way a message
+   draws it: a round accent badge with a file icon, then the name over the size. */
+.telegram-file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    margin: 6px 0;
+}
+
+/* Classic methods list documents one under another rather than tiling them, and a row needs
+   no rounded clip. The flex layout and spacing come back over `.telegram-split-media > *`. */
+.telegram-split-media.is-documents {
+    gap: 8px;
+    border-radius: 0;
+    overflow: visible;
+}
+
+.telegram-split-media > .telegram-file {
+    display: flex;
+    margin: 0;
+}
+
+/* A file a classic method doesn't send, while one is chosen. */
+.telegram-file.is-hidden,
+.telegram-split-media > .telegram-file.is-hidden {
+    display: none;
+}
+
+.telegram-file-icon {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+body .telegram-file-icon .svg-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    stroke: currentcolor;
+}
+
+.telegram-file-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.telegram-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-normal);
+    font-weight: var(--font-semibold);
+    line-height: var(--line-height-tight);
+}
+
+.telegram-file-meta {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    line-height: var(--line-height-tight);
 }
 
 .telegram-split-linkpreview-text {
