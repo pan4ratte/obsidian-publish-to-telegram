@@ -10,7 +10,8 @@
     "lint": "npm run lint:ts && npm run lint:css",
     "lint:ts": "eslint .",
     "lint:css": "stylelint \"**/*.css\" --ignore-disables",
-    "lint:fix": "eslint --fix . && stylelint \"**/*.css\" --fix"
+    "lint:fix": "eslint --fix . && stylelint \"**/*.css\" --fix",
+    "test-notes": "node scripts/test-notes.mjs"
   },
   "keywords": [],
   "author": "pan4ratte",

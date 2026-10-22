@@ -26,6 +26,7 @@ npm run lint      # eslint (TypeScript) + stylelint (styles.css)
 npm run lint:fix  # autofix both
 npm test          # esbuild-bundles tests/*.test.ts, runs them with node --test
 npx tsc --noEmit  # type-check — esbuild does not
+npm run test-notes -- push|pull  # sync the manual test notes with the dev vault
 ```
 
 Run `npm run lint` and `npm test` after changes, and `npx tsc --noEmit` to make sure you
@@ -57,6 +58,8 @@ haven't added type errors. The repository is checked out inside a development va
   the user guide and changelog `.md` files, which are bundled as text and shown in-app.
 - `shims/` — browser shims for Node built-ins mtcute expects (see `esbuild.config.mjs`).
 - `tests/` — Node tests for the Obsidian-free modules only.
+- `test-notes/` — manual test notes for Obsidian, one per feature (Russian); synced with the dev
+  vault by `scripts/test-notes.mjs`. See "Manual test notes" in `CONTRIBUTING.md`.
 
 ## Constraints and gotchas
 
@@ -115,6 +118,8 @@ haven't added type errors. The repository is checked out inside a development va
 - When you investigate a feature and decide not to build it, add an entry under
   **Deferred ideas** in `CONTRIBUTING.md`: the versions it was checked against, the blocker,
   and when to revisit. Leave a pointer comment in the code where someone would reach for it.
+- For every user-visible feature, add or extend a note in `test-notes/` (error cases go in
+  `13 Ошибки`), in the same commit as the feature.
 
 ## Releases and git
 

@@ -21,6 +21,29 @@ modules that don't import `obsidian` at runtime (`markdown.ts`, `split.ts`, `uti
 `emoji-search.ts`, `emoji-cache.ts`, `proxy-link.ts`). The `test` script in `package.json` lists every test
 file explicitly — add a new `*.test.ts` file there, or it won't run.
 
+## Manual test notes
+
+`test-notes/` holds the notes used to check the plugin by hand in Obsidian: one note per
+feature, in folders that follow the sections of the user guide, and `13 Ошибки` for posts that
+are expected to fail. Like the rest of the maintainer's material, they are written in Russian.
+Each note's `note` property says what it tests, and a `%% … %%` block at the top lists the
+methods, the steps and the expected result; it is an Obsidian comment, so it is never published.
+
+```
+npm run test-notes -- push [vault-folder] [--force]   # copy the notes into a vault
+npm run test-notes -- pull [vault-folder]             # bring edits back into the repository
+```
+
+The vault folder defaults to `Publish to Telegram` in the vault the plugin is installed in.
+Publishing writes post links into the notes; `pull` strips them and `push` ignores them, so
+they never reach the repository. `push` doesn't overwrite a note that was changed in the vault
+unless you pass `--force`. `pull` only takes files under top-level folders that already exist
+in `test-notes/`, so create a new folder there first. Neither command deletes files.
+
+Every attachment is generated or freely licensed — keep it that way: no copyrighted media and
+no personal posts. Don't put a literal `%%` inside a note's instruction block, because it ends
+the comment early.
+
 ## Translations
 
 The plugin ships in English and Russian. Every UI string goes into both `lang/en.ts` and
