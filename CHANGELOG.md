@@ -10,6 +10,7 @@
 ### Improvements and bug fixes
 
 * The mtcute library was updated to 0.32.6 — connecting to Telegram is now more reliable.
+* Fixed a bug where the advanced publishing menu scrolled horizontally.
 
 
 ## 6.3.0

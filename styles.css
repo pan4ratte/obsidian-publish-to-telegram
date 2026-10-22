@@ -565,8 +565,18 @@ body .telegram-delete-button:hover {
 }
 
 .telegram-adhoc-selectors .telegram-adhoc-select {
+    position: relative;
     flex: 1 1 180px;
     min-width: 180px;
+}
+
+/* Obsidian 1.14's dropdown sizes itself with a hidden `max-content` twin (`.is-measuring`),
+   positioned absolutely where the dropdown sits. In the right-hand dropdown that twin reached
+   past the modal's edge and the whole modal scrolled sideways. Pinned to the wrapper's
+   inline-end edge it grows towards the start instead, which never adds a scrollbar. */
+.telegram-adhoc-select .dropdown.is-measuring {
+    top: 0;
+    inset-inline: auto 0;
 }
 
 .telegram-adhoc-selectors .telegram-adhoc-select select {
@@ -2047,6 +2057,14 @@ body .telegram-split-mode-option .svg-icon {
     margin: 0;
     width: 100%;
     max-width: 100%;
+}
+
+/* Obsidian's PDF viewer keeps a 350px minimum width, wider than a preview card on a narrow
+   modal, so a PDF embed made the whole modal scroll sideways. Inside the preview it shrinks to
+   the card instead; its toolbar and pages scroll within the viewer. */
+.telegram-split-preview-content :is(.pdf-container, .pdf-content-container),
+.telegram-split-comment-content :is(.pdf-container, .pdf-content-container) {
+    min-width: 0;
 }
 
 /* Media outside an embed (`.telegram-split-media img` / `video`) gets the same sizing under
