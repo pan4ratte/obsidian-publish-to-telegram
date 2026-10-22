@@ -797,6 +797,7 @@ async function sendPartViaAccount(
         const { markdown: richMarkdown, attachments: richAttachments, hasUnsupportedLocal } = await buildRichMessageContent(app, body, sourceFile);
         // A rich message can't embed a document: a local PDF (hasUnsupportedLocal), or — when
         // md embeds are attached as files rather than posted as comments — a local .md embed.
+        // Rich.document() doesn't help here — see "Local documents" in CONTRIBUTING.md.
         if (hasUnsupportedLocal || (!treatMdEmbedsAsComments && mdEmbeds.length > 0)) throw new Error("RICH_LOCAL_DOC");
         if (richMarkdown.length > 0) {
             const msg = await client.sendRichMessage(peer, {
