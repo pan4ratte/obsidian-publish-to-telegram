@@ -6,9 +6,9 @@
 
 This update adds buttons under posts, previously available only in dedicated bots, and lifts almost every limit on attachments: rich-text posts now take files of any format, and bots take local media. In addition, a post can now be published as a reply to a message:
 
-* **Buttons under posts.** The "Bot", "Bot + rich text" and "Account + rich text" methods now publish buttons under the post: links, text copying, coloured and inactive buttons, and buttons with custom emoji. Buttons are inserted from the editor context menu and look the same in the note and in the preview as they do in Telegram.
-* **Any files in rich-text posts.** The "Account + rich text" and "Bot + rich text" methods now embed PDFs and files of any other format in the message, including .md attachments.
-* **Local attachments in bot posts.** The "Bot + rich text" method now supports local photos, videos, GIFs and audio — previously only web attachments were available.
+* **Buttons under posts.** The "Bot", "Bot · Rich" and "Account · Rich" methods now publish buttons under the post: links, text copying, coloured and inactive buttons, and buttons with custom emoji. Buttons are inserted from the editor context menu and look the same in the note and in the preview as they do in Telegram.
+* **Any files in rich-text posts.** The "Account · Rich" and "Bot · Rich" methods now embed PDFs and files of any other format in the message, including .md attachments.
+* **Local attachments in bot posts.** The "Bot · Rich" method now supports local photos, videos, GIFs and audio — previously only web attachments were available.
 * **Files in the preview.** Attached files in the advanced publishing menu are now shown the way Telegram shows them — as blocks with a file icon, name and size.
 * **Reply to a message.** A link to a message can now be pasted into the "Post without a preset" field of the advanced publishing menu — the post will be published as a reply to it.
 
@@ -16,6 +16,7 @@ This update adds buttons under posts, previously available only in dedicated bot
 
 * The mtcute library was updated to 0.32.6 — connecting to Telegram is now more reliable.
 * Fixed a bug where the advanced publishing menu scrolled horizontally.
+* The "Account + rich text" and "Bot + rich text" methods were renamed to "Account · Rich" and "Bot · Rich".
 
 
 ## 6.3.0

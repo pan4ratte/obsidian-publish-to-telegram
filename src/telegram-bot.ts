@@ -152,7 +152,7 @@ function mdEmbedToMedia(app: App, file: TFile): MediaFile {
 interface BotRichFile { id: string; kind: RichKind; file: MediaFile; }
 interface BotRichContent { markdown: string; files: BotRichFile[]; }
 
-// Builds a "bot + rich" message from a note body. Each local file embed becomes a
+// Builds a "Bot · Rich" message from a note body. Each local file embed becomes a
 // `tg://<kind>?id=…` reference backed by an entry in `files`, which goes up with the message
 // (rich_message.media, Bot API 10.2/10.3): photos, videos, GIFs and audio render inline,
 // anything else as a document — the same as the account-rich path. Web media Telegram can
@@ -486,7 +486,7 @@ async function sendRichReplyBot(token: string, chatId: string, replyToMessageId:
     return result.message_id;
 }
 
-// Sends a comment reply as a Rich Message when there's rich content (the "bot + rich"
+// Sends a comment reply as a Rich Message when there's rich content (the "Bot · Rich"
 // method), or as a classic HTML reply otherwise (the plain "bot" method). A failed Rich
 // Message is NOT downgraded to HTML — the error propagates to the caller, which surfaces
 // it; the comment is not sent unformatted.
@@ -521,7 +521,7 @@ async function sendMediaReplyBot(
 }
 
 // A pre-written comment, prepared before its post is sent: the text, the rich form (for the
-// "bot + rich" method) and — for a classic comment — the attachments its own note embeds.
+// "Bot · Rich" method) and — for a classic comment — the attachments its own note embeds.
 interface PreparedBotComment {
     html: string;
     rich: BotRichContent | null;
@@ -697,7 +697,7 @@ async function sendPartViaBotApi(
     const buttons = inlineKeyboard(body);
 
     if (postAsRich) {
-        // ── Rich Message path ("bot + rich") ─────────────────────────────────────
+        // ── Rich Message path ("Bot · Rich") ─────────────────────────────────────
         // One message: the text and every file embedded where the note embeds it. Embedded
         // notes go in as documents unless they're being posted as comments.
         const rich = buildBotRichContent(app, body, sourceFile, !treatMdEmbedsAsComments);
@@ -856,7 +856,7 @@ async function editMessageMediaBot(token: string, chatId: string, messageId: num
 
 // Edits comments that were published via the Bot API, in place — the bot counterpart
 // to editNoteCommentsOnly. Each stored comment is matched to an embedded .md file by
-// order (offset by embedOffset). asRich edits as a Rich Message ("bot + rich" method),
+// order (offset by embedOffset). asRich edits as a Rich Message ("Bot · Rich" method),
 // otherwise as classic HTML; a failed rich edit is reported as an error, not downgraded
 // to HTML. Entries may be null to keep alignment with the embeds when a link couldn't
 // be parsed.
@@ -942,7 +942,7 @@ export async function sendNoteViaBotApi(
             editBody = matched;
         }
         if (messageId) {
-            // The edit follows the preset's *current* method: a "bot + rich" preset
+            // The edit follows the preset's *current* method: a "Bot · Rich" preset
             // re-publishes the edit as a Rich Message, a plain "bot" preset as HTML. The
             // user picks the style at edit time by choosing which method they edit with. A
             // failed rich edit is NOT downgraded to HTML — the error propagates instead.

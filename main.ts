@@ -435,7 +435,7 @@ export default class SendToTelegramPlugin extends Plugin {
                     this.app, file, channel, this.settings,
                     silent, attachUnderText, this.settings.treatMdEmbedsAsComments, updateLink,
                     effectiveMethod === "bot-rich",   // post as Rich Message
-                    effectiveMethod === "bot-rich",   // comments follow the post method (rich for "bot + rich")
+                    effectiveMethod === "bot-rich",   // comments follow the post method (rich for "Bot · Rich")
                     partOptions,
                 );
                 allLinks.push(...links);
@@ -656,7 +656,7 @@ export default class SendToTelegramPlugin extends Plugin {
     async editNoteComments(file: TFile, commentLinks: string[], silent: boolean, method: PostMethod = "account", botToken?: string, embedOffset = 0): Promise<void> {
         // Comment editing follows the method of the preset chosen for the edit: account
         // comments are edited via the account, bot / bot-rich comments via the bot that
-        // owns them (preserving rich formatting for "bot + rich").
+        // owns them (preserving rich formatting for "Bot · Rich").
         const isBot = method === "bot" || method === "bot-rich";
         if (isBot) {
             if (!botToken) { new Notice(t.NOTICE_ERR_CONFIG); return; }

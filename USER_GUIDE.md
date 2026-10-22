@@ -4,7 +4,7 @@ You can open these instructions from the command palette by typing "Publish to T
 
 **Important aspects of this posting method:**
 
-* Posting as an account lets you use Telegram Premium features. Since July 2026 it can also post rich-text messages — choose the “Account + rich text” method — but that specifically *requires Telegram Premium* on the account (Telegram’s restriction). The plain “Account” method needs no Premium.
+* Posting as an account lets you use Telegram Premium features. Since July 2026 it can also post rich-text messages — choose the “Account · Rich” method — but that specifically *requires Telegram Premium* on the account (Telegram’s restriction). The plain “Account” method needs no Premium.
 
 * The plugin supports logging into multiple accounts.
 
@@ -14,7 +14,7 @@ You can open these instructions from the command palette by typing "Publish to T
 
 1. In the plugin settings, click the “Log In” button and sign in to your account. You can authorize using a phone number or a QR code. Your sessions are stored locally in encrypted form in your Obsidian Keychain.
 
-2. Create a new preset, and under “Select primary publishing method,” choose “Account” or “Account + rich text.”
+2. Create a new preset, and under “Select primary publishing method,” choose “Account” or “Account · Rich.”
 
 3. In the option that appears, select one of your authorized accounts.
 
@@ -50,7 +50,7 @@ Now you can post notes to Telegram using your preset’s name via the command pa
 
 4. Paste your bot’s token into the corresponding field in the plugin and click “Save.” Your bot tokens are stored locally in encrypted form in your Obsidian Keychain.
 
-5. Create a new preset, and under “Select primary publishing method,” choose either “Bot” or “Bot + rich text.”
+5. Create a new preset, and under “Select primary publishing method,” choose either “Bot” or “Bot · Rich.”
 
 6. In the menu that appears, select one of your saved bots.
 
@@ -178,7 +178,7 @@ Audio files (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) and files of any other for
 
 ### 3.4 Buttons under a post
 
-The "Bot", "Bot + rich text" and "Account + rich text" methods can publish buttons under a post. Add a `tg-buttons` code block to the note: each line is a row of buttons, each `<button>` element on the line is a button.
+The "Bot", "Bot · Rich" and "Account · Rich" methods can publish buttons under a post. Add a `tg-buttons` code block to the note: each line is a row of buttons, each `<button>` element on the line is a button.
 
 ````markdown
 ```tg-buttons
@@ -208,11 +208,11 @@ The "Bot", "Bot + rich text" and "Account + rich text" methods can publish butto
 
 * The "Account" method doesn't publish buttons — Telegram only lets bots attach them to regular messages. Pre-written comments are published without buttons.
 
-* Telegram can't attach buttons to an album, so a "Bot" post with several photos, videos or documents plus buttons is rejected with an error. The "Bot + rich text" and "Account + rich text" methods have no such limit.
+* Telegram can't attach buttons to an album, so a "Bot" post with several photos, videos or documents plus buttons is rejected with an error. The "Bot · Rich" and "Account · Rich" methods have no such limit.
 
 ## 4. Rich-text formatting
 
-Rich-text formatting is available for posts made via the "Bot + rich text" and "Account + rich text" methods (the account method requires Telegram Premium). Telegram's Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note's Markdown through almost verbatim: everything in the Formatting section above is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
+Rich-text formatting is available for posts made via the "Bot · Rich" and "Account · Rich" methods (the account method requires Telegram Premium). Telegram's Rich Markdown is compatible with GitHub-Flavored Markdown, so the plugin passes your note's Markdown through almost verbatim: everything in the Formatting section above is supported, and the elements below render natively instead of being simplified (for example, headings keep all six levels instead of collapsing to a single bold style).
 
 <table>
   <thead>
@@ -371,7 +371,7 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram's 
 
 **Note:**
 
-* **"Account + rich text"** and **"Bot + rich text"** posts embed *local* files right in the message — where you embed them, alongside any web-link media. Photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are shown inline, and files of any other format (e.g. `.pdf`, `.docx` or `.zip`) as documents.
+* **"Account · Rich"** and **"Bot · Rich"** posts embed *local* files right in the message — where you embed them, alongside any web-link media. Photos, videos, GIFs and audio (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) are shown inline, and files of any other format (e.g. `.pdf`, `.docx` or `.zip`) as documents.
 * Embedded `.md` notes are attached to a rich message as documents when the "Treat .md embeds as post comments" option is off.
 
 ### 4.3 Inserting elements from the context menu
