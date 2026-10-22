@@ -4,7 +4,8 @@
 
 ### New features
 
-* **Any files in rich-text posts.** The "Account + rich text" method now embeds PDFs and files of any other format in the message, including .md attachments.
+* **Any files in rich-text posts.** The "Account + rich text" and "Bot + rich text" methods now embed PDFs and files of any other format in the message, including .md attachments.
+* **Local attachments in bot posts.** The "Bot + rich text" method now supports local photos, videos, GIFs and audio — previously only web attachments were available.
 
 ### Improvements and bug fixes
 

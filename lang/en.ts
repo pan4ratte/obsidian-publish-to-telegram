@@ -47,7 +47,7 @@ export default {
 1. "Account" posts with standard formatting and lets you use Telegram Premium features.
 2. "Account + rich-text" posts with rich-text formatting, but requires Telegram Premium.
 3. "Bot" posts with standard formatting, but can't use Telegram Premium features.
-4. "Bot + rich-text" doesn't require Telegram Premium, but can't attach local files.`,
+4. "Bot + rich-text" posts with rich-text formatting without Telegram Premium, but can't use its features.`,
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
     SETTING_OPEN_BOTFATHER: "Open @BotFather",
     USER_GUIDE_TITLE: "User guide",
@@ -164,7 +164,6 @@ export default {
     NOTICE_ERR_SEND: "Publishing error: ",
     NOTICE_ERR_TOO_LONG_TEXT: "Error: This publication method supports texts of no more than 4096 symbols.",
     NOTICE_ERR_TOO_LONG_CAPTION: "Error: This publishing method supports texts with media attachments of no more than 1024 symbols.",
-    NOTICE_ERR_RICH_LOCAL_MEDIA: "Error: This publication method supports only web attachments. Local attachments are not supported.",
     NOTICE_ERR_MIXED_MEDIA: "Error: The attached combination of attachments can't be sent with the selected method. Use a rich-text method, or send them separately.",
     NOTICE_ERR_SCHEDULED_COMMENTS: "Error: A scheduled post can't take its comments along into a discussion group — a comment there has nothing to reply to until the post is actually published. Personal chats and groups have no such limitation. Nothing was sent to that chat — remove the schedule, or leave the comments out of this publication.",
     NOTICE_ERR_SPLIT_LINK_NOT_FOUND: "Error: This link isn't inside any split command. Add it to the desired `%% \\split %%` command so the plugin knows which part to edit.",

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mdToTelegramHtml, obsidianToRichMarkdown } from '../src/markdown';
+import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt } from '../src/markdown';
 
 // `expect(x).toBe(y)` over node:assert, so the ported test bodies stay unchanged.
 function expect(received: unknown) {
@@ -327,4 +327,24 @@ test('Rich: uploaded-attachment refs are kept, unresolved local embeds dropped',
   assert.ok(out.includes('![](tg://photo?id=m0)'), out);
   assert.ok(out.includes('![](tg://document?id=m1)'), out);
   assert.ok(!out.includes('note.md'), out);
+});
+
+test('Rich: kind for file extension', () => {
+  expect(richKindForExt('png')).toBe('photo');
+  expect(richKindForExt('gif')).toBe('video');
+  expect(richKindForExt('mp4')).toBe('video');
+  expect(richKindForExt('mp3')).toBe('audio');
+  expect(richKindForExt('pdf')).toBe('document');
+  expect(richKindForExt('zip')).toBe('document');
+  expect(richKindForExt('md')).toBe('document');
+});
+
+test('Rich: rewriteEmbeds offers every embed form and skips commented-out ones', () => {
+  const seen: string[] = [];
+  const out = rewriteEmbeds(
+    '![[a.pdf|300]] ![alt](b.png "title") !(c.zip)[x] %% ![[d.pdf]] %% ![[keep.md]]',
+    target => { seen.push(target); return target.startsWith('keep') ? null : 'R'; },
+  );
+  assert.deepEqual(seen, ['a.pdf', 'keep.md', 'b.png "title"', 'c.zip']);
+  expect(out).toBe('R R R  ![[keep.md]]');
 });

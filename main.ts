@@ -489,8 +489,6 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_TOO_LONG_TEXT);
                 } else if (msg.includes("MEDIA_CAPTION_TOO_LONG") || msg.includes("CAPTION IS TOO LONG")) {
                     new Notice(t.NOTICE_ERR_TOO_LONG_CAPTION);
-                } else if (msg.includes("RICH_LOCAL_MEDIA")) {
-                    new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
                 } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                     new Notice(t.NOTICE_ERR_MIXED_MEDIA);
                 } else if (msg.includes("SCHEDULED_COMMENTS_IN_DISCUSSION")) {
@@ -520,8 +518,6 @@ export default class SendToTelegramPlugin extends Plugin {
                 new Notice(t.NOTICE_ERR_TOO_LONG_TEXT);
             } else if (msg.includes("MEDIA_CAPTION_TOO_LONG") || msg.includes("CAPTION IS TOO LONG")) {
                 new Notice(t.NOTICE_ERR_TOO_LONG_CAPTION);
-            } else if (msg.includes("RICH_LOCAL_MEDIA")) {
-                new Notice(t.NOTICE_ERR_RICH_LOCAL_MEDIA);
             } else if (msg.includes("MIXED_MEDIA_CLASSIC")) {
                 new Notice(t.NOTICE_ERR_MIXED_MEDIA);
             } else if (msg.includes("SCHEDULED_COMMENTS_IN_DISCUSSION")) {

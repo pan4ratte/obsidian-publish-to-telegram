@@ -78,6 +78,32 @@ export function stripComments(body: string): string {
     return removeCommentRegions(body);
 }
 
+// ─── Rich-message attachments ─────────────────────────────────────────────────
+
+// The rich-message reference kind (tg://<kind>?id=…) for a file extension. GIFs ride as
+// videos (animations); any other file (PDF, .docx, .zip, an embedded note…) is a document
+// (tg://document, Bot API 10.3).
+export type RichKind = "photo" | "video" | "audio" | "document";
+const RICH_PHOTO_EXTS = new Set(["jpg", "jpeg", "png", "webp"]);
+const RICH_VIDEO_EXTS = new Set(["mp4", "mov", "avi", "mkv", "webm", "gif"]);
+const RICH_AUDIO_EXTS = new Set(["mp3", "ogg", "m4a", "wav", "flac"]);
+export function richKindForExt(ext: string): RichKind {
+    if (RICH_PHOTO_EXTS.has(ext)) return "photo";
+    if (RICH_VIDEO_EXTS.has(ext)) return "video";
+    if (RICH_AUDIO_EXTS.has(ext)) return "audio";
+    return "document";
+}
+
+// Drops commented-out regions, then offers every embed's target (the path or URL, before any
+// "title") to `replace`. A string return replaces the whole embed; null leaves it as written.
+// Shared by the account and bot rich paths, which turn local embeds into tg://…?id= references.
+export function rewriteEmbeds(body: string, replace: (target: string) => string | null): string {
+    return stripComments(body)
+        .replace(/!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g, (m, p: string) => replace(p) ?? m)
+        .replace(/!\[[^\]]*\]\(([^)]+)\)/g, (m, p: string) => replace(p) ?? m)
+        .replace(/!\(([^)]+)\)\[[^\]]*\]/g, (m, p: string) => replace(p) ?? m);
+}
+
 export function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -17,7 +17,7 @@ import wasmBytes from "@mtcute/wasm/mtcute.wasm";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions, CommentOptions } from "./types";
 import { errMessage, withTimeout } from "./util";
 import { accountTransport, transportForProxy, proxiedHttpsRequest, type ProxyConfig } from "./proxy";
-import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments } from "./markdown";
+import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments, rewriteEmbeds, richKindForExt, type RichKind } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
 import { t } from "../lang/helpers";
 
@@ -60,22 +60,9 @@ interface MediaFile {
 // ─── Media type helpers ───────────────────────────────────────────────────────
 
 const VIDEO_EXTS = new Set(["mp4", "mov", "avi", "mkv", "webm"]);
-const RICH_PHOTO_EXTS = new Set(["jpg", "jpeg", "png", "webp"]);
-const RICH_AUDIO_EXTS = new Set(["mp3", "ogg", "m4a", "wav", "flac"]);
 // Telegram media groups (albums) hold at most 10 items; more than that splits across
 // messages, which the classic-post single-message guard treats as unpostable.
 const ALBUM_LIMIT = 10;
-
-// The rich-message reference kind (tg://<kind>?id=…) for a local file extension. GIFs
-// ride as videos (animations); any other file (PDF, .docx, .zip, an embedded note…) is a
-// document (tg://document, Bot API 10.3).
-type RichKind = "photo" | "video" | "audio" | "document";
-function richKindForExt(ext: string): RichKind {
-    if (RICH_PHOTO_EXTS.has(ext)) return "photo";
-    if (VIDEO_EXTS.has(ext) || ext === "gif") return "video";
-    if (RICH_AUDIO_EXTS.has(ext)) return "audio";
-    return "document";
-}
 
 // ─── Frontmatter extraction ───────────────────────────────────────────────────
 
@@ -197,18 +184,9 @@ function collectRichMedia(app: App, body: string, sourceFile: TFile, mdAsDocumen
         return `![](tg://${kind}?id=${id})`;
     };
 
-    const wikilinkRegex = /!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g;
-    const mdLinkRegex = /!\[[^\]]*\]\(([^)]+)\)/g;
-    const reverseMdLinkRegex = /!\(([^)]+)\)\[[^\]]*\]/g;
-
-    // Drop commented-out regions first so an embed the user commented out isn't rewritten
-    // into a rich media block (i.e. isn't uploaded/embedded).
-    const rewritten = stripComments(body)
-        .replace(wikilinkRegex, (m, p1: string) => refFor(p1) ?? m)
-        .replace(mdLinkRegex, (m, p1: string) => refFor(p1) ?? m)
-        .replace(reverseMdLinkRegex, (m, p1: string) => refFor(p1) ?? m);
-
-    return { body: rewritten, media };
+    // rewriteEmbeds drops commented-out regions first, so an embed the user commented out
+    // isn't uploaded.
+    return { body: rewriteEmbeds(body, refFor), media };
 }
 
 // Builds an uploaded-media InputMedia for a rich attachment of the given kind.

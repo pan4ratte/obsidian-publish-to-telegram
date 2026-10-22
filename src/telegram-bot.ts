@@ -4,7 +4,7 @@
 
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings, SplitPartOptions, CommentOptions } from "./types";
-import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments } from "./markdown";
+import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments, rewriteEmbeds, richKindForExt, type RichKind } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
 import { activeBotProxy, proxiedHttpsRequest } from "./proxy";
 import { t } from "../lang/helpers";
@@ -73,7 +73,7 @@ function resolveChatId(value: string): string {
 
 // ─── Media collection ─────────────────────────────────────────────────────────
 
-function collectBotMedia(app: App, body: string, sourceFile: TFile, postAsRich = false): { attachments: MediaFile[]; mdEmbeds: TFile[] } {
+function collectBotMedia(app: App, body: string, sourceFile: TFile): { attachments: MediaFile[]; mdEmbeds: TFile[] } {
     // Ignore embeds inside commented-out regions so a commented-out attachment or pre-written
     // comment (embedded note) is not collected — and therefore not posted.
     const scanBody = stripComments(body);
@@ -89,11 +89,8 @@ function collectBotMedia(app: App, body: string, sourceFile: TFile, postAsRich =
         let cleanPath = rawPath.split(/\s+"/)[0].split(/[?#]/)[0].trim();
 
         if (/^https?:\/\//i.test(cleanPath)) {
-            // In the Rich Markdown path, rich-embeddable HTTP(S) media (images/video/audio/
-            // gif) is carried inside the markdown as a media block, so it must NOT also be
-            // sent here — that would double-send it. In the classic path there's no such
-            // block, so it's sent as a normal attachment (by URL — see the send helpers).
-            if (postAsRich && isRichEmbeddableUrl(cleanPath)) return;
+            // Web media is sent as a normal attachment, by URL (see the send helpers). Only
+            // the classic path uses these; a rich post builds its own (buildBotRichContent).
             if (!seen.has(cleanPath)) {
                 seen.add(cleanPath);
                 const ext = cleanPath.split('.').pop()?.toLowerCase() || "";
@@ -148,6 +145,91 @@ function mdEmbedToMedia(app: App, file: TFile): MediaFile {
         isLocal: true,
         getBlob: async () => new Blob([await app.vault.readBinary(file)]),
     };
+}
+
+// ─── Rich-message attachments ─────────────────────────────────────────────────
+
+interface BotRichFile { id: string; kind: RichKind; file: MediaFile; }
+interface BotRichContent { markdown: string; files: BotRichFile[]; }
+
+// Builds a "bot + rich" message from a note body. Each local file embed becomes a
+// `tg://<kind>?id=…` reference backed by an entry in `files`, which goes up with the message
+// (rich_message.media, Bot API 10.2/10.3): photos, videos, GIFs and audio render inline,
+// anything else as a document — the same as the account-rich path. Web media Telegram can
+// render inline stays as its URL; any other web file (e.g. a PDF link) becomes a document
+// that Telegram fetches by URL. `.md` embeds become documents only with `mdAsDocument`;
+// otherwise the comment path handles them and they're stripped from the text.
+function buildBotRichContent(app: App, body: string, sourceFile: TFile, mdAsDocument: boolean): BotRichContent {
+    const files: BotRichFile[] = [];
+    const add = (file: MediaFile): string => {
+        const id = `m${files.length}`;
+        const kind = richKindForExt(file.extension);
+        files.push({ id, kind, file });
+        return `![](tg://${kind}?id=${id})`;
+    };
+
+    const refFor = (rawTarget: string): string | null => {
+        const target = rawTarget.split(/\s+["']/)[0].trim();
+        let cleanPath = target.split(/[?#]/)[0];
+        if (/^https?:\/\//i.test(target)) {
+            if (isRichEmbeddableUrl(target)) return null;               // rendered inline by URL
+            const ext = cleanPath.split(".").pop()?.toLowerCase() ?? "";
+            if (!SUPPORTED_MEDIA_EXTS.has(ext)) return null;
+            return add({
+                name: cleanPath.split("/").pop() || `file.${ext}`,
+                extension: ext,
+                isLocal: false,
+                url: target,
+                getBlob: async () => new Blob([(await requestUrl({ url: target })).arrayBuffer]),
+            });
+        }
+        try { cleanPath = decodeURIComponent(cleanPath); } catch { /* keep raw */ }
+        const resolved = app.metadataCache.getFirstLinkpathDest(cleanPath, sourceFile.path);
+        if (!(resolved instanceof TFile)) return null;
+        if (resolved.extension === "md" && !mdAsDocument) return null;
+        return add({
+            name: resolved.name,
+            extension: resolved.extension,
+            isLocal: true,
+            getBlob: async () => new Blob([await app.vault.readBinary(resolved)]),
+        });
+    };
+
+    return { markdown: obsidianToRichMarkdown(rewriteEmbeds(body, refFor)), files };
+}
+
+// The InputMedia type for a rich attachment: GIFs share the video reference but upload as
+// animations.
+function botRichMediaType(item: BotRichFile): string {
+    if (item.kind === "video" && item.file.extension === "gif") return "animation";
+    return item.kind;
+}
+
+// Calls a rich-message method (sendRichMessage, editMessageText) with `fields` plus the
+// rich_message. Without files it's a plain JSON call. With files it's multipart: each local
+// file is a form part that rich_message.media points at via attach://, and a web file is
+// passed by URL for Telegram to fetch.
+async function callBotRich(token: string, method: string, fields: Record<string, unknown>, content: BotRichContent): Promise<unknown> {
+    if (content.files.length === 0) {
+        return callBotJson(token, method, { ...fields, rich_message: { markdown: content.markdown } });
+    }
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields)) {
+        // Numbers, booleans and objects (reply_parameters) all serialise correctly as JSON.
+        form.append(key, typeof value === "string" ? value : JSON.stringify(value));
+    }
+    const media = await Promise.all(content.files.map(async item => {
+        let ref: string;
+        if (item.file.url) {
+            ref = item.file.url;
+        } else {
+            form.append(item.id, await item.file.getBlob(), item.file.name);
+            ref = `attach://${item.id}`;
+        }
+        return { id: item.id, media: { type: botRichMediaType(item), media: ref } };
+    }));
+    form.append("rich_message", JSON.stringify({ markdown: content.markdown, media }));
+    return callBotFetch(token, method, form);
 }
 
 // Maps a file extension to the sendMediaGroup item type. Anything that isn't a
@@ -265,25 +347,12 @@ async function sendTextBot(token: string, chatId: string, text: string, silent: 
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-// Sends text as a Rich Message (Bot API 10.1 — sendRichMessage). Rich Markdown
+// Sends a Rich Message (Bot API 10.1 — sendRichMessage), with its files. Rich Markdown
 // preserves headings, tables, task lists, math, footnotes, etc. that the classic
 // HTML path can't express.
-async function sendRichTextBot(token: string, chatId: string, markdown: string, silent: boolean, topicId?: number): Promise<SendResult> {
-    const result = await callBotJson(token, "sendRichMessage", {
-        ...baseBody(chatId, silent, topicId),
-        rich_message: { markdown },
-    }) as { chat: { id: number; username?: string }; message_id: number };
+async function sendRichTextBot(token: string, chatId: string, content: BotRichContent, silent: boolean, topicId?: number): Promise<SendResult> {
+    const result = await callBotRich(token, "sendRichMessage", baseBody(chatId, silent, topicId), content) as { chat: { id: number; username?: string }; message_id: number };
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
-}
-
-// Sends as a Rich Message when markdown is provided (the "bot + rich" method), or as a
-// classic HTML message otherwise (the plain "bot" method). A failed Rich Message is NOT
-// downgraded to HTML — the error propagates so the post isn't silently sent unformatted.
-async function sendRichOrClassicText(token: string, chatId: string, markdown: string, html: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<SendResult> {
-    if (markdown.length > 0) {
-        return await sendRichTextBot(token, chatId, markdown, silent, topicId);
-    }
-    return await sendTextBot(token, chatId, html, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
 }
 
 // Appends a single-media field to a Bot API form. Remote media is passed as its URL so
@@ -376,22 +445,21 @@ async function sendReplyBot(token: string, chatId: string, replyToMessageId: num
 
 // Rich Message reply — sendRichMessage uses a reply_parameters object rather than
 // the reply_to_message_id field used by classic sendMessage.
-async function sendRichReplyBot(token: string, chatId: string, replyToMessageId: number, markdown: string, silent: boolean, topicId?: number): Promise<number> {
-    const result = await callBotJson(token, "sendRichMessage", {
+async function sendRichReplyBot(token: string, chatId: string, replyToMessageId: number, content: BotRichContent, silent: boolean, topicId?: number): Promise<number> {
+    const result = await callBotRich(token, "sendRichMessage", {
         ...baseBody(chatId, silent, topicId),
-        rich_message: { markdown },
         reply_parameters: { message_id: replyToMessageId },
-    }) as { message_id: number };
+    }, content) as { message_id: number };
     return result.message_id;
 }
 
-// Sends a comment reply as a Rich Message when markdown is provided (the "bot + rich"
+// Sends a comment reply as a Rich Message when there's rich content (the "bot + rich"
 // method), or as a classic HTML reply otherwise (the plain "bot" method). A failed Rich
 // Message is NOT downgraded to HTML — the error propagates to the caller, which surfaces
 // it; the comment is not sent unformatted.
-async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, markdown: string, html: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<number> {
-    if (markdown.length > 0) {
-        return await sendRichReplyBot(token, chatId, replyToMessageId, markdown, silent, topicId);
+async function sendRichOrClassicReply(token: string, chatId: string, replyToMessageId: number, rich: BotRichContent | null, html: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean): Promise<number> {
+    if (rich && rich.markdown.length > 0) {
+        return await sendRichReplyBot(token, chatId, replyToMessageId, rich, silent, topicId);
     }
     return await sendReplyBot(token, chatId, replyToMessageId, html, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
 }
@@ -423,7 +491,7 @@ async function sendMediaReplyBot(
 // "bot + rich" method) and — for a classic comment — the attachments its own note embeds.
 interface PreparedBotComment {
     html: string;
-    markdown: string;
+    rich: BotRichContent | null;
     files: MediaFile[];
     asDocument: boolean;
     options?: CommentOptions;
@@ -446,9 +514,9 @@ async function prepareBotComments(
         const mdFile = mdEmbeds[ci];
         const { body: mdBody } = extractFrontmatter(await app.vault.read(mdFile));
         const html = mdToBotApiHtml(mdBody);
-        const markdown = commentsAsRich ? obsidianToRichMarkdown(mdBody) : "";
+        const rich = commentsAsRich ? buildBotRichContent(app, mdBody, mdFile, false) : null;
 
-        // A rich comment carries its web media inside the markdown; a classic one sends the
+        // A rich comment carries its files inside the rich message; a classic one sends the
         // note's attachments itself. Nested .md embeds are left out either way: one level of
         // comments is what the note structure describes.
         let files: MediaFile[] = [];
@@ -467,8 +535,8 @@ async function prepareBotComments(
             else if (docFiles.length > 0) { files = docFiles; asDocument = true; }
         }
 
-        if (!html.length && !markdown.length && files.length === 0) continue;
-        prepared.push({ html, markdown, files, asDocument, options });
+        if (!html.length && !rich?.markdown.length && files.length === 0) continue;
+        prepared.push({ html, rich, files, asDocument, options });
     }
     return prepared;
 }
@@ -516,12 +584,8 @@ async function sendPartViaBotApi(
     linkPreviewDisabled?: boolean,
     commentOptions?: CommentOptions[],
 ): Promise<SendResult | null> {
-    const richMarkdown = obsidianToRichMarkdown(body);
     const htmlFallback = mdToBotApiHtml(body);
-    // The "bot" method posts a regular (classic HTML) message; "bot + rich" posts a
-    // Rich Message. Forcing empty markdown routes sendRichOrClassicText to the classic path.
-    const postMarkdown = postAsRich ? richMarkdown : "";
-    const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile, postAsRich);
+    const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile);
 
     const photoAndVideoFiles = attachments.filter(f =>
         ["jpg", "jpeg", "png", "webp"].includes(f.extension) || VIDEO_EXTS.has(f.extension)
@@ -540,20 +604,15 @@ async function sendPartViaBotApi(
         ? await prepareBotComments(app, mdEmbeds, commentOptions, commentsAsRich)
         : [];
 
-    // richMarkdown carries the post text AND any HTTP(S) media embeds (as rich media
-    // blocks). uploadMedia is only the locally-stored / non-rich files that the Rich
-    // Message API can't reference by URL and must be uploaded separately.
-    const hasPostText = postMarkdown.length > 0 || htmlFallback.length > 0;
-    const uploadFiles = [...photoAndVideoFiles, ...gifFiles, ...docFiles];
-    const hasUploadMedia = uploadFiles.length > 0;
-    const hasLocalUpload = uploadFiles.some(f => f.isLocal);
+    const hasPostText = htmlFallback.length > 0;
+    const hasUploadMedia = photoAndVideoFiles.length + gifFiles.length + docFiles.length > 0;
 
     // The Bot API caps media captions at 1024 chars (bots get no Premium bump). The
     // length is counted on the visible text, so strip HTML tags before measuring.
     const BOT_CAPTION_LIMIT = 1024;
     const captionPlainLength = stripHtmlTags(htmlFallback).length;
 
-    // Uploads the local / non-rich media files. The post text rides as the caption of the
+    // Uploads the classic post's media files. The post text rides as the caption of the
     // first message produced (consumed once); the rest go caption-less. attachUnderText
     // positions the caption above photo/video media. Returns the first message's SendResult.
     async function sendUploadMedia(caption: string): Promise<SendResult | null> {
@@ -603,22 +662,10 @@ async function sendPartViaBotApi(
 
     if (postAsRich) {
         // ── Rich Message path ("bot + rich") ─────────────────────────────────────
-        // Rich Messages can only reference web media (embedded in the markdown); local
-        // uploads aren't supported, so refuse rather than silently posting them separately.
-        if (hasLocalUpload) throw new Error("RICH_LOCAL_MEDIA");
-        // Any remaining (web, non-rich-embeddable) uploads go as separate caption-less
-        // messages around the rich text.
-        if (!hasUploadMedia) {
-            if (hasPostText) result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
-        } else if (!hasPostText) {
-            result = await sendUploadMedia("");
-        } else if (attachUnderText) {
-            result = await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
-            await sendUploadMedia("");
-        } else {
-            result = await sendUploadMedia("");
-            await sendRichOrClassicText(token, chatId, postMarkdown, htmlFallback, silent, topicId);
-        }
+        // One message: the text and every file embedded where the note embeds it. Embedded
+        // notes go in as documents unless they're being posted as comments.
+        const rich = buildBotRichContent(app, body, sourceFile, !treatMdEmbedsAsComments);
+        if (rich.markdown.length > 0) result = await sendRichTextBot(token, chatId, rich, silent, topicId);
     } else {
         // ── Classic HTML path ("bot") ────────────────────────────────────────────
         // A classic post must be a single message; if the attachments would produce more
@@ -632,7 +679,7 @@ async function sendPartViaBotApi(
         // All attachments carry the post text as the caption of the first message; a
         // caption over the Bot API limit is refused rather than truncated or split off.
         if (!hasUploadMedia) {
-            if (hasPostText) result = await sendRichOrClassicText(token, chatId, "", htmlFallback, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
+            if (hasPostText) result = await sendTextBot(token, chatId, htmlFallback, silent, topicId, linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
         } else {
             if (hasPostText && captionPlainLength > BOT_CAPTION_LIMIT) throw new Error("MEDIA_CAPTION_TOO_LONG");
             result = await sendUploadMedia(hasPostText ? htmlFallback : "");
@@ -655,7 +702,7 @@ async function sendPartViaBotApi(
             const replyIn = async (replyChatId: string, replyToId: number, replyTopicId?: number): Promise<number> =>
                 comment.files.length > 0
                     ? await sendMediaReplyBot(token, replyChatId, replyToId, comment.files, comment.asDocument, comment.html, commentSilent, commentInvert, replyTopicId)
-                    : await sendRichOrClassicReply(token, replyChatId, replyToId, comment.markdown, comment.html, commentSilent, replyTopicId, copts?.linkPreviewUrl, commentInvert, copts?.linkPreviewDisabled);
+                    : await sendRichOrClassicReply(token, replyChatId, replyToId, comment.rich, comment.html, commentSilent, replyTopicId, copts?.linkPreviewUrl, commentInvert, copts?.linkPreviewDisabled);
 
             // A comment failure must not lose the main post's link, so isolate it.
             try {
@@ -716,15 +763,12 @@ async function editMessageBot(token: string, chatId: string, messageId: number, 
 }
 
 // Edits a message that was published as a Rich Message (Bot API 10.1 — editMessageText
-// with a rich_message field instead of text/parse_mode). There is no time limit on a
-// bot editing its own messages, and this works for channel posts the bot can edit.
-async function editRichMessageBot(token: string, chatId: string, messageId: number, markdown: string): Promise<void> {
+// with a rich_message field instead of text/parse_mode), re-uploading its files. There is no
+// time limit on a bot editing its own messages, and this works for channel posts the bot can
+// edit.
+async function editRichMessageBot(token: string, chatId: string, messageId: number, content: BotRichContent): Promise<void> {
     try {
-        await callBotJson(token, "editMessageText", {
-            chat_id: chatId,
-            message_id: messageId,
-            rich_message: { markdown },
-        });
+        await callBotRich(token, "editMessageText", { chat_id: chatId, message_id: messageId }, content);
     } catch (err) {
         if (isNotModifiedError(err)) return;
         throw err;
@@ -781,7 +825,7 @@ export async function editNoteCommentsViaBotApi(
 ): Promise<{ errors: Error[] }> {
     const content = await app.vault.read(file);
     const { body } = extractFrontmatter(content);
-    const { mdEmbeds } = collectBotMedia(app, body, file, asRich);
+    const { mdEmbeds } = collectBotMedia(app, body, file);
 
     if (comments.length === 0 || mdEmbeds.length === 0) return { errors: [] };
 
@@ -795,9 +839,9 @@ export async function editNoteCommentsViaBotApi(
         const chatId = resolveChatId(String(target.chatId));
         try {
             if (asRich) {
-                const markdown = obsidianToRichMarkdown(mdBody);
-                if (!markdown.length) continue;
-                await editRichMessageBot(token, chatId, target.messageId, markdown);
+                const rich = buildBotRichContent(app, mdBody, mdEmbeds[i + embedOffset], false);
+                if (!rich.markdown.length) continue;
+                await editRichMessageBot(token, chatId, target.messageId, rich);
             } else {
                 const html = mdToBotApiHtml(mdBody);
                 if (!html.length) continue;
@@ -857,19 +901,19 @@ export async function sendNoteViaBotApi(
             // re-publishes the edit as a Rich Message, a plain "bot" preset as HTML. The
             // user picks the style at edit time by choosing which method they edit with. A
             // failed rich edit is NOT downgraded to HTML — the error propagates instead.
-            const richMarkdown = postAsRich ? obsidianToRichMarkdown(editBody) : "";
+            // Built exactly as on the send path, so files can be added to a rich post on edit.
+            const rich = postAsRich ? buildBotRichContent(app, editBody, file, !treatMdEmbedsAsComments) : null;
             const htmlContent = mdToBotApiHtml(editBody);
             // For the classic method, attach the note's media so adding e.g. a photo on edit
             // actually shows up (via editMessageMedia). Only a single attachment can ride on
             // an edit — an album can't be formed this way — so with 0 or >1 attachments we
-            // edit the text/caption only, the pre-existing behaviour. Rich messages carry
-            // their (web) media inside the markdown, so the rich edit needs nothing extra.
-            const { attachments } = postAsRich ? { attachments: [] as MediaFile[] } : collectBotMedia(app, editBody, file, false);
+            // edit the text/caption only, the pre-existing behaviour.
+            const { attachments } = postAsRich ? { attachments: [] as MediaFile[] } : collectBotMedia(app, editBody, file);
             const singleMedia = attachments.length === 1 ? attachments[0] : null;
             for (const target of targets) {
                 const chatId = resolveChatId(target.id);
-                if (richMarkdown.length > 0) {
-                    await editRichMessageBot(token, chatId, messageId, richMarkdown);
+                if (rich && rich.markdown.length > 0) {
+                    await editRichMessageBot(token, chatId, messageId, rich);
                 } else if (singleMedia) {
                     await editMessageMediaBot(token, chatId, messageId, singleMedia, htmlContent, attachUnderText);
                 } else {
