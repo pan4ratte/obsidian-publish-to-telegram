@@ -381,7 +381,13 @@ test('Buttons: colour names and a bare emoji id', () => {
 test('Buttons: commented-out blocks and other code blocks are ignored', () => {
   const note = '%%\n```tg-buttons\n<button href="https://a.com">A</button>\n```\n%%\n```html\n<button href="https://b.com">B</button>\n```';
   assert.deepEqual(parseButtons(note), []);
-  assert.ok(removeButtonBlocks(note).includes('https://b.com'));
+  assert.ok(removeButtonBlocks(note).includes('```html\n<button href="https://b.com">B</button>\n```'));
+});
+
+test('Buttons: tags inside a label are dropped', () => {
+  assert.deepEqual(parseButtonRows('<button href="https://a.com"><b>Bold</b> <i><u>text</u></i></button>'), [
+    [{ text: 'Bold text', url: 'https://a.com' }],
+  ]);
 });
 
 test('Buttons: the block never reaches the message text', () => {

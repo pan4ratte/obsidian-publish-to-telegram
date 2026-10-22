@@ -133,12 +133,25 @@ function decodeEntities(text: string): string {
         .replace(/&amp;/g, "&");
 }
 
+// A button label is plain text, so any tags inside it are dropped. One pass already takes
+// everything from a `<` to the next `>`; it's repeated until nothing changes because that's
+// the form code scanning accepts as complete sanitising. The label is never used as HTML
+// either way: it's rendered as text and escaped for Rich messages.
+function stripTags(html: string): string {
+    let previous: string;
+    do {
+        previous = html;
+        html = html.replace(/<[^>]*>/g, "");
+    } while (html !== previous);
+    return html;
+}
+
 function parseButton(attrText: string, inner: string): InlineButton {
     const attrs = new Map<string, string>();
     for (const m of attrText.matchAll(BUTTON_ATTR)) {
         attrs.set(m[1].toLowerCase(), decodeEntities(m[2] ?? m[3] ?? m[4] ?? ""));
     }
-    const button: InlineButton = { text: decodeEntities(inner.replace(/<[^>]*>/g, "").trim()) };
+    const button: InlineButton = { text: decodeEntities(stripTags(inner).trim()) };
     if (attrs.has("disabled")) button.disabled = true;
     const href = attrs.get("href")?.trim();
     if (href) button.url = href;
