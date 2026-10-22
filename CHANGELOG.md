@@ -16,6 +16,9 @@ This update adds buttons under posts, previously available only in dedicated bot
 
 * The mtcute library was updated to 0.32.6 — connecting to Telegram is now more reliable.
 * Fixed a bug where the advanced publishing menu scrolled horizontally.
+* Unselected publishing methods in presets now have a border.
+* New animations for creating and deleting presets.
+* The preset creation card was redesigned.
 * The "Account + rich text" and "Bot + rich text" methods were renamed to "Account · Rich" and "Bot · Rich".
 
 

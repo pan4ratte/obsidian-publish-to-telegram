@@ -42,12 +42,7 @@ export default {
     SETTING_ALWAYS_SILENT_DESC: "Все посты будут публиковаться с уведомлением без звука, если не указано иное",
     SECTION_PRESETS: "Пресеты",
     SETTING_PRESETS_INTRO_TITLE: "Создание и использование пресетов",
-    SETTING_PRESETS_INTRO_DESC: `Настоятельно рекомендуем внимательно ознакомиться с руководством пользователя, в нём детально описаны все функции плагина и поддерживаемые опции форматирования. Ключевые отличия способов публикации:
-
-1. "Аккаунт" постит с обычным форматированием и позволяет использовать функции Telegram Premium.
-2. "Аккаунт · Rich" постит с расширенным форматированием, но требует наличия Telegram Premium.
-3. "Бот" постит с обычным форматированием, но не может использовать функции Telegram Premium.
-4. "Бот · Rich" постит с расширенным форматированием без Telegram Premium, но не может использовать его функции.`,
+    SETTING_PRESETS_INTRO_DESC: "Подробнее о функциях и форматировании см. в руководстве пользователя.",
     SETTING_OPEN_USERINFOBOT: "Открыть @userinfobot",
     SETTING_OPEN_BOTFATHER: "Открыть @BotFather",
     USER_GUIDE_TITLE: "Руководство пользователя",
@@ -59,6 +54,10 @@ export default {
     METHOD_ACCOUNT_RICH: "Аккаунт · Rich",
     METHOD_BOT: "Бот",
     METHOD_BOT_RICH: "Бот · Rich",
+    METHOD_NOTE_ACCOUNT: "Обычный текст и функции Premium",
+    METHOD_NOTE_ACCOUNT_RICH: "Rich-text, нужен Telegram Premium",
+    METHOD_NOTE_BOT: "Обычный текст, без функций Premium",
+    METHOD_NOTE_BOT_RICH: "Rich-text без Telegram Premium",
     SETTING_BOT_TOKEN_INPUT_NAME: "Введите токен бота",
     SETTING_BOT_TOKEN_INPUT_DESC: "Получите его у @BotFather",
     BOT_TOKEN_SAVE_BTN: "Сохранить",

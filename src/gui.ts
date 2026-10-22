@@ -294,6 +294,25 @@ async function fetchEntityInfoAnyAccount(link: string, plugin: SendToTelegramPlu
 }
 
 // The selectable posting methods with their localized labels, in display order.
+// One icon per method, shared by the preset's method picker and the preset creation card:
+// person for accounts, robot for bots; the rich variant of each adds a pen or a message.
+const METHOD_ICONS: Record<PostMethod, string> = {
+    "account": "user",
+    "account-rich": "user-pen",
+    "bot": "bot",
+    "bot-rich": "bot-message-square",
+};
+
+// What each method is good for, in a line — the preset creation card compares them.
+function methodNote(method: PostMethod): string {
+    switch (method) {
+        case "account": return t.METHOD_NOTE_ACCOUNT;
+        case "account-rich": return t.METHOD_NOTE_ACCOUNT_RICH;
+        case "bot": return t.METHOD_NOTE_BOT;
+        case "bot-rich": return t.METHOD_NOTE_BOT_RICH;
+    }
+}
+
 function methodOptions(): Array<[PostMethod, string]> {
     return [
         ["account", t.METHOD_ACCOUNT],
@@ -2537,35 +2556,84 @@ export class TelegramSettingTab extends PluginSettingTab {
     }
 
     /**
-     * Shows a freshly created preset: the card lights up with an accent glow that fades away
-     * (see `.is-just-created` in styles.css) while the pane scrolls smoothly to the card:
-     * centred when it fits the pane, at its top when it does not.
+     * Shows a freshly created preset: the card fades into place (foldPresetCard) while the
+     * pane scrolls smoothly to it: centred when it fits the pane, at its top when it does not.
      */
     private revealNewPreset(card: HTMLElement): void {
-        card.addClass("is-just-created");
-        // Only the glow's own end clears it: animations inside the card bubble up here too.
-        const onEnd = (e: AnimationEvent) => {
-            if (e.target !== card || e.animationName !== "telegram-preset-created") return;
-            card.removeEventListener("animationend", onEnd);
-            card.removeClass("is-just-created");
-        };
-        card.addEventListener("animationend", onEnd);
-
+        // The scroll is worked out before the cards below start sliding, so it aims at the final
+        // layout. A card that fits the pane (with its scroll-margin) is centred in it; a taller one
+        // is brought to the top, so it is read from its start. Either way only as far as the
+        // pane can scroll.
         const scroller = scrollParentOf(card);
-        if (!scroller) return;
-        // A card that fits the pane (with its scroll-margin, the room its glow needs) is centred
-        // in it; a taller one is brought to the top, so it is read from its start. Either way
-        // only as far as the pane can scroll.
-        const margin = parseFloat(card.win.getComputedStyle(card).scrollMarginTop) || 0;
-        const cardRect = card.getBoundingClientRect();
-        const cardTop = scroller.scrollTop + cardRect.top - scroller.getBoundingClientRect().top;
-        const view = scroller.clientHeight;
-        const wanted = cardRect.height + 2 * margin <= view
-            ? cardTop + cardRect.height / 2 - view / 2
-            : cardTop - margin;
-        const target = Math.max(0, Math.min(wanted, scroller.scrollHeight - view));
-        const reduceMotion = card.win.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        scroller.scrollTo({ top: target, behavior: reduceMotion ? "instant" : "smooth" });
+        let target: number | null = null;
+        if (scroller) {
+            const margin = parseFloat(card.win.getComputedStyle(card).scrollMarginTop) || 0;
+            const cardRect = card.getBoundingClientRect();
+            const cardTop = scroller.scrollTop + cardRect.top - scroller.getBoundingClientRect().top;
+            const view = scroller.clientHeight;
+            const wanted = cardRect.height + 2 * margin <= view
+                ? cardTop + cardRect.height / 2 - view / 2
+                : cardTop - margin;
+            target = Math.max(0, Math.min(wanted, scroller.scrollHeight - view));
+        }
+        void this.foldPresetCard(card, "in");
+        if (scroller && target !== null) {
+            const reduceMotion = card.win.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            scroller.scrollTo({ top: target, behavior: reduceMotion ? "instant" : "smooth" });
+        }
+    }
+
+    /**
+     * Folds a preset card out of or into the list. Out (a deleted preset): the card fades and
+     * shrinks a little, then drops out and everything below it slides up into its place; it
+     * stays hidden, for the caller's re-render to drop. In (a new preset): the same in reverse —
+     * everything below slides down to make room, then the card fades in. Resolves when done.
+     *
+     * Only transform and opacity are animated, which the compositor runs without laying the
+     * settings tab out again on every frame; the space the card takes changes in one step, and
+     * the sliding is the elements below being moved back from where that step put them.
+     */
+    private async foldPresetCard(card: HTMLElement, direction: "in" | "out"): Promise<void> {
+        if (card.win.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const followers = this.elementsAfter(card);
+        // The space the card takes: from its top to the top of what follows it.
+        const shift = followers.length > 0
+            ? followers[0].getBoundingClientRect().top - card.getBoundingClientRect().top
+            : 0;
+        const fade: Keyframe[] = [
+            { opacity: 1, transform: "scale(1)" },
+            { opacity: 0, transform: "scale(0.98)" },
+        ];
+        const slide = (from: number) => Promise.all(followers.map(el => el.animate(
+            [{ transform: `translateY(${from}px)` }, { transform: "translateY(0)" }],
+            { duration: 180, easing: "ease-in-out" },
+        ).finished.catch(() => {})));
+        card.addClass("is-folding");
+
+        if (direction === "out") {
+            await card.animate(fade, { duration: 120, easing: "ease-in", fill: "forwards" }).finished.catch(() => {});
+            card.hide();
+            await slide(shift);
+        } else {
+            // The card stays invisible until the slide has made room for it.
+            await Promise.all([
+                slide(-shift),
+                card.animate([...fade].reverse(), { duration: 120, delay: 180, easing: "ease-out", fill: "backwards" }).finished.catch(() => {}),
+            ]);
+            card.removeClass("is-folding");
+        }
+    }
+
+    // Everything laid out after `el` in the settings tab: its following siblings, then each
+    // ancestor's following siblings, up to the tab's root. It all moves when the card comes or goes.
+    private elementsAfter(el: HTMLElement): HTMLElement[] {
+        const after: HTMLElement[] = [];
+        for (let node: HTMLElement | null = el; node && node !== this.renderRoot; node = node.parentElement) {
+            for (let next = node.nextElementSibling; next; next = next.nextElementSibling) {
+                after.push(next as HTMLElement);
+            }
+        }
+        return after;
     }
 
     private disconnectInlineClients(): void {
@@ -2928,34 +2996,22 @@ export class TelegramSettingTab extends PluginSettingTab {
         // ── Presets ──
         new Setting(containerEl).setHeading().setName(t.SECTION_PRESETS);
 
+        // The preset creation card: a title and a pointer to the guide, the four publishing
+        // methods side by side to choose from, the create button, and the links a new preset
+        // may need underneath it, as on the login card.
         const addSection = containerEl.createDiv("telegram-add-preset-section");
-        const infoDiv = addSection.createDiv("telegram-add-preset-info");
-        infoDiv.createDiv({ text: t.SETTING_PRESETS_INTRO_TITLE, cls: "telegram-add-preset-title" });
-        infoDiv.createDiv({ text: t.SETTING_PRESETS_INTRO_DESC, cls: "telegram-add-preset-description" });
+        addSection.createDiv({ text: t.SETTING_PRESETS_INTRO_TITLE, cls: "telegram-add-preset-title" });
+        addSection.createDiv({ text: t.SETTING_PRESETS_INTRO_DESC, cls: "telegram-add-preset-description" });
 
-        const linkRow = addSection.createDiv("telegram-add-preset-button-row");
+        const methodsEl = addSection.createDiv("telegram-add-preset-methods");
+        for (const [method, label] of methodOptions()) {
+            const tile = methodsEl.createDiv("telegram-add-preset-method");
+            setIcon(tile.createSpan({ cls: "telegram-add-preset-method-icon" }), METHOD_ICONS[method]);
+            tile.createDiv({ text: label, cls: "telegram-add-preset-method-name" });
+            tile.createDiv({ text: methodNote(method), cls: "telegram-add-preset-method-note" });
+        }
 
-        new ButtonComponent(linkRow)
-            .setButtonText(t.SETTING_OPEN_USERINFOBOT)
-            .onClick(() => { window.open("https://t.me/userinfobot", "_blank"); })
-            .buttonEl.addClass("telegram-link-button");
-
-        new ButtonComponent(linkRow)
-            .setButtonText(t.SETTING_OPEN_BOTFATHER)
-            .onClick(() => { window.open("https://t.me/BotFather", "_blank"); })
-            .buttonEl.addClass("telegram-link-button");
-
-        new ButtonComponent(linkRow)
-            .setButtonText(t.USER_GUIDE_TITLE)
-            .onClick(() => {
-                new FormattingHelpModal(this.app, getUserGuideContent()).open();
-            })
-            .buttonEl.addClass("telegram-link-button");
-
-        const addRow = addSection.createDiv("telegram-add-preset-button-row");
-
-        new ButtonComponent(addRow)
-            .setButtonText(t.SETTING_CREATE_PRESET_BTN)
+        const addButton = new ButtonComponent(addSection)
             .onClick(async () => {
                 const existingNames = new Set(this.plugin.settings.channels.map(c => c.name));
                 let idx = 1;
@@ -2966,7 +3022,21 @@ export class TelegramSettingTab extends PluginSettingTab {
                 this.rerender();
                 const card = this.renderRoot?.querySelector<HTMLElement>(`.telegram-channel-item[data-preset-id="${CSS.escape(id)}"]`);
                 if (card) this.revealNewPreset(card);
-            }).buttonEl.addClass("telegram-add-button");
+            });
+        addButton.buttonEl.addClass("telegram-add-button");
+        setIcon(addButton.buttonEl.createSpan({ cls: "telegram-add-button-icon" }), "plus");
+        addButton.buttonEl.createSpan({ text: t.SETTING_CREATE_PRESET_BTN });
+
+        const linksEl = addSection.createDiv("telegram-add-preset-links");
+        const link = (icon: string, label: string, onClick: () => void) => {
+            const chip = linksEl.createEl("button", { cls: "telegram-auth-chip" });
+            setIcon(chip.createSpan({ cls: "telegram-auth-chip-icon" }), icon);
+            chip.createSpan({ text: label });
+            chip.addEventListener("click", onClick);
+        };
+        link("book-open", t.USER_GUIDE_TITLE, () => new FormattingHelpModal(this.app, getUserGuideContent()).open());
+        link("external-link", t.SETTING_OPEN_USERINFOBOT, () => window.open("https://t.me/userinfobot", "_blank"));
+        link("external-link", t.SETTING_OPEN_BOTFATHER, () => window.open("https://t.me/BotFather", "_blank"));
 
         this.plugin.settings.channels.forEach((channel, index) => {
             const channelDiv = containerEl.createDiv({ cls: "telegram-channel-item", attr: { "data-preset-id": channel.id } });
@@ -3026,7 +3096,9 @@ export class TelegramSettingTab extends PluginSettingTab {
                             // Bot tokens are shared, named entities now — deleting a preset
                             // must not delete the token (managed via the credentials modal).
                             this.plugin.settings.channels.splice(index, 1);
-                            await this.plugin.saveSettings();
+                            // Saved while the card animates away, so closing the tab midway
+                            // loses nothing.
+                            await Promise.all([this.plugin.saveSettings(), this.foldPresetCard(channelDiv, "out")]);
                             this.rerender();
                         }
                     ).open();
@@ -3099,13 +3171,6 @@ export class TelegramSettingTab extends PluginSettingTab {
         const setting = new Setting(container).setName(t.SETTING_DEFAULT_METHOD_NAME);
         setting.settingEl.addClass("telegram-method-setting");
 
-        // Person for accounts, robot for bots; the rich variant of each adds a pen or a message.
-        const icons: Record<PostMethod, string> = {
-            "account": "user",
-            "account-rich": "user-pen",
-            "bot": "bot",
-            "bot-rich": "bot-message-square",
-        };
         const current = channel.defaultMethod ?? "account";
         const chipsEl = setting.infoEl.createDiv({ cls: "telegram-method-chips" });
 
@@ -3132,36 +3197,50 @@ export class TelegramSettingTab extends PluginSettingTab {
             }
         };
 
+        // After a pick the rebuilt row is first drawn as it was before the pick, then switched to
+        // the new choice, so the chips' colours and borders change along with the outline's slide
+        // instead of jumping ahead of it.
+        const slideFrom = this.methodSlideFrom?.presetId === channel.id ? this.methodSlideFrom.method : null;
+        if (slideFrom) this.methodSlideFrom = null;
+        const shown = slideFrom ?? current;
+        const markSelected = (selectedMethod: PostMethod) => {
+            for (const [value, chip] of chips) {
+                chip.toggleClass("is-selected", value === selectedMethod);
+                chip.setAttribute("aria-pressed", String(value === selectedMethod));
+            }
+        };
+
         for (const [value, label] of methodOptions()) {
-            const selected = value === current;
             const chip = chipsEl.createEl("button", { cls: "telegram-auth-chip" });
-            setIcon(chip.createSpan({ cls: "telegram-auth-chip-icon" }), icons[value]);
+            setIcon(chip.createSpan({ cls: "telegram-auth-chip-icon" }), METHOD_ICONS[value]);
             chip.createSpan({ text: label });
-            chip.toggleClass("is-selected", selected);
-            chip.setAttribute("aria-pressed", String(selected));
             chip.dataset.method = value;
             chips.set(value, chip);
-            chip.addEventListener("click", () => void (async () => {
+            chip.addEventListener("click", () => {
                 if (value === current) return;
                 channel.defaultMethod = value;
-                await this.plugin.saveSettings();
                 // Re-render so the primary/secondary pickers reflect the new method. That
                 // replaces the whole row, so the rebuilt one is told where the outline was.
+                // Saving comes after, so the slide starts on the click rather than once the
+                // settings are written.
                 this.methodSlideFrom = { presetId: channel.id, method: current };
                 this.rerender();
                 // Keeps keyboard users' place; a mouse click shows no focus ring for it.
                 this.renderRoot?.querySelector<HTMLElement>(
                     `.telegram-channel-item[data-preset-id="${CSS.escape(channel.id)}"] .telegram-method-chips [data-method="${value}"]`,
                 )?.focus({ preventScroll: true });
-            })());
+                void this.plugin.saveSettings();
+            });
         }
+        markSelected(shown);
 
-        // After a pick the outline starts on the previous choice and travels to the new one;
-        // otherwise it is simply put in place.
-        const slideFrom = this.methodSlideFrom?.presetId === channel.id ? this.methodSlideFrom.method : null;
-        if (slideFrom) this.methodSlideFrom = null;
-        placeOutline(chips.get(slideFrom ?? current), true);
-        if (slideFrom) placeOutline(chips.get(current), false);
+        // The instant placement's layout read also commits the chips' pre-pick state, so the
+        // switch below transitions from it.
+        placeOutline(chips.get(shown), true);
+        if (slideFrom) {
+            markSelected(current);
+            placeOutline(chips.get(current), false);
+        }
 
         // The chips share the row's width, so a resized pane or a rewrapped row moves them: put
         // the outline back in place without travelling. This also places it once the row is

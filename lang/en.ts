@@ -42,12 +42,7 @@ export default {
     SETTING_ALWAYS_SILENT_DESC: "All posts will be published with a notification without sound if not specified otherwise",
     SECTION_PRESETS: "Presets",
     SETTING_PRESETS_INTRO_TITLE: "Preset creation and usage",
-    SETTING_PRESETS_INTRO_DESC: `We strongly recommend that you carefully read the user guide, it describes all plugin features and supported formatting options. Key differences between publication methods:
-
-1. "Account" posts with standard formatting and lets you use Telegram Premium features.
-2. "Account + rich-text" posts with rich-text formatting, but requires Telegram Premium.
-3. "Bot" posts with standard formatting, but can't use Telegram Premium features.
-4. "Bot + rich-text" posts with rich-text formatting without Telegram Premium, but can't use its features.`,
+    SETTING_PRESETS_INTRO_DESC: "See the user guide for more on features and formatting.",
     SETTING_OPEN_USERINFOBOT: "Open @userinfobot",
     SETTING_OPEN_BOTFATHER: "Open @BotFather",
     USER_GUIDE_TITLE: "User guide",
@@ -59,6 +54,10 @@ export default {
     METHOD_ACCOUNT_RICH: "Account · Rich",
     METHOD_BOT: "Bot",
     METHOD_BOT_RICH: "Bot · Rich",
+    METHOD_NOTE_ACCOUNT: "Standard formatting and Premium features",
+    METHOD_NOTE_ACCOUNT_RICH: "Rich text, requires Telegram Premium",
+    METHOD_NOTE_BOT: "Standard formatting, no Premium features",
+    METHOD_NOTE_BOT_RICH: "Rich text without Telegram Premium",
     SETTING_BOT_TOKEN_INPUT_NAME: "Enter bot token",
     SETTING_BOT_TOKEN_INPUT_DESC: "Get it from the @BotFather",
     BOT_TOKEN_SAVE_BTN: "Save",

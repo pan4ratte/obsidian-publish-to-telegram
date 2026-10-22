@@ -12,9 +12,15 @@
     display: none;
 }
 
-/* The method chips sit under the title (see "Method chips"), leaving the control empty. */
+/* The method chips sit under the title (see "Method chips"), leaving the control empty. The
+   info then drops the end margin Obsidian keeps between it and the control, so the chips run
+   the full width. */
 .telegram-method-setting > .setting-item-control {
     display: none;
+}
+
+.telegram-method-setting > .setting-item-info {
+    margin-inline-end: 0;
 }
 
 .telegram-add-token-input .setting-item-control {
@@ -44,6 +50,16 @@
 .telegram-auth-chip-icon svg {
     width: 14px;
     height: 14px;
+}
+
+.telegram-add-preset-method-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.telegram-add-button-icon svg {
+    width: 16px;
+    height: 16px;
 }
 
 .telegram-changelog-icon svg {
@@ -184,13 +200,14 @@
 
 /* ── Preset creation panel ── */
 
+/* The bottom padding is smaller: the links there carry their own 6px of padding. */
 .telegram-add-preset-section {
     background-color: var(--setting-items-background);
     border-radius: var(--setting-items-radius);
     border: 1px solid var(--background-modifier-border);
     display: flex;
     flex-direction: column;
-    padding: 24px;
+    padding: 24px 24px 18px;
     margin-bottom: 16px;
 }
 
@@ -198,32 +215,81 @@
     font-weight: var(--font-medium);
     color: var(--text-normal);
     font-size: var(--font-ui-medium);
-    text-overflow: ellipsis;
-    overflow: hidden;
 }
 
 .telegram-add-preset-description {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     line-height: var(--line-height-normal);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding-top: 12px;
-    white-space: pre-wrap;
+    margin-top: 6px;
 }
 
-.telegram-add-preset-button-row {
-    display: flex;
-    flex-flow: row wrap;
-    gap: 12px;
-    margin-top: 12px;
+/* The four methods side by side: two columns where there's room, one on a narrow pane. */
+.telegram-add-preset-methods {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* Inset tiles: the page background shows through the card, so the four read as one group
+   without a border each. Icon on the left, spanning the name and the note beside it. */
+.telegram-add-preset-method {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 12px;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: var(--radius-m);
+    background-color: var(--background-primary);
+}
+
+/* The icon sits on a soft accent square. */
+.telegram-add-preset-method-icon {
+    grid-row: span 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-m);
+    background-color: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+    color: var(--text-accent);
+}
+
+.telegram-add-preset-method-name {
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
+    color: var(--text-normal);
+}
+
+.telegram-add-preset-method-note {
+    font-size: var(--font-ui-smaller);
+    line-height: var(--line-height-tight);
+    color: var(--text-muted);
 }
 
 body .telegram-add-button {
+    gap: 6px;
+    height: auto;
+    padding: 8px 16px;
+    margin-top: 16px;
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
     font-weight: var(--font-semibold);
-    flex-grow: 1;
+}
+
+.telegram-add-button-icon {
+    display: inline-flex;
+}
+
+/* The guide and the bots a new preset may need, as chips under the button (like the login
+   card's). */
+.telegram-add-preset-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 10px;
 }
 
 body .telegram-add-button:hover {
@@ -248,49 +314,19 @@ body .telegram-link-button:hover {
 .telegram-channel-item {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--setting-items-radius);
-    padding: 12px 24px 24px 24px;
+    padding: 12px 24px 18px 24px;
     margin-bottom: 16px;
     background-color: var(--setting-items-background);
     display: flex;
     flex-direction: column;
 
-    /* Anchors the glow of a new preset (see below), and leaves room for it when the
-       card is scrolled into view. */
-    position: relative;
+    /* Leaves some room around a new preset when the pane scrolls to it. */
     scroll-margin-block: var(--size-4-6);
 }
 
-/* A preset just created: as the pane scrolls to it (see revealNewPreset in gui.ts), the
-   card lights up with an accent glow, holds it for a moment, then lets it fade away.
-   The glow is an overlay faded by its opacity: a box-shadow animated on the card itself
-   is not interpolated smoothly by Chromium, which switches it on and off instead. */
-.telegram-channel-item::after {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border: 1px solid var(--interactive-accent);
-    border-radius: inherit;
-    box-shadow:
-        0 0 0 1px var(--interactive-accent),
-        0 0 24px 4px color-mix(in srgb, var(--interactive-accent) 50%, transparent);
-    opacity: 0;
+/* A preset fading into or out of the list (see foldPresetCard in gui.ts) takes no clicks. */
+.telegram-channel-item.is-folding {
     pointer-events: none;
-}
-
-.telegram-channel-item.is-just-created::after {
-    animation: telegram-preset-created 2.6s ease-in-out;
-}
-
-@keyframes telegram-preset-created {
-    0%,
-    100% {
-        opacity: 0;
-    }
-
-    12%,
-    35% {
-        opacity: 1;
-    }
 }
 
 .telegram-channel-header {
@@ -1247,6 +1283,7 @@ body .telegram-auth-submit:disabled {
 /* An accent-coloured pill whose tint appears on hover. Obsidian draws button focus rings with
    box-shadow, which this drops, so keyboard focus gets its own ring. */
 .telegram-auth-card .telegram-auth-chip,
+.telegram-add-preset-links .telegram-auth-chip,
 .telegram-method-chips .telegram-auth-chip {
     display: inline-flex;
     align-items: center;
@@ -1265,8 +1302,8 @@ body .telegram-auth-submit:disabled {
 }
 
 /* The preset's method picker reuses these chips as a single-choice row (see "Method chips"
-   below). An unselected chip is muted, so the selected one stands out. Every one keeps a
-   transparent border so the selected one's accent border doesn't shift its neighbours. */
+   below). An unselected chip is muted and outlined, so the selected one stands out. Every one
+   has a 1px border, so the selected one's accent border doesn't shift its neighbours. */
 .telegram-method-chips .telegram-auth-chip {
     /* Equal shares of the row, never narrower than the label: when the row can't fit them all,
        they wrap and each line fills out again. */
@@ -1276,15 +1313,26 @@ body .telegram-auth-submit:disabled {
 
     /* Positioned, so the chips paint above the selection pill that comes before them. */
     position: relative;
-    border: 1px solid transparent;
+    border: 1px solid var(--background-modifier-border);
     color: var(--text-muted);
     font-size: var(--font-ui-small);
     transition: background-color 300ms ease, border-color 300ms ease, color 300ms ease;
 }
 
+/* The preset creation card's links are muted beside the accent button above them, and come up
+   on hover. */
+.telegram-add-preset-links .telegram-auth-chip {
+    color: var(--text-muted);
+}
+
 .telegram-auth-card .telegram-auth-chip:hover {
     background-color: color-mix(in srgb, var(--interactive-accent) 25%, transparent);
     color: var(--text-accent-hover);
+}
+
+.telegram-add-preset-links .telegram-auth-chip:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
 }
 
 .telegram-method-chips .telegram-auth-chip:hover {
@@ -1301,6 +1349,7 @@ body .telegram-auth-submit:disabled {
 }
 
 .telegram-auth-card .telegram-auth-chip:focus-visible,
+.telegram-add-preset-links .telegram-auth-chip:focus-visible,
 .telegram-method-chips .telegram-auth-chip:focus-visible {
     box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
 }
@@ -1312,12 +1361,14 @@ body .telegram-auth-submit:disabled {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: 10px;
+    margin-top: 16px;
 }
 
 /* The selected chip only turns its text accent: its fill and border are the outline's, below.
-   Its own hover fill is dropped so it doesn't stack on the outline's. */
+   Its own border goes transparent, since the chip paints above the outline, and its hover fill
+   is dropped so it doesn't stack on the outline's. */
 .telegram-method-chips .telegram-auth-chip.is-selected {
+    border-color: transparent;
     color: var(--text-accent);
 }
 
