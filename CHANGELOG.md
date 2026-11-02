@@ -1,5 +1,12 @@
 # Changelog
 
+## 7.1.0
+
+### New features
+
+* **Button setup window.** The "Insert buttons under the post" command now opens a window to set a button's text, action, color and custom emoji with a preview, and then add it to a new or existing row.
+
+
 ## 7.0.0
 
 ### Major update: Buttons and files in posts

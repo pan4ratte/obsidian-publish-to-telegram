@@ -4,9 +4,9 @@ import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, Te
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
 import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
 import { CustomEmojiThumbnails, PreviewStore, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
-import { hasCustomEmoji } from "./src/markdown";
+import { hasCustomEmoji, buttonBlockAt, buttonToHtml } from "./src/markdown";
 import { customEmojiEditorExtension, customEmojiPostProcessor, refreshInlineEmoji } from "./src/emoji-inline";
-import { buttonsCodeBlockProcessor } from "./src/buttons";
+import { buttonsCodeBlockProcessor, ButtonModal } from "./src/buttons";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
 import { setProxies, type ProxyConfig } from "./src/proxy";
@@ -168,20 +168,45 @@ export default class SendToTelegramPlugin extends Plugin {
         editor.focus();
     }
 
-    // Inserts a `tg-buttons` block (see parseButtonRows in src/markdown.ts) as its own block at
-    // the cursor: one row with one link button, its label selected so the user can type over it.
-    // A code fence has to start a line, so text on either side is pushed to its own paragraph.
+    // Sets up a button in ButtonModal, then writes it (see parseButtonRows in src/markdown.ts).
+    // Inside a `tg-buttons` block it's added there: on a new row below the cursor's line, or at
+    // the end of that line when "Same row" is on. Elsewhere it starts a new block at the cursor;
+    // a code fence has to start a line, so text on either side is pushed to its own paragraph.
     private insertButtons(editor: Editor): void {
-        const cursor = editor.getCursor("from");
-        const end = editor.getCursor("to");
-        const before = editor.getLine(cursor.line).slice(0, cursor.ch).trim().length > 0 ? "\n\n" : "";
-        const after = editor.getLine(end.line).slice(end.ch).trim().length > 0 ? "\n\n" : "";
-        const head = `${before}\`\`\`tg-buttons\n<button href="https://example.com">`;
-        const label = "Button";
-        editor.replaceSelection(`${head}${label}</button>\n\`\`\`${after}`);
-        const start = editor.offsetToPos(editor.posToOffset(cursor) + head.length);
-        editor.setSelection(start, { line: start.line, ch: start.ch + label.length });
-        editor.focus();
+        const from = editor.getCursor("from");
+        const to = editor.getCursor("to");
+        const selection = editor.getSelection();
+        const block = buttonBlockAt(editor.getValue(), editor.posToOffset(from));
+
+        // Inside a block: the line of buttons the cursor is on, kept within the block's content.
+        let rowLine: number | null = null;
+        let firstLine = 0;
+        let closeLine = 0;
+        if (block) {
+            firstLine = editor.offsetToPos(block.contentFrom).line;
+            closeLine = editor.offsetToPos(block.contentTo).line;
+            const line = Math.min(Math.max(from.line, firstLine), closeLine - 1);
+            if (line >= firstLine && /<button\b/i.test(editor.getLine(line))) rowLine = line;
+        }
+
+        const initialText = !block && !selection.includes("\n") ? selection.trim() : "";
+        new ButtonModal(this.app, initialText, rowLine !== null, () => this.customEmojiPreviews(), (button, sameRow) => {
+            const html = buttonToHtml(button);
+            if (block && rowLine !== null && sameRow) {
+                const ch = editor.getLine(rowLine).trimEnd().length;
+                editor.replaceRange(` ${html}`, { line: rowLine, ch }, { line: rowLine, ch: editor.getLine(rowLine).length });
+            } else if (block && rowLine !== null) {
+                editor.replaceRange(`\n${html}`, { line: rowLine, ch: editor.getLine(rowLine).length });
+            } else if (block) {
+                // No buttons on the cursor's line: the new row goes just before the closing fence.
+                editor.replaceRange(`${html}\n`, { line: closeLine, ch: 0 });
+            } else {
+                const before = editor.getLine(from.line).slice(0, from.ch).trim().length > 0 ? "\n\n" : "";
+                const after = editor.getLine(to.line).slice(to.ch).trim().length > 0 ? "\n\n" : "";
+                editor.replaceRange(`${before}\`\`\`tg-buttons\n${html}\n\`\`\`${after}`, from, to);
+            }
+            editor.focus();
+        }).open();
     }
 
     // Wraps the current selection as before + selection + after. With nothing selected, inserts

@@ -2577,6 +2577,12 @@ body .telegram-button-kind .svg-icon {
     margin-top: 10px;
 }
 
+/* The new button modal (ButtonModal in src/buttons.ts) shows the button above its settings,
+   drawn as it will look in the note. */
+.telegram-button-modal-preview {
+    margin-bottom: var(--size-4-4);
+}
+
 /* ─── Changelog ────────────────────────────────────────────────────────────────── */
 
 /* ── Notice ──

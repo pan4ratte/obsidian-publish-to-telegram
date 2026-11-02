@@ -159,15 +159,37 @@ function parseButton(attrText: string, inner: string): InlineButton {
     if (copy) button.copy = copy;
     const color = BUTTON_COLORS[attrs.get("color")?.trim().toLowerCase() ?? ""];
     if (color) button.color = color;
-    // An id, or the picker's `[👍](tg://emoji?id=…)` pasted in whole.
-    const emoji = attrs.get("emoji") ?? "";
+    return Object.assign(button, parseButtonEmoji(attrs.get("emoji") ?? ""));
+}
+
+// A button's `emoji`: an id, or the picker's `[👍](tg://emoji?id=…)` pasted in whole.
+export function parseButtonEmoji(emoji: string): Pick<InlineButton, "emojiId" | "emojiFallback"> {
     const emojiId = /(\d{5,})/.exec(emoji)?.[1];
-    if (emojiId) {
-        button.emojiId = emojiId;
-        const fallback = /^\s*\[([^\]]+)\]/.exec(emoji)?.[1];
-        if (fallback) button.emojiFallback = fallback;
+    if (!emojiId) return {};
+    const fallback = /^\s*\[([^\]]+)\]/.exec(emoji)?.[1];
+    return fallback ? { emojiId, emojiFallback: fallback } : { emojiId };
+}
+
+// Escapes only what the parser would misread, so the written button stays readable in the note:
+// `&` only where it starts an entity decodeEntities knows, and `"` only in attribute values.
+function escButtonText(s: string): string {
+    return s
+        .replace(/&(?=(?:#\d+|#x[\da-f]+|quot|apos|lt|gt|nbsp|amp);)/gi, "&amp;")
+        .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// One button as the `<button>` element parseButtonRows reads back.
+export function buttonToHtml(button: InlineButton): string {
+    const attrs: string[] = [];
+    const attr = (name: string, value: string) => attrs.push(`${name}="${escButtonText(value).replace(/"/g, "&quot;")}"`);
+    if (button.disabled) attrs.push("disabled");
+    else if (button.url) attr("href", button.url);
+    else if (button.copy) attr("copy", button.copy);
+    if (button.color) attr("color", { danger: "red", success: "green", primary: "blue" }[button.color]);
+    if (button.emojiId) {
+        attr("emoji", button.emojiFallback ? `[${button.emojiFallback}](tg://emoji?id=${button.emojiId})` : button.emojiId);
     }
-    return button;
+    return `<button${attrs.map(a => ` ${a}`).join("")}>${escButtonText(button.text)}</button>`;
 }
 
 // The rows one `tg-buttons` block's content describes: each line holding at least one
@@ -179,6 +201,20 @@ export function parseButtonRows(source: string): InlineButton[][] {
         if (row.length > 0) rows.push(row);
     }
     return rows;
+}
+
+// The `tg-buttons` block the offset falls in, fences included, or null: `contentFrom` is where
+// its first line of buttons starts, `contentTo` where its closing fence starts.
+export function buttonBlockAt(text: string, offset: number): { contentFrom: number; contentTo: number } | null {
+    for (const m of text.matchAll(BUTTON_BLOCK)) {
+        const start = m.index;
+        const contentFrom = start + m[0].indexOf("\n") + 1;
+        const contentTo = contentFrom + m[2].length;
+        const end = start + m[0].replace(/\n$/, "").length;
+        if (offset >= start && offset <= end) return { contentFrom, contentTo };
+        if (start > offset) break;
+    }
+    return null;
 }
 
 // Removes every `tg-buttons` block from the text.

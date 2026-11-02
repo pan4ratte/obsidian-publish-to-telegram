@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt, parseButtons, parseButtonRows, removeButtonBlocks, buttonsToRichMarkdown } from '../src/markdown';
+import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt, parseButtons, parseButtonRows, removeButtonBlocks, buttonsToRichMarkdown, buttonToHtml, buttonBlockAt, type InlineButton } from '../src/markdown';
 
 // `expect(x).toBe(y)` over node:assert, so the ported test bodies stay unchanged.
 function expect(received: unknown) {
@@ -409,4 +409,29 @@ test('Buttons: rich markdown rows for account posts', () => {
     '<tg-button-row>\n  <tg-button type="disabled">Sold &lt;out&gt;</tg-button>\n</tg-button-row>');
   assert.equal(buttonsToRichMarkdown([]), '');
   assert.throws(() => buttonsToRichMarkdown(parseButtons(BUTTONS_NOTE)), /BUTTON_NO_ACTION/);
+});
+
+test('Buttons: a written button reads back the same', () => {
+  const buttons: InlineButton[] = [
+    { text: 'Website', url: 'https://example.com/?a=1&b="2"', color: 'success' },
+    { text: 'Copy & <paste> &amp;', copy: "PROMO 'X' &lt;", color: 'danger', emojiId: '5368324170671202286', emojiFallback: '👍' },
+    { text: 'Sold out', disabled: true, color: 'primary', emojiId: '123456789' },
+  ];
+  for (const button of buttons) assert.deepEqual(parseButtonRows(buttonToHtml(button)), [[button]]);
+  assert.equal(buttonToHtml(buttons[0]), '<button href="https://example.com/?a=1&b=&quot;2&quot;" color="green">Website</button>');
+  assert.equal(buttonToHtml({ text: 'A', disabled: true, url: 'https://a.com' }), '<button disabled>A</button>');
+});
+
+test('Buttons: finding the block around the cursor', () => {
+  const note = 'Text\n```tg-buttons\n<button href="https://a.com">A</button>\n```\nAfter\n```js\nx\n```';
+  const open = note.indexOf('```tg-buttons');
+  const close = note.indexOf('```\nAfter');
+  const block = { contentFrom: note.indexOf('<button'), contentTo: close };
+  assert.deepEqual(buttonBlockAt(note, open), block);
+  assert.deepEqual(buttonBlockAt(note, note.indexOf('A</button>')), block);
+  assert.deepEqual(buttonBlockAt(note, close + 3), block);
+  assert.equal(buttonBlockAt(note, 2), null);
+  assert.equal(buttonBlockAt(note, close + 4), null);
+  assert.equal(buttonBlockAt(note, note.indexOf('x')), null);
+  assert.deepEqual(buttonBlockAt('```tg-buttons\n```', 3), { contentFrom: 14, contentTo: 14 });
 });
