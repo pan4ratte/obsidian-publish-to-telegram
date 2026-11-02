@@ -80,10 +80,12 @@ export function stripComments(body: string): string {
 
 // ─── Inline buttons ───────────────────────────────────────────────────────────
 
-// Buttons under a post are written as a `tg-buttons` code block: one line per row, one
-// <button> element per button, its attributes being Telegram's button properties.
+// Buttons are written as a `tg-buttons` code block: one line per row, one <button> element per
+// button, its attributes being Telegram's button properties. An `align:` line lines the rows
+// up left, centre or right in a Rich Message.
 //
 //   ```tg-buttons
+//   align: center
 //   <button href="https://example.com" color="green">Website</button> <button copy="PROMO">Copy code</button>
 //   <button href="https://t.me/example" emoji="5368324170671202286">Channel</button>
 //   <button disabled>Sold out</button>
@@ -91,11 +93,11 @@ export function stripComments(body: string): string {
 //
 // A code block rather than raw HTML because Obsidian's sanitizer strips unknown elements and
 // their attributes, while a code block processor (src/buttons.ts) renders the same way in the
-// editor, reading view and the publishing preview. The block is never part of the message text
-// (stripObsidianSyntax removes it); the send paths read it separately (parseButtons). Bots send
-// it as reply_markup; "account-rich" appends it to the message as `<tg-button-row>` blocks
-// (buttonsToRichMarkdown), since only bots can attach reply_markup. Classic account posts
-// can't have buttons.
+// editor, reading view and the publishing preview. In a Rich Message ("Bot · Rich", "Account ·
+// Rich") the block becomes `<tg-button-row>` blocks right where it's written
+// (obsidianToRichMarkdown with `buttons`), which Telegram's server-side parser turns into
+// button blocks. The classic "Bot" method sends the post's blocks as reply_markup under the
+// message (parseButtons); classic account posts can't have buttons.
 
 // Telegram's button styles. `color` takes these or the colour each one is drawn in.
 export type ButtonColor = "danger" | "success" | "primary";
@@ -232,11 +234,21 @@ function escAttr(s: string): string {
     return escHtml(s).replace(/"/g, "&quot;");
 }
 
-// A post's buttons as Rich Markdown, or "" when it has none: one `<tg-button-row>` per row,
-// which Telegram's server-side parser turns into button blocks. This is how an account posts
-// buttons — the User API keeps reply_markup for bots, but a Rich Message may hold button
-// blocks. Exactly one action per button, as on the bot path; one with none is refused.
-export function buttonsToRichMarkdown(rows: InlineButton[][]): string {
+// How a block's rows line up in a Rich Message (`<tg-button-row align>`).
+export type ButtonAlign = "left" | "center" | "right";
+
+// A block's `align: left|center|right` line (`=` works too), or undefined without one.
+export function parseButtonAlign(source: string): ButtonAlign | undefined {
+    const value = /^[ \t]*align[ \t]*[:=][ \t]*(left|cent(?:er|re)|right)[ \t]*$/im.exec(source)?.[1].toLowerCase();
+    if (!value) return undefined;
+    return value.startsWith("cent") ? "center" : value as ButtonAlign;
+}
+
+// Buttons as Rich Markdown, or "" when there are none: one `<tg-button-row>` per row, which
+// Telegram's server-side parser turns into button blocks. Exactly one action per button, as
+// on the bot path; one with none is refused.
+export function buttonsToRichMarkdown(rows: InlineButton[][], align?: ButtonAlign): string {
+    const rowTag = align ? `<tg-button-row align="${align}">` : "<tg-button-row>";
     return rows.map(row => {
         const buttons = row.map(button => {
             let attrs: string;
@@ -251,7 +263,7 @@ export function buttonsToRichMarkdown(rows: InlineButton[][]): string {
             const label = [emoji, escHtml(button.text)].filter(Boolean).join(" ");
             return `  <tg-button ${attrs}>${label}</tg-button>`;
         });
-        return `<tg-button-row>\n${buttons.join("\n")}\n</tg-button-row>`;
+        return `${rowTag}\n${buttons.join("\n")}\n</tg-button-row>`;
     }).join("\n");
 }
 
@@ -354,7 +366,40 @@ export function customEmojiToHtml(text: string): string {
 // A Rich Message can hold empty lines, which Markdown's own block separation would otherwise
 // swallow, so blank lines past the paragraph break the first one makes come back as real empty
 // lines (materializeBlankLines).
-export function obsidianToRichMarkdown(body: string): string {
+// `buttons` (posts only — comments get none): each `tg-buttons` block becomes its button rows
+// where it's written. Otherwise the blocks are dropped, as on every other path.
+export function obsidianToRichMarkdown(body: string, opts: { buttons?: boolean } = {}): string {
+    // Each block is held as a placeholder line while the text is converted, so nothing in the
+    // conversion touches the button markup, and swapped for its rows at the end — or for
+    // nothing, when buttons aren't sent. Either way the blank lines around the block close up
+    // into one paragraph break, rather than adding up to an empty line where the block was. A
+    // block inside a comment leaves its placeholder there, and goes with the comment.
+    const rows: string[] = [];
+    const source = body.replace(BUTTON_BLOCK, (_block, _fence, content: string) => {
+        const markup = opts.buttons ? buttonsToRichMarkdown(parseButtonRows(content), parseButtonAlign(content)) : "";
+        return `${BUTTON_ROWS_TOKEN}${rows.push(markup) - 1}\n`;
+    });
+    const text = convertToRichMarkdown(source);
+    if (rows.length === 0) return text;
+
+    // A message needs content of its own: buttons alone aren't sent.
+    const tokens = new RegExp(String.raw`^${BUTTON_ROWS_TOKEN}\d+$`, "gm");
+    if (text.replace(tokens, "").split(BLANK_LINE_FILLER).join("").trim() === "") return "";
+    // The rows are HTML blocks, which can't interrupt a paragraph, so they always get a blank
+    // line on each side; the blank lines the note itself had are already accounted for.
+    return text
+        .replace(new RegExp(String.raw`\n*^${BUTTON_ROWS_TOKEN}(\d+)$\n*`, "gm"), (_, i: string) => {
+            const markup = rows[parseInt(i, 10)];
+            return markup ? `\n\n${markup}\n\n` : "\n\n";
+        })
+        .trim();
+}
+
+// Stands in for a `tg-buttons` block during the conversion (see obsidianToRichMarkdown): plain
+// letters, which no conversion step rewrites.
+const BUTTON_ROWS_TOKEN = "TGBUTTONROWSPLACEHOLDER";
+
+function convertToRichMarkdown(body: string): string {
     let text = stripObsidianSyntax(body, { keepRichMediaEmbeds: true });
 
     // [[target]], [[target|alias]], [[target#heading]], [[target#heading|alias]] → alias ?? target

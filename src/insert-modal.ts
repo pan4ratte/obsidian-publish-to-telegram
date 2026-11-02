@@ -9,7 +9,7 @@ import {
     debounce, finishRenderMath, loadMathJax, prepareFuzzySearch, renderMath, setIcon, setTooltip,
 } from "obsidian";
 import { t } from "../lang/helpers";
-import { buttonBlockAt, buttonToHtml, parseButtonEmoji, richKindForExt, type ButtonColor, type InlineButton } from "./markdown";
+import { buttonBlockAt, buttonToHtml, parseButtonAlign, parseButtonEmoji, richKindForExt, type ButtonAlign, type ButtonColor, type InlineButton } from "./markdown";
 import { renderButton, requestEmoji } from "./buttons";
 import { CustomEmojiThumbnails } from "./custom-emoji";
 import { isShortMapLink, mapCheckUrl, mapToHtml, parseMapInput, MAP_ZOOM_MAX, MAP_ZOOM_MIN, type MapPoint } from "./map-link";
@@ -72,9 +72,9 @@ function stacked(setting: Setting): Setting {
 
 type ButtonAction = "url" | "copy" | "disabled";
 
-// One button under the post. Inside a `tg-buttons` block it's added there: on a new row below
-// the cursor's line, or at the end of that line when "Same row" is on (offered only when the
-// cursor is on a line of buttons). Elsewhere it starts a new block.
+// One button. Inside a `tg-buttons` block it's added there: on a new row below the cursor's
+// line, or at the end of that line when "Same row" is on (offered only when the cursor is on a
+// line of buttons). Elsewhere it starts a new block, whose alignment can be set here too.
 class ButtonForm implements InsertForm {
     private text: string;
     private action: ButtonAction = "url";
@@ -83,8 +83,11 @@ class ButtonForm implements InsertForm {
     private color: ButtonColor | "" = "";
     private emoji = "";
     private sameRow = false;
+    private align: ButtonAlign | "" = "";
 
     private readonly block: { contentFrom: number; contentTo: number } | null;
+    // The alignment of the block the button goes into, for the preview.
+    private readonly blockAlign: ButtonAlign | undefined;
     private readonly rowLine: number | null = null;
     private readonly closeLine: number = 0;
 
@@ -103,6 +106,7 @@ class ButtonForm implements InsertForm {
             this.closeLine = editor.offsetToPos(this.block.contentTo).line;
             const line = Math.min(Math.max(from.line, firstLine), this.closeLine - 1);
             if (line >= firstLine && /<button\b/i.test(editor.getLine(line))) this.rowLine = line;
+            this.blockAlign = parseButtonAlign(editor.getValue().slice(this.block.contentFrom, this.block.contentTo));
         }
         this.text = !this.block && !ctx.selection.includes("\n") ? ctx.selection.trim() : "";
     }
@@ -187,6 +191,20 @@ class ButtonForm implements InsertForm {
                 .setValue(this.emoji)
                 .onChange(value => { this.emoji = value; this.update(); this.loadEmoji(); }));
 
+        // Alignment belongs to the whole block, so it's set when a button starts one.
+        if (!this.block) {
+            new Setting(el)
+                .setName(t.BUTTON_MODAL_ALIGN)
+                .setDesc(t.BUTTON_MODAL_ALIGN_DESC)
+                .addDropdown(dropdown => dropdown
+                    .addOption("", t.BUTTON_ALIGN_DEFAULT)
+                    .addOption("left", t.BUTTON_ALIGN_LEFT)
+                    .addOption("center", t.BUTTON_ALIGN_CENTER)
+                    .addOption("right", t.BUTTON_ALIGN_RIGHT)
+                    .setValue(this.align)
+                    .onChange(value => { this.align = value as ButtonAlign | ""; this.update(); }));
+        }
+
         if (this.rowLine !== null) {
             new Setting(el)
                 .setName(t.BUTTON_MODAL_SAME_ROW)
@@ -218,6 +236,8 @@ class ButtonForm implements InsertForm {
         if (this.previewEl) {
             const button = this.button();
             this.previewEl.empty();
+            const align = this.block ? this.blockAlign : this.align || undefined;
+            for (const side of ["left", "center", "right"]) this.previewEl.toggleClass(`mod-align-${side}`, align === side);
             const rowEl = this.previewEl.createDiv("telegram-buttons-row");
             renderButton(rowEl, { ...button, text: button.text || t.BUTTON_MODAL_TEXT_PLACEHOLDER });
         }
@@ -237,7 +257,8 @@ class ButtonForm implements InsertForm {
             // No buttons on the cursor's line: the new row goes just before the closing fence.
             editor.replaceRange(`${html}\n`, { line: this.closeLine, ch: 0 });
         } else {
-            insertBlock(editor, `\`\`\`tg-buttons\n${html}\n\`\`\``);
+            const alignLine = this.align ? `align: ${this.align}\n` : "";
+            insertBlock(editor, `\`\`\`tg-buttons\n${alignLine}${html}\n\`\`\``);
         }
     }
 

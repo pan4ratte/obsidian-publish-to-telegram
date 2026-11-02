@@ -17,7 +17,7 @@ import wasmBytes from "@mtcute/wasm/mtcute.wasm";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions, CommentOptions } from "./types";
 import { errMessage, withTimeout } from "./util";
 import { accountTransport, transportForProxy, proxiedHttpsRequest, type ProxyConfig } from "./proxy";
-import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments, rewriteEmbeds, richKindForExt, parseButtons, buttonsToRichMarkdown, type RichKind } from "./markdown";
+import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments, rewriteEmbeds, richKindForExt, type RichKind } from "./markdown";
 import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
 import { t } from "../lang/helpers";
 
@@ -208,14 +208,13 @@ async function toRichAttachment(item: RichMediaItem): Promise<RichAttachment> {
 //
 // The markdown here is parsed SERVER-side (type: "markdown"). That's what buys headings,
 // tables, task lists, <tg-collage> and the rest for free. It also carries the post's buttons
-// (`withButtons`, posts only — comments get none, as on the bot path): the parser turns
-// `<tg-button-row>` tags into button blocks, so there's no need for Rich.buttonRow() and the
-// blocks form. Buttons only go on a message that has content of its own.
+// (`withButtons`, posts only — comments get none, as on the bot path), each block where the
+// note has it: the parser turns `<tg-button-row>` tags into button blocks, so there's no need
+// for Rich.buttonRow() and the blocks form. Buttons only go on a message that has content of
+// its own.
 async function buildRichMessageContent(app: App, body: string, sourceFile: TFile, mdAsDocument = false, withButtons = false): Promise<{ markdown: string; attachments?: Record<string, RichAttachment> }> {
     const { body: richBody, media } = collectRichMedia(app, body, sourceFile, mdAsDocument);
-    let markdown = obsidianToRichMarkdown(richBody);
-    const buttons = withButtons ? buttonsToRichMarkdown(parseButtons(body)) : "";
-    if (markdown.length > 0 && buttons) markdown += `\n\n${buttons}`;
+    const markdown = obsidianToRichMarkdown(richBody, { buttons: withButtons });
     let attachments: Record<string, RichAttachment> | undefined;
     if (media.length) {
         const entries = await Promise.all(media.map(async m => [m.id, await toRichAttachment(m)] as const));

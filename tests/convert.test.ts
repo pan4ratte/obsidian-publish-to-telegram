@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt, parseButtons, parseButtonRows, removeButtonBlocks, buttonsToRichMarkdown, buttonToHtml, buttonBlockAt, type InlineButton } from '../src/markdown';
+import { mdToTelegramHtml, obsidianToRichMarkdown, rewriteEmbeds, richKindForExt, parseButtons, parseButtonRows, removeButtonBlocks, buttonsToRichMarkdown, buttonToHtml, buttonBlockAt, parseButtonAlign, type InlineButton } from '../src/markdown';
 
 // `expect(x).toBe(y)` over node:assert, so the ported test bodies stay unchanged.
 function expect(received: unknown) {
@@ -420,6 +420,41 @@ test('Buttons: a written button reads back the same', () => {
   for (const button of buttons) assert.deepEqual(parseButtonRows(buttonToHtml(button)), [[button]]);
   assert.equal(buttonToHtml(buttons[0]), '<button href="https://example.com/?a=1&b=&quot;2&quot;" color="green">Website</button>');
   assert.equal(buttonToHtml({ text: 'A', disabled: true, url: 'https://a.com' }), '<button disabled>A</button>');
+});
+
+const ROW_A = '<tg-button-row>\n  <tg-button type="url" url="https://a.com">A</tg-button>\n</tg-button-row>';
+const BLOCK_A = '```tg-buttons\n<button href="https://a.com">A</button>\n```';
+
+test('Buttons: rich posts carry each block where it is written', () => {
+  assert.equal(obsidianToRichMarkdown(`Before.\n\n${BLOCK_A}\n\nAfter.`, { buttons: true }), `Before.\n\n${ROW_A}\n\nAfter.`);
+  // A block right under a line of text still becomes its own block.
+  assert.equal(obsidianToRichMarkdown(`Before.\n${BLOCK_A}\nAfter.`, { buttons: true }), `Before.\n\n${ROW_A}\n\nAfter.`);
+  // Two blocks, each in its own place; the end of the post closes on the second.
+  assert.equal(
+    obsidianToRichMarkdown(`One.\n\n${BLOCK_A}\n\nTwo.\n\n${BLOCK_A.replace('A</button>', 'B</button>')}`, { buttons: true }),
+    `One.\n\n${ROW_A}\n\nTwo.\n\n${ROW_A.replace('>A<', '>B<')}`,
+  );
+  // Deliberate empty lines before the block are kept, as anywhere else.
+  assert.equal(obsidianToRichMarkdown(`Before.\n\n\n${BLOCK_A}`, { buttons: true }), `Before.\n\n \n\n${ROW_A}`);
+  // Without `buttons` (comments) the block is simply dropped.
+  assert.equal(obsidianToRichMarkdown(`Before.\n\n${BLOCK_A}\n\nAfter.`), 'Before.\n\nAfter.');
+});
+
+test('Buttons: a commented-out block, or buttons alone, send nothing', () => {
+  assert.equal(obsidianToRichMarkdown(`Text.\n\n%%\n${BLOCK_A}\n%%`, { buttons: true }), 'Text.');
+  assert.equal(obsidianToRichMarkdown(BLOCK_A, { buttons: true }), '');
+  assert.throws(() => obsidianToRichMarkdown('Text.\n```tg-buttons\n<button>Nothing</button>\n```', { buttons: true }), /BUTTON_NO_ACTION/);
+});
+
+test('Buttons: an align line lines the rows up', () => {
+  assert.equal(parseButtonAlign('align: center\n<button>A</button>'), 'center');
+  assert.equal(parseButtonAlign('<button>A</button>\n  Align = Right  '), 'right');
+  assert.equal(parseButtonAlign('align: centre'), 'center');
+  assert.equal(parseButtonAlign('align: middle'), undefined);
+  const out = obsidianToRichMarkdown('Text.\n\n```tg-buttons\nalign: left\n<button href="https://a.com">A</button>\n<button disabled>B</button>\n```', { buttons: true });
+  assert.equal(out, 'Text.\n\n<tg-button-row align="left">\n  <tg-button type="url" url="https://a.com">A</tg-button>\n</tg-button-row>\n<tg-button-row align="left">\n  <tg-button type="disabled">B</tg-button>\n</tg-button-row>');
+  // The align line is no button row of its own.
+  assert.equal(parseButtonRows('align: left\n<button disabled>B</button>').length, 1);
 });
 
 test('Buttons: finding the block around the cursor', () => {

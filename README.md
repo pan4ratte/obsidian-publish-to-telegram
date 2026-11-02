@@ -268,9 +268,9 @@ Audio files (`.mp3`, `.ogg`, `.m4a`, `.wav`, `.flac`) and files of any other for
 
 **One post per publish (classic methods).** The “Account” and “Bot” methods send your attachments as a single Telegram message — a photo/video album, or a document album. If your attachments can't fit in one message, the whole post is refused with an error (nothing is sent in fragments). This happens when you combine things Telegram can't group in one album (an album together with an animation/GIF or a document, or several GIFs), when an album would exceed 10 items, and — on the “Account” method only — when you mix photos and videos in the same album (the “Bot” method handles that combination). To publish such a set, use a rich-text method (which places everything in one rich message) or split the attachments across separate posts.
 
-### 3.4 Buttons under a post
+### 3.4 Buttons
 
-The “Bot”, “Bot · Rich” and “Account · Rich” methods can publish buttons under a post. Add a `tg-buttons` code block to the note: each line is a row of buttons, each `<button>` element on the line is a button.
+The “Bot”, “Bot · Rich” and “Account · Rich” methods can publish buttons. Add a `tg-buttons` code block to the note: each line is a row of buttons, each `<button>` element on the line is a button.
 
 ````markdown
 ```tg-buttons
@@ -292,9 +292,11 @@ The “Bot”, “Bot · Rich” and “Account · Rich” methods can publish b
 
 * In bot posts, Telegram shows a custom emoji in a button only if the bot has a username bought on Fragment, or if the bot's owner has Telegram Premium and the post goes to a private chat or a group, not a channel.
 
-* You can insert the block with the **Insert buttons under the post** command in the note's editor context menu. In the note and in the preview it looks the same as buttons do in Telegram.
+* The easiest way to add a button is the **Insert buttons** command in the note's editor context menu: its window sets the button's text, action, colour, custom emoji and alignment while showing the result. With the cursor inside a block, the button is added to it — as a new row, or to the row the cursor is on. In the note and in the preview the block looks the same as buttons do in Telegram.
 
-* Buttons aren't part of the post's text; they sit under it. In a split note each post can have its own buttons — the block must come *before the split command* that marks the end of the post.
+* In the “Bot · Rich” and “Account · Rich” methods, buttons stand where the block is written in the note — between paragraphs, for example. In the “Bot” method, buttons always sit under the post. In a split note each post can have its own buttons — the block must come *before the split command* that marks the end of the post.
+
+* In rich-text posts the rows of buttons can be aligned: add an `align: left`, `align: center` or `align: right` line to the block. The alignment applies to every row of the block; the “Bot” method ignores it.
 
 * Editing a post updates its buttons: remove the block from the note, and the buttons disappear from the post too.
 
@@ -469,6 +471,16 @@ Because Rich Markdown may contain arbitrary HTML, you can also write Telegram’
 ### 4.3 Inserting elements from the context menu
 
 You don't have to add this formatting by hand. Right-click in the note editor to open the "Rich-text formatting" submenu and choose an element to insert it into the text or to wrap the selected text.
+
+References, formulas, captioned media, maps, collages and slideshows, as well as buttons, are set up in the insert window. Each element has its own tab there, and buttons and formulas a preview:
+
+* **Map** — paste a link from Google Maps, Yandex Maps, 2GIS, OpenStreetMap, Apple Maps or Bing Maps, or coordinates, and the plugin fills in the latitude, longitude and zoom. Short links such as `maps.app.goo.gl` aren't supported — open the link in a browser and copy the full address.
+
+* **Media** — a single captioned media, a collage or a slideshow. Files can be picked from the vault or from the device, or added by link. Files from the device are copied to the attachment folder set in Obsidian's settings.
+
+* **Reference** — a reference link and its referenced text, joined by a shared name. Inserted together, the referenced text goes at the end of the current post.
+
+* **Formula** — a LaTeX formula inside the text or as a centered block of its own.
 
 ## 5. The emoji bar
 

@@ -374,8 +374,9 @@ interface CardRow {
     // Repaints the previewed text for the chosen method — currently the heading downgrade a
     // classic method applies. Late-bound, like the other preview updaters.
     updateTextStyle: () => void;
-    // Set while every chosen method is the classic "account" one: it can't send buttons (bots
-    // attach them as reply_markup, "account-rich" as button blocks), so its preview hides them.
+    // Set while every chosen method is the classic "account" one: it can't send buttons (the
+    // classic bot attaches them as reply_markup, the rich methods as button blocks inside the
+    // message), so its preview hides them.
     buttonsBlocked: boolean;
     updateButtons: () => void;
     onlineOn: boolean;
@@ -1626,17 +1627,24 @@ export class MultiPresetModal extends Modal {
         // left reading exactly as the note does — as is a preview with no method chosen yet,
         // where there's nothing to predict.
         const mediaEl = previewContentEl.createDiv("telegram-split-media is-hidden");
-        // Telegram draws a post's buttons under the whole message, so each rendered `tg-buttons`
-        // block (src/buttons.ts) is lifted out of wherever the note has it into this row, which
-        // always closes the previewed content — inside it, so the collapsed clamp hides the
-        // buttons along with the rest. A comment's buttons aren't sent at all and are dropped
-        // from its preview.
+        // Where a post's buttons go depends on the method. A Rich Message has them where the
+        // note writes each `tg-buttons` block (src/buttons.ts), so the preview leaves them there
+        // — as it does with no method chosen yet. The classic "Bot" method sends them as a
+        // keyboard under the whole message, so the blocks are lifted into this row, which always
+        // closes the previewed content — inside it, so the collapsed clamp hides the buttons
+        // along with the rest. Each block leaves an anchor in its place to go back to. A
+        // comment's buttons aren't sent at all and are dropped from its preview.
         const buttonsEl = createDiv("telegram-split-buttons");
+        const buttonBlocks: Array<{ el: HTMLElement; anchor: Comment }> = [];
+        const isButtonLink = (el: Element): boolean => el.closest(".block-language-tg-buttons") !== null;
         const collectButtons = () => {
             previewContentEl.querySelectorAll<HTMLElement>(".block-language-tg-buttons").forEach(block => {
-                if (isPost) buttonsEl.appendChild(block);
-                else block.remove();
+                if (!isPost) { block.remove(); return; }
+                const anchor = activeDocument.createComment("tg-buttons");
+                block.before(anchor);
+                buttonBlocks.push({ el: block, anchor });
             });
+            row.updateButtons();
         };
         // Whatever goes at the end of the message (the attachments, the link preview) goes in
         // just before the buttons while they're shown.
@@ -1674,19 +1682,32 @@ export class MultiPresetModal extends Modal {
             expandBtn.toggle(clipped);
             previewEl.toggleClass("no-expand", !clipped);
         };
-        // Shown while a bot method is among those chosen, or none is chosen yet. A skipped post
-        // keeps them, like the rest of its preview. Hidden, the row leaves the content
-        // altogether: as its last child it would otherwise take the spacing reset the real last
-        // block needs.
+        // Hidden while the classic "account" method is all that's chosen; under the post for the
+        // classic "Bot" method; in place otherwise. A skipped post keeps them, like the rest of
+        // its preview. The row under the post leaves the content altogether when it's empty: as
+        // its last child it would otherwise take the spacing reset the real last block needs.
         // Runs on every repaint of the card's settings, so the clamp is only measured again when
-        // the row actually came or went.
+        // something actually moved.
         row.updateButtons = () => {
-            const show = buttonsEl.hasChildNodes() && !row.buttonsBlocked;
+            const underPost = row.classicMethod && !row.buttonsBlocked;
+            let moved = false;
+            for (const { el, anchor } of buttonBlocks) {
+                if (row.buttonsBlocked) {
+                    if (el.isConnected) { el.remove(); moved = true; }
+                } else if (underPost) {
+                    // Re-appended in note order, so the row keeps the blocks as written.
+                    if (el.parentElement !== buttonsEl) moved = true;
+                    buttonsEl.appendChild(el);
+                } else if (el.previousSibling !== anchor) {
+                    anchor.after(el);
+                    moved = true;
+                }
+            }
+            const show = underPost && buttonBlocks.length > 0;
             const shown = buttonsEl.parentElement === previewContentEl;
-            if (show && previewContentEl.lastChild !== buttonsEl) previewContentEl.appendChild(buttonsEl);
-            else if (!show && shown) buttonsEl.remove();
-            else return;
-            window.requestAnimationFrame(refreshExpand);
+            if (show && previewContentEl.lastChild !== buttonsEl) { previewContentEl.appendChild(buttonsEl); moved = true; }
+            else if (!show && shown) { buttonsEl.remove(); moved = true; }
+            if (moved) window.requestAnimationFrame(refreshExpand);
         };
         // Telegram shows a document — any file that isn't a photo, video or audio — as a row: a
         // round icon, the file name and its size. Obsidian renders those embeds as a PDF viewer,
@@ -1835,7 +1856,7 @@ export class MultiPresetModal extends Modal {
             // text — so with no explicit selection the card falls back to that link.
             const autoUrl = (): string | null => {
                 for (const a of Array.from(previewContentEl.querySelectorAll("a"))) {
-                    if (buttonsEl.contains(a)) continue;
+                    if (isButtonLink(a)) continue;
                     const href = a.getAttribute("href") ?? "";
                     if (/^https?:\/\//i.test(href)) return href;
                 }
@@ -1915,7 +1936,7 @@ export class MultiPresetModal extends Modal {
         previewContentEl.addEventListener("click", (e: MouseEvent) => {
             const anchor = (e.target as HTMLElement).closest("a");
             // A button's link isn't part of the text, so it's never a link-preview source.
-            if (!anchor || buttonsEl.contains(anchor) || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
+            if (!anchor || isButtonLink(anchor) || !/^https?:\/\//i.test(anchor.getAttribute("href") ?? "")) return;
             if (e.ctrlKey || e.metaKey) return;
             // Nothing to choose on a message that carries attachments: it renders those and no
             // web preview, and unlike a method restriction that can't change while the modal is
@@ -1941,7 +1962,7 @@ export class MultiPresetModal extends Modal {
                 collectButtons();
                 // Explain the click behaviour on every selectable web link.
                 previewContentEl.querySelectorAll<HTMLAnchorElement>("a").forEach(a => {
-                    if (buttonsEl.contains(a)) return;
+                    if (isButtonLink(a)) return;
                     if (/^https?:\/\//i.test(a.getAttribute("href") ?? "")) setTooltip(a, t.ADVANCED_CARD_LINK_TOOLTIP);
                 });
                 // Now that the embeds and links exist, whether this message carries media is

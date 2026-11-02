@@ -158,8 +158,10 @@ interface BotRichContent { markdown: string; files: BotRichFile[]; }
 // anything else as a document — the same as the account-rich path. Web media Telegram can
 // render inline stays as its URL; any other web file (e.g. a PDF link) becomes a document
 // that Telegram fetches by URL. `.md` embeds become documents only with `mdAsDocument`;
-// otherwise the comment path handles them and they're stripped from the text.
-function buildBotRichContent(app: App, body: string, sourceFile: TFile, mdAsDocument: boolean): BotRichContent {
+// otherwise the comment path handles them and they're stripped from the text. With
+// `withButtons` (posts only) the note's button blocks become button rows where they're written,
+// as on the account-rich path, instead of a keyboard under the message.
+function buildBotRichContent(app: App, body: string, sourceFile: TFile, mdAsDocument: boolean, withButtons = false): BotRichContent {
     const files: BotRichFile[] = [];
     const add = (file: MediaFile): string => {
         const id = `m${files.length}`;
@@ -195,7 +197,7 @@ function buildBotRichContent(app: App, body: string, sourceFile: TFile, mdAsDocu
         });
     };
 
-    return { markdown: obsidianToRichMarkdown(rewriteEmbeds(body, refFor)), files };
+    return { markdown: obsidianToRichMarkdown(rewriteEmbeds(body, refFor), { buttons: withButtons }), files };
 }
 
 // The InputMedia type for a rich attachment: GIFs share the video reference but upload as
@@ -336,9 +338,9 @@ function linkPreviewOptions(linkPreviewUrl?: string, linkPreviewAboveText?: bool
     return linkPreview;
 }
 
-// A post's buttons as Telegram's reply_markup, or undefined when it has none. Only bots can
-// attach reply_markup; the "account-rich" path sends the same block as button blocks inside
-// the message instead (buttonsToRichMarkdown). A button carries exactly one action (Telegram
+// A classic "Bot" post's buttons as Telegram's reply_markup, or undefined when it has none.
+// Rich posts carry their buttons inside the message instead, where each block is written
+// (obsidianToRichMarkdown with `buttons`). A button carries exactly one action (Telegram
 // rejects two); one with none is refused before anything is sent.
 type ReplyMarkup = { inline_keyboard: Array<Array<Record<string, unknown>>> };
 function inlineKeyboard(body: string): ReplyMarkup | undefined {
@@ -694,14 +696,14 @@ async function sendPartViaBotApi(
     }
 
     let result: SendResult | null = null;
-    const buttons = inlineKeyboard(body);
+    const buttons = postAsRich ? undefined : inlineKeyboard(body);
 
     if (postAsRich) {
         // ── Rich Message path ("Bot · Rich") ─────────────────────────────────────
         // One message: the text and every file embedded where the note embeds it. Embedded
         // notes go in as documents unless they're being posted as comments.
-        const rich = buildBotRichContent(app, body, sourceFile, !treatMdEmbedsAsComments);
-        if (rich.markdown.length > 0) result = await sendRichTextBot(token, chatId, rich, silent, topicId, buttons, replyTo);
+        const rich = buildBotRichContent(app, body, sourceFile, !treatMdEmbedsAsComments, true);
+        if (rich.markdown.length > 0) result = await sendRichTextBot(token, chatId, rich, silent, topicId, undefined, replyTo);
     } else {
         // ── Classic HTML path ("bot") ────────────────────────────────────────────
         // A classic post must be a single message; if the attachments would produce more
@@ -947,9 +949,11 @@ export async function sendNoteViaBotApi(
             // user picks the style at edit time by choosing which method they edit with. A
             // failed rich edit is NOT downgraded to HTML — the error propagates instead.
             // Built exactly as on the send path, so files can be added to a rich post on edit.
-            const rich = postAsRich ? buildBotRichContent(app, editBody, file, !treatMdEmbedsAsComments) : null;
+            // A rich edit carries its buttons inside the message, and sends no reply_markup — which
+            // also takes off a keyboard the post may have had from before buttons moved inside.
+            const rich = postAsRich ? buildBotRichContent(app, editBody, file, !treatMdEmbedsAsComments, true) : null;
             const htmlContent = mdToBotApiHtml(editBody);
-            const buttons = inlineKeyboard(editBody);
+            const buttons = postAsRich ? undefined : inlineKeyboard(editBody);
             // For the classic method, attach the note's media so adding e.g. a photo on edit
             // actually shows up (via editMessageMedia). Only a single attachment can ride on
             // an edit — an album can't be formed this way — so with 0 or >1 attachments we

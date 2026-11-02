@@ -5,7 +5,7 @@
 // shows in the editor, in reading view and in the publishing preview.
 
 import { setIcon, setTooltip, type MarkdownPostProcessorContext } from "obsidian";
-import { parseButtonRows, type InlineButton } from "./markdown";
+import { parseButtonAlign, parseButtonRows, type InlineButton } from "./markdown";
 import { renderCustomEmoji } from "./emoji-inline";
 import { CustomEmojiThumbnails } from "./custom-emoji";
 import { t } from "../lang/helpers";
@@ -53,6 +53,9 @@ export function renderButton(rowEl: HTMLElement, button: InlineButton): void {
 export function buttonsCodeBlockProcessor(previews: () => CustomEmojiThumbnails | null) {
     return (source: string, el: HTMLElement, _ctx: MarkdownPostProcessorContext): void => {
         const root = el.createDiv("telegram-buttons");
+        // An aligned block's buttons keep their own width, lined up as the `align:` line says.
+        const align = parseButtonAlign(source);
+        if (align) root.addClass(`mod-align-${align}`);
         const rows = parseButtonRows(source);
         if (rows.length === 0) {
             root.createDiv({ cls: "telegram-buttons-empty", text: t.BUTTONS_EMPTY });
