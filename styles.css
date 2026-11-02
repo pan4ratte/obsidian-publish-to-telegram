@@ -911,7 +911,8 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
 
 /* ── Credentials card ── */
 
-.telegram-credentials-card {
+.telegram-credentials-card,
+.telegram-insert-card {
     position: relative;
     z-index: 0;
     border: 1px solid var(--background-modifier-border);
@@ -922,23 +923,34 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     margin-top: -24px;
 }
 
-.telegram-credentials-heading {
+.telegram-credentials-heading,
+.telegram-insert-hint {
     margin: 16px 0 12px;
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
 
-.telegram-credentials-heading:first-child {
+/* In the insert window (see "Insert window") this line says which methods publish the
+   element, and a divider sets it off from the settings under it. */
+.telegram-insert-hint {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.telegram-credentials-heading:first-child,
+.telegram-insert-hint:first-child {
     margin-top: 0;
 }
 
-.telegram-credentials-list {
+.telegram-credentials-list,
+.telegram-insert-media-list {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.telegram-credentials-row {
+.telegram-credentials-row,
+.telegram-insert-media-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -949,14 +961,16 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
     background-color: var(--background-secondary);
 }
 
-.telegram-credentials-row-name {
+.telegram-credentials-row-name,
+.telegram-insert-media-name {
     color: var(--text-normal);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.telegram-credentials-row-actions {
+.telegram-credentials-row-actions,
+.telegram-insert-media-actions {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -965,7 +979,8 @@ body .telegram-auth-actions .telegram-link-button:focus-visible {
 
 /* Delete and log out can't be undone from here, so they warn on hover instead of lighting up
    like the rename button beside them. */
-.telegram-credentials-row-actions .telegram-danger-icon:hover {
+.telegram-credentials-row-actions .telegram-danger-icon:hover,
+.telegram-insert-media-actions .telegram-danger-icon:hover {
     color: var(--text-error);
     background-color: color-mix(in srgb, var(--text-error) 12%, transparent);
 }
@@ -1044,7 +1059,8 @@ body .telegram-auth-submit.telegram-proxy-save-submit {
     margin-top: 8px;
 }
 
-.telegram-proxy-row-info {
+.telegram-proxy-row-info,
+.telegram-insert-media-info {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1052,7 +1068,8 @@ body .telegram-auth-submit.telegram-proxy-save-submit {
     min-width: 0;
 }
 
-.telegram-proxy-type {
+.telegram-proxy-type,
+.telegram-insert-media-tag {
     flex-shrink: 0;
     padding: 1px 6px;
     border-radius: var(--radius-s);
@@ -1068,11 +1085,13 @@ body .telegram-auth-submit.telegram-proxy-save-submit {
     font-size: var(--font-ui-smaller);
 }
 
-.telegram-proxy-status.is-ok {
+.telegram-proxy-status.is-ok,
+.telegram-insert-status.is-ok {
     color: var(--text-success);
 }
 
-.telegram-proxy-status.is-fail {
+.telegram-proxy-status.is-fail,
+.telegram-insert-status.is-fail {
     color: var(--text-error);
 }
 
@@ -1434,7 +1453,8 @@ body .telegram-auth-submit:disabled {
 
 .telegram-auth-card,
 .telegram-add-token-form,
-.telegram-credentials-card {
+.telegram-credentials-card,
+.telegram-insert-card {
     animation: telegram-auth-card-in 130ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
@@ -1454,7 +1474,8 @@ body .telegram-auth-submit:disabled {
 
 .telegram-auth-card.is-switched,
 .telegram-add-token-form.is-switched,
-.telegram-credentials-card.is-switched {
+.telegram-credentials-card.is-switched,
+.telegram-insert-card.is-switched {
     animation-name: telegram-auth-card-fade;
 }
 
@@ -1504,6 +1525,7 @@ body .telegram-auth-submit:disabled {
     .telegram-auth-card,
     .telegram-add-token-form,
     .telegram-credentials-card,
+    .telegram-insert-card,
     .telegram-auth-stage .is-leaving {
         animation: none;
     }
@@ -2577,10 +2599,197 @@ body .telegram-button-kind .svg-icon {
     margin-top: 10px;
 }
 
-/* The new button modal (ButtonModal in src/buttons.ts) shows the button above its settings,
-   drawn as it will look in the note. */
-.telegram-button-modal-preview {
-    margin-bottom: var(--size-4-4);
+/* ─── Insert window ────────────────────────────────────────────────────────────── */
+
+/* The insert window (src/insert-modal.ts) is built from the settings' own parts: the element
+   tabs are the account bar (`.telegram-auth-status`), each tab's settings a panel card tucked
+   under it, sharing the credentials card's look and motion, the line saying which methods
+   publish the element is styled as that card's headings, and picked media are listed like the
+   saved credentials. Only what those parts don't have is styled here.
+
+   A little wider than Obsidian's default dialog, so the five tabs fit on one row. */
+.telegram-insert-modal {
+    --dialog-width: 600px;
+}
+
+/* Obsidian 1.13 top-aligns a row's name and its control, so a name sits high beside a taller
+   dropdown and a control high beside a two-line description. As in the settings tab, both are
+   centred against each other. The stacked rows run top to bottom and keep their own layout. */
+.telegram-insert-card .setting-item:not(.telegram-insert-stacked) > .setting-item-info,
+.telegram-insert-card .setting-item:not(.telegram-insert-stacked) > .setting-item-control {
+    align-self: center;
+}
+
+/* The button colours as round swatches, sized and pinned like the circle buttons of the
+   publishing window (see "Split post layout"), and filled with the colour the button is drawn
+   in — `--telegram-button-color`, as in "Buttons under a post". The chosen one is ringed in its
+   own colour, set off by a gap of the card's background, and ticked. */
+.telegram-color-swatches {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+body .telegram-color-swatch {
+    --telegram-button-color: var(--interactive-accent);
+    --icon-size: 16px;
+
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    min-width: 26px;
+    max-width: 26px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background-color: var(--telegram-button-color);
+    box-shadow: none;
+    color: var(--text-on-accent);
+    cursor: pointer;
+    transition: box-shadow 130ms ease, transform 90ms ease;
+}
+
+body .telegram-color-swatch.mod-blue {
+    --telegram-button-color: var(--color-blue);
+}
+
+body .telegram-color-swatch.mod-green {
+    --telegram-button-color: var(--color-green);
+}
+
+body .telegram-color-swatch.mod-red {
+    --telegram-button-color: var(--color-red);
+}
+
+body .telegram-color-swatch:hover {
+    background-color: var(--telegram-button-color);
+    box-shadow: 0 0 0 2px var(--setting-items-background), 0 0 0 4px var(--background-modifier-border-hover);
+}
+
+body .telegram-color-swatch.is-selected,
+body .telegram-color-swatch.is-selected:hover {
+    box-shadow: 0 0 0 2px var(--setting-items-background), 0 0 0 4px var(--telegram-button-color);
+}
+
+body .telegram-color-swatch:focus-visible {
+    box-shadow: 0 0 0 2px var(--setting-items-background), 0 0 0 4px var(--background-modifier-border-focus);
+}
+
+body .telegram-color-swatch:active {
+    transform: scale(0.9);
+    transition-duration: 60ms;
+}
+
+.telegram-color-swatch-check {
+    display: flex;
+    opacity: 0;
+    transition: opacity 130ms ease;
+}
+
+.telegram-color-swatch.is-selected .telegram-color-swatch-check {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body .telegram-color-swatch,
+    .telegram-color-swatch-check {
+        transition: none;
+    }
+
+    body .telegram-color-swatch:active {
+        transform: none;
+    }
+}
+
+/* The element as it will look: a button drawn as in the note, a rendered formula. */
+.telegram-insert-preview {
+    margin: 0 0 var(--size-4-4);
+}
+
+/* The formula sits in a box like a credentials row. */
+.telegram-insert-math-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 4em;
+    padding: 8px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--input-radius);
+    background-color: var(--background-secondary);
+    overflow-x: auto;
+}
+
+.telegram-insert-math-preview.is-inline {
+    justify-content: flex-start;
+}
+
+.telegram-insert-preview-empty {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+/* A text area under its name, full width. */
+.telegram-insert-stacked {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--size-4-2);
+}
+
+.telegram-insert-stacked textarea {
+    width: 100%;
+    min-height: 4.5em;
+    resize: vertical;
+}
+
+/* A text field in such a row (a class, not an `input` selector: those must stay in
+   least-to-most-specific order across the file). */
+.telegram-insert-wide {
+    width: 100%;
+}
+
+/* What a map link was read as, or why it couldn't be, under the field; coloured like a proxy's
+   check result. The row's gap already spaces it. */
+.telegram-insert-status {
+    margin-top: 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.telegram-insert-status:empty {
+    display: none;
+}
+
+/* The picked media come after the field they're added with, set apart like the rows below a
+   credentials heading. */
+.telegram-insert-media-list {
+    margin-bottom: 12px;
+}
+
+.telegram-insert-media-thumb {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-hover);
+    color: var(--text-muted);
+    overflow: hidden;
+}
+
+.telegram-insert-media-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.telegram-insert-file-path {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
 }
 
 /* ─── Changelog ────────────────────────────────────────────────────────────────── */

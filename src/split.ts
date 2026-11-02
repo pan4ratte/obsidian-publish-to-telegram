@@ -166,6 +166,18 @@ export function parseSplitPosts(body: string): SplitPost[] {
     return posts;
 }
 
+// Where the post holding `offset` ends: the start of the next split marker line, or the end of
+// the body. Used to put text at the end of the post being written.
+export function postEndAt(body: string, offset: number): number {
+    const re = markerRegex();
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(body)) !== null) {
+        if (m.index + m[0].length > offset) return m.index;
+        if (re.lastIndex === m.index) re.lastIndex++;
+    }
+    return body.length;
+}
+
 // The post contents in order — the parts to publish. Mirrors the previous
 // splitBodyByMarkers() (trimmed, non-empty runs) but tolerates markers that carry links.
 export function splitBodyByMarkers(body: string): string[] {

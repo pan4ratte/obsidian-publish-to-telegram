@@ -61,7 +61,7 @@ function stripCommentsPreservingCode(text: string): string {
 export function stripObsidianSyntax(body: string, opts: { keepRichMediaEmbeds?: boolean } = {}): string {
     return removeButtonBlocks(stripCommentsPreservingCode(body))   // comments (but keep those inside code), then buttons
         .replace(/!\[\[[^\]]*\]\]/g, "")           // Strip wikilink embeds (always local)
-        .replace(/!\[[^\]]*\]\(([^)]*)\)/g, (match, target: string) =>
+        .replace(MD_EMBED, (match, target: string) =>
             opts.keepRichMediaEmbeds && (isRichEmbeddableUrl(target) || isRichAttachmentRef(target)) ? match : "")
         .replace(/!\([^)]*\)\[[^\]]*\]/g, "")      // Strip reversed MD embeds !()[]
         .replace(/[ \t]+\n/g, "\n")
@@ -271,13 +271,25 @@ export function richKindForExt(ext: string): RichKind {
     return "document";
 }
 
-// Drops commented-out regions, then offers every embed's target (the path or URL, before any
+// A Markdown embed `![alt](target)`. The target is the path or URL plus any "title", which may
+// hold a `)` itself — Rich Markdown reads the title as the media's caption.
+const MD_EMBED = /!\[[^\]]*\]\(([^\s)]+\s+"[^"]*"|[^)]*)\)/g;
+
+// Drops commented-out regions, then offers every embed's target (the path or URL, with any
 // "title") to `replace`. A string return replaces the whole embed; null leaves it as written.
 // Shared by the account and bot rich paths, which turn local embeds into tg://…?id= references.
+// A Markdown embed's "title" is its caption, so it's carried over to a `![](…)` replacement.
 export function rewriteEmbeds(body: string, replace: (target: string) => string | null): string {
     return stripComments(body)
         .replace(/!\[\[([^\]|#]+?)(?:[|#][^\]]*)?\]\]/g, (m, p: string) => replace(p) ?? m)
-        .replace(/!\[[^\]]*\]\(([^)]+)\)/g, (m, p: string) => replace(p) ?? m)
+        .replace(MD_EMBED, (m, p: string) => {
+            const replacement = replace(p);
+            if (replacement === null) return m;
+            const title = /\s+("[^"]*")\s*$/.exec(p)?.[1];
+            return title && /^!\[\]\([^\s)]+\)$/.test(replacement)
+                ? `${replacement.slice(0, -1)} ${title})`
+                : replacement;
+        })
         .replace(/!\(([^)]+)\)\[[^\]]*\]/g, (m, p: string) => replace(p) ?? m);
 }
 

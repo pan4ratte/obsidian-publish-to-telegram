@@ -1,42 +1,47 @@
-import { Plugin, Notice, TFile, TFolder, Menu, Editor } from "obsidian";
+import { Plugin, Notice, TFile, TFolder, Menu, Editor, type MarkdownView, type MarkdownFileInfo } from "obsidian";
 import { t, getUserGuideContent, getChangelogContent } from "./lang/helpers";
 import { TelegramChannel, TelegramSettings, TelegramSecrets, TelegramAccount, TelegramProxy, PostMethod, DEFAULT_SETTINGS, PendingScheduledLink, SplitPartOptions } from "./src/types";
 import { sendNoteToTelegram, editNoteCommentsOnly, checkIsForum, createClient, resolveScheduledLinks, parseLinkComponents, isValidAccountSession } from "./src/telegram";
 import { EmojiPicker, RECENT_EMOJI_LIMIT } from "./src/emoji";
 import { CustomEmojiThumbnails, PreviewStore, loadCustomEmojiSets, CUSTOM_EMOJI_TTL } from "./src/custom-emoji";
-import { hasCustomEmoji, buttonBlockAt, buttonToHtml } from "./src/markdown";
+import { hasCustomEmoji } from "./src/markdown";
 import { customEmojiEditorExtension, customEmojiPostProcessor, refreshInlineEmoji } from "./src/emoji-inline";
-import { buttonsCodeBlockProcessor, ButtonModal } from "./src/buttons";
+import { buttonsCodeBlockProcessor } from "./src/buttons";
+import { InsertModal, type InsertPreset } from "./src/insert-modal";
 import { sendNoteViaBotApi, editNoteCommentsViaBotApi } from "./src/telegram-bot";
 import { writeLinksIntoMarkers } from "./src/split";
 import { setProxies, type ProxyConfig } from "./src/proxy";
 import { ChangelogModal, FormattingHelpModal, MultiPresetModal, TelegramSettingTab } from "./src/gui";
 import { errMessage } from "./src/util";
 
-// Rich-text formatting snippets offered in the editor context menu. Each entry wraps the
-// current selection (or, with nothing selected, a placeholder that gets selected after
-// insertion) as `before` + selection + `after`. These mirror the rich-text tags documented
-// in the README's "Rich-text formatting" section.
 // Dedicated section id grouping the plugin's editor-menu items together, separated by a divider.
 const MENU_SECTION = "publish-to-telegram";
 
-interface FormattingOption { title: string; icon: string; before: string; inner: string; after: string; }
+// Rich-text formatting offered in the editor context menu. A snippet wraps the current
+// selection (or, with nothing selected, a placeholder that gets selected after insertion) as
+// `before` + selection + `after`; an element with something to set up opens the insert window
+// (src/insert-modal.ts) on its tab instead. These mirror the rich-text tags documented in the
+// README's "Rich-text formatting" section.
+type FormattingOption = { title: string; icon: string } & (
+    | { before: string; inner: string; after: string; insert?: undefined }
+    | { insert: InsertPreset }
+);
 
 const richFormattingOptions = (): FormattingOption[] => [
     { title: t.MENU_FMT_ACCORDION, icon: "chevrons-down-up", before: "<details>\n<summary>Title</summary>\n\n", inner: "Content", after: "\n</details>\n" },
     { title: t.MENU_FMT_CENTERED_QUOTE, icon: "quote", before: "<aside>", inner: "Quote", after: "</aside>" },
     { title: t.MENU_FMT_CENTERED_QUOTE_AUTHOR, icon: "users", before: "<aside>", inner: "Quote", after: "<cite>Author</cite></aside>" },
     { title: t.MENU_FMT_EMAIL_LINK, icon: "send", before: '<a href="mailto:email@example.com">', inner: "Text", after: "</a>" },
-    { title: t.MENU_FMT_REFERENCE_LINK, icon: "link", before: '<a href="#reference-name">', inner: "Text", after: "</a>" },
-    { title: t.MENU_FMT_REFERENCE_TEXT, icon: "bookmark", before: '<tg-reference name="reference-name">', inner: "Text", after: "</tg-reference>" },
+    { title: t.MENU_FMT_REFERENCE_LINK, icon: "link", insert: { kind: "reference", referenceMode: "link" } },
+    { title: t.MENU_FMT_REFERENCE_TEXT, icon: "bookmark", insert: { kind: "reference", referenceMode: "text" } },
     { title: t.MENU_FMT_FOOTER, icon: "separator-horizontal", before: "<footer>", inner: "Footer text", after: "</footer>" },
     { title: t.MENU_FMT_SUPERSCRIPT, icon: "arrow-up", before: "<sup>", inner: "Text", after: "</sup>" },
     { title: t.MENU_FMT_SUBSCRIPT, icon: "arrow-down", before: "<sub>", inner: "Text", after: "</sub>" },
-    { title: t.MENU_FMT_MATH, icon: "sigma", before: "<tg-math-block>", inner: "E = mc^2", after: "</tg-math-block>" },
-    { title: t.MENU_FMT_CAPTIONED_MEDIA, icon: "image", before: '<figure>\n<img src="https://example.com/photo.jpg">\n<figcaption>', inner: "Caption", after: "</figcaption>\n</figure>\n" },
-    { title: t.MENU_FMT_MAP, icon: "navigation", before: '<tg-map lat="', inner: "0.0", after: '" long="0.0" zoom="15"/>' },
-    { title: t.MENU_FMT_COLLAGE, icon: "layout-grid", before: '<tg-collage>\n<img src="', inner: "https://example.com/1.jpg", after: '">\n<img src="https://example.com/2.jpg">\n</tg-collage>\n' },
-    { title: t.MENU_FMT_SLIDESHOW, icon: "gallery-vertical", before: '<tg-slideshow>\n<img src="', inner: "https://example.com/1.jpg", after: '">\n<img src="https://example.com/2.jpg">\n</tg-slideshow>\n' },
+    { title: t.MENU_FMT_MATH, icon: "sigma", insert: { kind: "math", mathDisplay: true } },
+    { title: t.MENU_FMT_CAPTIONED_MEDIA, icon: "image", insert: { kind: "media", mediaLayout: "single" } },
+    { title: t.MENU_FMT_MAP, icon: "navigation", insert: { kind: "map" } },
+    { title: t.MENU_FMT_COLLAGE, icon: "layout-grid", insert: { kind: "media", mediaLayout: "collage" } },
+    { title: t.MENU_FMT_SLIDESHOW, icon: "gallery-vertical", insert: { kind: "media", mediaLayout: "slideshow" } },
 ];
 
 export default class SendToTelegramPlugin extends Plugin {
@@ -112,8 +117,10 @@ export default class SendToTelegramPlugin extends Plugin {
     // Both items live in their own section rendered directly below Obsidian's formatting section.
     private registerEditorMenu() {
         this.registerEvent(
-            this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
+            this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor, info: MarkdownView | MarkdownFileInfo) => {
                 this.placeSectionBelowFormatting(menu, MENU_SECTION);
+                const openInsert = (preset: InsertPreset) =>
+                    new InsertModal(this.app, editor, info.file?.path ?? "", () => this.customEmojiPreviews(), preset).open();
 
                 menu.addItem((item) => {
                     item.setTitle(t.MENU_INSERT_SPLIT).setIcon("scissors").setSection(MENU_SECTION);
@@ -122,7 +129,7 @@ export default class SendToTelegramPlugin extends Plugin {
 
                 menu.addItem((item) => {
                     item.setTitle(t.MENU_INSERT_BUTTONS).setIcon("mouse-pointer-click").setSection(MENU_SECTION);
-                    item.onClick(() => this.insertButtons(editor));
+                    item.onClick(() => openInsert({ kind: "button" }));
                 });
 
                 menu.addItem((item) => {
@@ -132,7 +139,10 @@ export default class SendToTelegramPlugin extends Plugin {
                     for (const opt of richFormattingOptions()) {
                         submenu.addItem((sub) => {
                             sub.setTitle(opt.title).setIcon(opt.icon);
-                            sub.onClick(() => this.insertFormatting(editor, opt.before, opt.inner, opt.after));
+                            sub.onClick(() => {
+                                if (opt.insert) openInsert(opt.insert);
+                                else this.insertFormatting(editor, opt.before, opt.inner, opt.after);
+                            });
                         });
                     }
                 });
@@ -166,47 +176,6 @@ export default class SendToTelegramPlugin extends Plugin {
         const after = line.slice(cursor.ch).trim().length > 0 ? "\n\n" : "";
         editor.replaceSelection(`${before}%% \\split %%${after}`);
         editor.focus();
-    }
-
-    // Sets up a button in ButtonModal, then writes it (see parseButtonRows in src/markdown.ts).
-    // Inside a `tg-buttons` block it's added there: on a new row below the cursor's line, or at
-    // the end of that line when "Same row" is on. Elsewhere it starts a new block at the cursor;
-    // a code fence has to start a line, so text on either side is pushed to its own paragraph.
-    private insertButtons(editor: Editor): void {
-        const from = editor.getCursor("from");
-        const to = editor.getCursor("to");
-        const selection = editor.getSelection();
-        const block = buttonBlockAt(editor.getValue(), editor.posToOffset(from));
-
-        // Inside a block: the line of buttons the cursor is on, kept within the block's content.
-        let rowLine: number | null = null;
-        let firstLine = 0;
-        let closeLine = 0;
-        if (block) {
-            firstLine = editor.offsetToPos(block.contentFrom).line;
-            closeLine = editor.offsetToPos(block.contentTo).line;
-            const line = Math.min(Math.max(from.line, firstLine), closeLine - 1);
-            if (line >= firstLine && /<button\b/i.test(editor.getLine(line))) rowLine = line;
-        }
-
-        const initialText = !block && !selection.includes("\n") ? selection.trim() : "";
-        new ButtonModal(this.app, initialText, rowLine !== null, () => this.customEmojiPreviews(), (button, sameRow) => {
-            const html = buttonToHtml(button);
-            if (block && rowLine !== null && sameRow) {
-                const ch = editor.getLine(rowLine).trimEnd().length;
-                editor.replaceRange(` ${html}`, { line: rowLine, ch }, { line: rowLine, ch: editor.getLine(rowLine).length });
-            } else if (block && rowLine !== null) {
-                editor.replaceRange(`\n${html}`, { line: rowLine, ch: editor.getLine(rowLine).length });
-            } else if (block) {
-                // No buttons on the cursor's line: the new row goes just before the closing fence.
-                editor.replaceRange(`${html}\n`, { line: closeLine, ch: 0 });
-            } else {
-                const before = editor.getLine(from.line).slice(0, from.ch).trim().length > 0 ? "\n\n" : "";
-                const after = editor.getLine(to.line).slice(to.ch).trim().length > 0 ? "\n\n" : "";
-                editor.replaceRange(`${before}\`\`\`tg-buttons\n${html}\n\`\`\`${after}`, from, to);
-            }
-            editor.focus();
-        }).open();
     }
 
     // Wraps the current selection as before + selection + after. With nothing selected, inserts

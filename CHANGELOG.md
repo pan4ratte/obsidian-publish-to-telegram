@@ -4,7 +4,11 @@
 
 ### New features
 
-* **Button setup window.** The "Insert buttons under the post" command now opens a window to set a button's text, action, color and custom emoji with a preview, and then add it to a new or existing row.
+* **Insert window.** Buttons, maps, media, collages, slideshows, references and formulas are now inserted from the context menu through a window with a tab for each element and a preview. A map can be added from a Google Maps, Yandex Maps, 2GIS or other service link, media picked from the vault, and a button placed in an existing row.
+
+### Improvements and bug fixes
+
+* Captions on local media written as `![](file "Caption")` are now kept in rich-text posts.
 
 
 ## 7.0.0

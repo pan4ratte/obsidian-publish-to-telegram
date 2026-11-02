@@ -11,6 +11,7 @@ import { proxiesSupported } from "./proxy";
 import { parseSplitPosts, linksMatch, parseChatTargetInput, parseReplyTargetInput, type SplitPost } from "./split";
 import { stripComments, richKindForExt } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
+import { moveSegmentIndicator, watchSegments, watchStageHeight, PANEL_EXIT_MS } from "./segmented-bar";
 import { errMessage, retry, withTimeout, formatFileSize } from "./util";
 
 // How long to wait on each network step of revoking a superseded session (connect,
@@ -35,10 +36,10 @@ function proxyLabel(proxy: TelegramProxy): string {
     return `${host}:${proxy.port}`;
 }
 
-// How long a leaving auth panel stays on screen fading out. Must match the
-// `telegram-auth-card-out` animation in styles.css. It no longer holds anything up — the panel
-// replacing it is built at once — so it only decides when the spent card is thrown away.
-const AUTH_PANEL_EXIT_MS = 90;
+// How long a leaving auth panel stays on screen fading out (shared with the insert window, see
+// src/segmented-bar.ts). It no longer holds anything up — the panel replacing it is built at
+// once — so it only decides when the spent card is thrown away.
+const AUTH_PANEL_EXIT_MS = PANEL_EXIT_MS;
 
 // Official lucide "link-2-off" path data (24×24, scaled to Obsidian's 100×100 icon
 // viewBox). Registered on demand because Obsidian's bundled lucide set lacks this icon.
@@ -2744,34 +2745,9 @@ export class TelegramSettingTab extends PluginSettingTab {
         const authStatusEl = containerEl.createDiv({ cls: "telegram-auth-status" });
         const authActionsEl = authStatusEl.createDiv({ cls: "telegram-auth-actions" });
 
-        // The accent underline is one line for the whole bar, not a border per segment, so that
-        // picking another tab slides it across rather than swapping one line for another. It is
-        // positioned against the bar (the only positioned ancestor, so the segments' offsets are
-        // already in its coordinates) and sits on the 2px strip every segment reserves.
+        // One accent underline for the whole bar, sliding between segments (src/segmented-bar.ts).
         const indicatorEl = authStatusEl.createDiv({ cls: "telegram-auth-indicator" });
-        const moveIndicator = (btn: HTMLElement | null, instant = false) => {
-            // Appearing is not travelling. A line that isn't on screen yet has no position worth
-            // animating from — it would fly in from wherever it was last left, or from the bar's
-            // top-left corner on the first open — so it is placed outright and only fades in.
-            // Sliding is for a move between two lit tabs.
-            const jump = instant || !indicatorEl.hasClass("is-visible");
-            if (jump) indicatorEl.addClass("is-instant");
-            // With no tab lit the line just fades where it stands — it has nowhere to go, and
-            // sliding it to a corner on the way out would only draw the eye.
-            if (btn) {
-                indicatorEl.style.left = `${btn.offsetLeft}px`;
-                indicatorEl.style.top = `${btn.offsetTop + btn.offsetHeight - 2}px`;
-                indicatorEl.style.width = `${btn.offsetWidth}px`;
-            }
-            indicatorEl.toggleClass("is-visible", btn !== null);
-            if (jump) {
-                // Commit the placement while transitions are still off. Without this read the
-                // browser never computes the intermediate style: it coalesces the move and the
-                // re-enabling into one change and animates the jump after all.
-                indicatorEl.getBoundingClientRect();
-                indicatorEl.removeClass("is-instant");
-            }
-        };
+        const moveIndicator = (btn: HTMLElement | null) => moveSegmentIndicator(indicatorEl, btn);
         const activeTabEl = () => authActionsEl.querySelector<HTMLElement>(".telegram-link-button.is-active");
 
         // Containers rendered just below the bar; revealed on demand by the buttons. They sit
@@ -2919,42 +2895,10 @@ export class TelegramSettingTab extends PluginSettingTab {
         // token delete or account logout triggered from inside the card).
         if (this.credentialsCardOpen) openCredentials();
 
-        // Segments sharing a row all start from the width the widest label needs, so they come
-        // out equal; a bar too narrow for that many wraps instead (see styles.css). A Range over
-        // a segment's contents spans its icon and label at their natural size, whatever width
-        // the segment itself has been given. A bar that isn't laid out yet measures nothing, and
-        // is left to size its segments by their own labels until it is.
+        // Equal segments, and the underline kept under the lit one as the bar is laid out,
+        // resized or rewrapped — including while the tab is hidden and has no width at all.
         const segments = [loginBtn, addTokenBtn, proxyBtn, credsBtn].map(btn => btn.buttonEl);
-        const equalizeSegments = () => {
-            let widest = 0;
-            for (const segment of segments) {
-                const range = segment.doc.createRange();
-                range.selectNodeContents(segment);
-                const style = segment.win.getComputedStyle(segment);
-                const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-                widest = Math.max(widest, range.getBoundingClientRect().width + padding);
-            }
-            if (widest === 0) return;
-            const width = `${Math.ceil(widest)}px`;
-            if (authActionsEl.style.getPropertyValue("--telegram-segment-width") !== width) {
-                authActionsEl.setCssProps({ "--telegram-segment-width": width });
-            }
-        };
-
-        // The bar has no measurable width until it is laid out — and none at all while the tab
-        // is hidden — so the first observation is what places the line; later ones follow the
-        // segments when the pane is resized, the bar rewraps or a label changes width. The
-        // segments are watched alongside the bar because they can resize without it doing so.
-        // None of these are tab changes, so the line is placed outright rather than sliding.
-        // The segments are re-measured on the next frame rather than here: resizing them inside
-        // the observer's own callback would have it report a loop.
-        this.authIndicatorObserver = new ResizeObserver(() => {
-            moveIndicator(activeTabEl(), true);
-            window.requestAnimationFrame(equalizeSegments);
-        });
-        for (const el of [authStatusEl, loginBtn.buttonEl, addTokenBtn.buttonEl, credsBtn.buttonEl, proxyBtn.buttonEl]) {
-            this.authIndicatorObserver.observe(el);
-        }
+        this.authIndicatorObserver = watchSegments(authStatusEl, authActionsEl, segments, indicatorEl, activeTabEl);
 
         this.watchAuthStage(stageEl, stageInnerEl);
 
@@ -3849,17 +3793,7 @@ export class TelegramSettingTab extends PluginSettingTab {
     // every change, and that pause is exactly what the animation is trying not to look like.
     private watchAuthStage(stageEl: HTMLElement, innerEl: HTMLElement): void {
         this.authStageObserver?.disconnect();
-        // The stage's height covers its padding as well as its contents (border-box), and that
-        // padding is fixed by the stylesheet — read once rather than measured per change.
-        const padding = parseFloat(getComputedStyle(stageEl).paddingTop) || 0;
-        this.authStageObserver = new ResizeObserver(entries => {
-            const box = entries[entries.length - 1].borderBoxSize?.[0];
-            const content = box ? box.blockSize : innerEl.offsetHeight;
-            // The first pin is the state the tab renders in: the height it names is the height
-            // the stage already has, so it settles there without animating.
-            stageEl.style.height = `${content + padding}px`;
-        });
-        this.authStageObserver.observe(innerEl);
+        this.authStageObserver = watchStageHeight(stageEl, innerEl);
     }
 
     private buildAuthCard(
