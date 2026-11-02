@@ -9,7 +9,7 @@
 
 ### Improvements and bug fixes
 
-* Captions on local media written as `![](file "Caption")` are now kept in rich-text posts.
+* Fixed a bug where captions on local media written as `![](file "Caption")` weren't kept in rich-text posts.
 
 
 ## 7.0.0
