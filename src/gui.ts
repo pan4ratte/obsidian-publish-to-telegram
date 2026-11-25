@@ -1002,23 +1002,41 @@ export class MultiPresetModal extends Modal {
         // Keyboard-only path: tabbing in and typing arms the picker too.
         input.addEventListener("input", () => { if (!suggest) this.adhocActivatePicker?.(); });
 
-        // Manual entry: Enter adds an @username/ID chip, or a reply chip for a pasted post link.
-        // Registered after the suggest's own keydown so it fires second (if the suggest picked
-        // an item, input.value is empty).
-        input.addEventListener("keydown", (e: KeyboardEvent) => {
-            if (e.key !== "Enter") return;
-            if (!input.value.trim()) return;
-            e.preventDefault();
-            const reply = parseReplyTargetInput(input.value);
+        // Adds the typed or pasted value as a chip: a reply chip for a post link, otherwise an
+        // @username/ID chip.
+        const addManualTarget = (value: string) => {
+            const reply = parseReplyTargetInput(value);
             const target: ChatTarget = reply
                 ? { id: reply.id, topicId: reply.topicId, replyTo: reply.replyTo }
-                : parseChatTargetInput(input.value);
+                : parseChatTargetInput(value);
             if (!this.adhocTargets.some(x => sameChatTarget(x, target))) {
                 this.adhocTargets.push(target);
                 if (reply) void this.resolveAdhocReplyTarget(target, reply.maybeTopic);
             }
             this.renderAdhocPickerField();
             this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
+        };
+
+        // Manual entry: Enter adds the typed value. Registered after the suggest's own keydown
+        // so it fires second (if the suggest picked an item, input.value is empty).
+        input.enterKeyHint = "done";
+        input.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key !== "Enter") return;
+            if (!input.value.trim()) return;
+            e.preventDefault();
+            addManualTarget(input.value);
+        });
+
+        // A pasted post link becomes a reply chip at once, with no Enter needed — on-screen
+        // keyboards don't always report Enter as such. Anything else pastes as text.
+        input.addEventListener("paste", (e: ClipboardEvent) => {
+            const pasted = e.clipboardData?.getData("text/plain") ?? "";
+            const start = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? input.value.length;
+            const value = input.value.slice(0, start) + pasted + input.value.slice(end);
+            if (!parseReplyTargetInput(value)) return;
+            e.preventDefault();
+            addManualTarget(value);
         });
 
         // Backspace in the empty input removes the last chip; held-down repeats are ignored.

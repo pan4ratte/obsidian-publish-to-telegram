@@ -10,6 +10,7 @@
 ### Improvements and bug fixes
 
 * Fixed a bug where captions on local media written as `![](file "Caption")` weren't kept in rich-text posts.
+* A message link pasted into the "Post without a preset" field is now added as a reply right away, without pressing Enter.
 
 
 ## 7.0.0
