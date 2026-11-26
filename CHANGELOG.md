@@ -1,5 +1,12 @@
 # Changelog
 
+## 7.1.1
+
+### Improvements and bug fixes
+
+* Publishing a note as a reply to a message or post is now set up in the settings panel of the preview pane (in the advanced publishing menu).
+
+
 ## 7.1.0
 
 ### New features

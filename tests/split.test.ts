@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { parseLinkComponents, linksMatch, parseChatTargetInput, parseReplyTargetInput } from '../src/split';
+import { parseLinkComponents, linksMatch, parseChatTargetInput, parseReplyLink, sameChatId } from '../src/split';
 
 test('parses a supergroup/channel private link and marks it -100', () => {
   assert.deepStrictEqual(
@@ -70,22 +70,28 @@ test('manual chat entry: topic links and message-in-topic links set the topic', 
   assert.deepStrictEqual(parseChatTargetInput('https://t.me/mygroup/11'), { id: '@mygroup', topicId: 11 });
 });
 
-test('reply target: a post link replies to its message, flagged as a possible topic', () => {
-  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/mychannel/123'), { id: '@mychannel', replyTo: 123, maybeTopic: true });
-  assert.deepStrictEqual(parseReplyTargetInput(' t.me/c/3882881032/45/ '), { id: '-1003882881032', replyTo: 45, maybeTopic: true });
-  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/c/-123456789/7'), { id: '-123456789', replyTo: 7, maybeTopic: true });
-  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/c/+123456789/7'), { id: '123456789', replyTo: 7, maybeTopic: true });
+test('reply link: a post link names its chat and message', () => {
+  assert.deepStrictEqual(parseReplyLink('https://t.me/mychannel/123'), { chatId: '@mychannel', messageId: 123 });
+  assert.deepStrictEqual(parseReplyLink(' t.me/c/3882881032/45/ '), { chatId: '-1003882881032', messageId: 45 });
+  assert.deepStrictEqual(parseReplyLink('https://t.me/c/-123456789/7'), { chatId: '-123456789', messageId: 7 });
+  assert.deepStrictEqual(parseReplyLink('https://t.me/c/+123456789/7'), { chatId: '123456789', messageId: 7 });
 });
 
-test('reply target: a message-in-topic link replies inside the topic', () => {
-  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/c/3882881032/11/345'), { id: '-1003882881032', topicId: 11, replyTo: 345, maybeTopic: false });
-  assert.deepStrictEqual(parseReplyTargetInput('https://t.me/mygroup/11/345?single'), { id: '@mygroup', topicId: 11, replyTo: 345, maybeTopic: false });
+test('reply link: a message-in-topic link names the topic too', () => {
+  assert.deepStrictEqual(parseReplyLink('https://t.me/c/3882881032/11/345'), { chatId: '-1003882881032', messageId: 345, topicId: 11 });
+  assert.deepStrictEqual(parseReplyLink('https://t.me/mygroup/11/345?single'), { chatId: '@mygroup', messageId: 345, topicId: 11 });
 });
 
-test('reply target: anything that is not a message link is null', () => {
-  assert.equal(parseReplyTargetInput('@mychannel'), null);
-  assert.equal(parseReplyTargetInput('-1003882881032/11'), null);
-  assert.equal(parseReplyTargetInput('https://t.me/mychannel'), null);
-  assert.equal(parseReplyTargetInput('https://t.me/c/3882881032'), null);
-  assert.equal(parseReplyTargetInput('https://example.com/mychannel/123'), null);
+test('reply link: anything that is not a message link is null', () => {
+  assert.equal(parseReplyLink('@mychannel'), null);
+  assert.equal(parseReplyLink('-1003882881032/11'), null);
+  assert.equal(parseReplyLink('https://t.me/mychannel'), null);
+  assert.equal(parseReplyLink('https://t.me/c/3882881032'), null);
+  assert.equal(parseReplyLink('https://example.com/mychannel/123'), null);
+});
+
+test('same chat: ids compare without case or the @', () => {
+  assert.equal(sameChatId('@MyChannel', 'mychannel'), true);
+  assert.equal(sameChatId('-1003882881032', '-1003882881032'), true);
+  assert.equal(sameChatId('@mychannel', '-1003882881032'), false);
 });

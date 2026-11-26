@@ -5,7 +5,7 @@
 import { App, TFile, Notice, requestUrl } from "obsidian";
 import { TelegramChannel, TelegramSettings, SplitPartOptions, CommentOptions } from "./types";
 import { mdToBotApiHtml, obsidianToRichMarkdown, isRichEmbeddableUrl, stripComments, rewriteEmbeds, richKindForExt, parseButtons, type RichKind } from "./markdown";
-import { parseSplitPosts, findPostContentForLink, hasSplitMarkers } from "./split";
+import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, sameChatId } from "./split";
 import { activeBotProxy, proxiedHttpsRequest } from "./proxy";
 import { t } from "../lang/helpers";
 
@@ -314,14 +314,30 @@ async function callBotFetch(token: string, method: string, form: FormData): Prom
 
 // ─── Send functions ───────────────────────────────────────────────────────────
 
-function baseBody(chatId: string, silent: boolean, topicId?: number, replyTo?: number): Record<string, unknown> {
+// What a message replies to. A comment replies by message id to its post (or to the post's copy
+// in the linked discussion group). A post set to reply in the advanced modal uses Telegram's
+// reply_parameters, whose chat_id lets it quote a message from another chat.
+type BotReply = number | { message_id: number; chat_id?: string };
+
+function replyParameters(replyTo: BotReply): { message_id: number; chat_id?: string } {
+    return typeof replyTo === "number" ? { message_id: replyTo } : replyTo;
+}
+
+function baseBody(chatId: string, silent: boolean, topicId?: number, replyTo?: BotReply): Record<string, unknown> {
     const body: Record<string, unknown> = { chat_id: chatId };
     if (silent) body.disable_notification = true;
     if (topicId) body.message_thread_id = topicId;
-    // Set when the message is a comment (a reply to the post, or to its copy in the linked
-    // discussion group), or a post published as a reply to a pasted post link.
-    if (replyTo) body.reply_to_message_id = replyTo;
+    if (typeof replyTo === "number") body.reply_to_message_id = replyTo;
+    else if (replyTo) body.reply_parameters = replyTo;
     return body;
+}
+
+// Writes request fields into a multipart form. Numbers, booleans and objects (reply_parameters)
+// all serialise correctly as JSON.
+function appendFields(form: FormData, fields: Record<string, unknown>): void {
+    for (const [key, value] of Object.entries(fields)) {
+        form.append(key, typeof value === "string" ? value : JSON.stringify(value));
+    }
 }
 
 // link_preview_options pins the preview to a chosen URL, lifts it above the text, or
@@ -360,7 +376,7 @@ function inlineKeyboard(body: string): ReplyMarkup | undefined {
     };
 }
 
-async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean, replyMarkup?: ReplyMarkup, replyTo?: number): Promise<SendResult> {
+async function sendTextBot(token: string, chatId: string, text: string, silent: boolean, topicId?: number, linkPreviewUrl?: string, linkPreviewAboveText?: boolean, linkPreviewDisabled?: boolean, replyMarkup?: ReplyMarkup, replyTo?: BotReply): Promise<SendResult> {
     const linkPreview = linkPreviewOptions(linkPreviewUrl, linkPreviewAboveText, linkPreviewDisabled);
     const result = await callBotJson(token, "sendMessage", {
         ...baseBody(chatId, silent, topicId, replyTo),
@@ -375,11 +391,11 @@ async function sendTextBot(token: string, chatId: string, text: string, silent: 
 // Sends a Rich Message (Bot API 10.1 — sendRichMessage), with its files and buttons. Rich
 // Markdown preserves headings, tables, task lists, math, footnotes, etc. that the classic
 // HTML path can't express.
-async function sendRichTextBot(token: string, chatId: string, content: BotRichContent, silent: boolean, topicId?: number, replyMarkup?: ReplyMarkup, replyTo?: number): Promise<SendResult> {
+async function sendRichTextBot(token: string, chatId: string, content: BotRichContent, silent: boolean, topicId?: number, replyMarkup?: ReplyMarkup, replyTo?: BotReply): Promise<SendResult> {
     const fields = {
         ...baseBody(chatId, silent, topicId),
         // sendRichMessage takes a reply as reply_parameters (see sendRichReplyBot).
-        ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}),
+        ...(replyTo ? { reply_parameters: replyParameters(replyTo) } : {}),
         ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
     };
     const result = await callBotRich(token, "sendRichMessage", fields, content) as { chat: { id: number; username?: string }; message_id: number };
@@ -394,9 +410,9 @@ async function appendMediaField(form: FormData, field: string, file: MediaFile):
     else form.append(field, await file.getBlob(), file.name);
 }
 
-async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
+async function sendPhotoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: BotReply, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
+    appendFields(form, baseBody(chatId, silent, topicId, replyTo));
     await appendMediaField(form, "photo", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -405,9 +421,9 @@ async function sendPhotoBot(token: string, chatId: string, file: MediaFile, capt
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendVideoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
+async function sendVideoBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: BotReply, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
+    appendFields(form, baseBody(chatId, silent, topicId, replyTo));
     await appendMediaField(form, "video", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -416,9 +432,9 @@ async function sendVideoBot(token: string, chatId: string, file: MediaFile, capt
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendAnimationBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
+async function sendAnimationBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: BotReply, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
+    appendFields(form, baseBody(chatId, silent, topicId, replyTo));
     await appendMediaField(form, "animation", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -427,9 +443,9 @@ async function sendAnimationBot(token: string, chatId: string, file: MediaFile, 
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendDocumentBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number, replyMarkup?: ReplyMarkup): Promise<SendResult> {
+async function sendDocumentBot(token: string, chatId: string, file: MediaFile, caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: BotReply, replyMarkup?: ReplyMarkup): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
+    appendFields(form, baseBody(chatId, silent, topicId, replyTo));
     await appendMediaField(form, "document", file);
     if (caption) { form.append("caption", caption); form.append("parse_mode", "HTML"); }
     if (attachUnderText) form.append("show_caption_above_media", "true");
@@ -438,9 +454,9 @@ async function sendDocumentBot(token: string, chatId: string, file: MediaFile, c
     return { link: buildBotPostLink(chatId, result.message_id), messageId: result.message_id };
 }
 
-async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile[], caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: number): Promise<SendResult> {
+async function sendMediaGroupBot(token: string, chatId: string, files: MediaFile[], caption: string, silent: boolean, attachUnderText: boolean, topicId?: number, replyTo?: BotReply): Promise<SendResult> {
     const form = new FormData();
-    Object.entries(baseBody(chatId, silent, topicId, replyTo)).forEach(([k, v]) => form.append(k, String(v)));
+    appendFields(form, baseBody(chatId, silent, topicId, replyTo));
 
     const mediaArray = await Promise.all(files.map(async (file, idx) => {
         // Remote media is referenced by URL (Telegram fetches it); local media is uploaded
@@ -618,7 +634,7 @@ async function sendPartViaBotApi(
     linkPreviewAboveText?: boolean,
     linkPreviewDisabled?: boolean,
     commentOptions?: CommentOptions[],
-    replyTo?: number,
+    replyTo?: BotReply,
 ): Promise<SendResult | null> {
     const htmlFallback = mdToBotApiHtml(body);
     const { attachments, mdEmbeds } = collectBotMedia(app, body, sourceFile);
@@ -988,16 +1004,20 @@ export async function sendNoteViaBotApi(
 
     for (const target of targets) {
         const chatId = resolveChatId(target.id);
-        const topicId = target.topicId;
-        // A reply target set in the advanced modal applies to the first post that goes out;
-        // the rest of a split note follows it as ordinary posts.
-        let replyTo = target.replyTo;
-
         for (let i = 0; i < effectiveParts.length; i++) {
             // Per-part options from the modal's split layout: skip parts the user unchecked and
             // let each part carry its own silent/attachments values (no scheduling via Bot API).
             const opts = partOptions?.[i];
             if (opts && !opts.selected) continue;
+            // A reply set on the post's card. A message in another chat is named by its chat_id;
+            // one in this chat replies in place, inside the topic the message is in unless the
+            // target names a topic of its own.
+            const reply = opts?.replyTo;
+            const replyInChat = reply !== undefined && sameChatId(reply.chatId, chatId);
+            const replyTo: BotReply | undefined = reply && (replyInChat
+                ? { message_id: reply.messageId }
+                : { message_id: reply.messageId, chat_id: resolveChatId(reply.chatId) });
+            const topicId = target.topicId ?? (replyInChat ? reply.topicId : undefined);
             try {
                 const result = await sendPartViaBotApi(
                     app, effectiveParts[i], token, chatId, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText,
@@ -1006,7 +1026,6 @@ export async function sendNoteViaBotApi(
                     replyTo,
                 );
                 if (result) {
-                    replyTo = undefined;
                     links.push(result.link);
                     postLinks[i].push(result.link);
                     if (result.commentLinks?.length) commentLinks.push(...result.commentLinks);

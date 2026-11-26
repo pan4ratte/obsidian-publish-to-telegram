@@ -439,7 +439,7 @@ export default class SendToTelegramPlugin extends Plugin {
             } else {
                 // ── GramJS (User API) path ────────────────────────────────────
                 for (const target of targets) {
-                    const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title, topicId: target.topicId, replyTo: target.replyTo };
+                    const singleChannel: TelegramChannel = { ...channel, chatId: target.id, chatTitle: target.title, topicId: target.topicId };
                     const { links, commentLinks, errors, scheduled, postLinks } = await sendNoteToTelegram(
                         this.app, file, singleChannel, this.settings, accountSecrets!, silent, attachUnderText,
                         this.settings.treatMdEmbedsAsComments, updateLink, scheduleDate,
@@ -516,6 +516,8 @@ export default class SendToTelegramPlugin extends Plugin {
                     new Notice(t.NOTICE_ERR_SCHEDULED_COMMENTS);
                 } else if (msg.includes("SPLIT_LINK_NOT_FOUND")) {
                     new Notice(t.NOTICE_ERR_SPLIT_LINK_NOT_FOUND);
+                } else if (msg.includes("REPLY_TARGET_NOT_FOUND") || msg.includes("REPLY_MESSAGE_ID_INVALID") || msg.includes("MESSAGE TO BE REPLIED NOT FOUND")) {
+                    new Notice(t.NOTICE_ERR_REPLY_NOT_FOUND);
                 } else if (msg.includes("EMOJI")) {
                     new Notice(t.NOTICE_ERR_CUSTOM_EMOJI);
                 } else if (msg.includes("PREMIUM")) {

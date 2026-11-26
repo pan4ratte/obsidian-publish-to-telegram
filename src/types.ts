@@ -2,7 +2,14 @@ export interface ChatTarget {
     id: string;
     title?: string;
     topicId?: number;
-    replyTo?: number;      // one-time publish only: the message the post replies to (from a pasted post link)
+}
+
+// The message a post replies to, from a link pasted in the advanced modal. It can live in any
+// chat: the post still goes to its own targets, as a reply quoting a message from elsewhere.
+export interface ReplyTarget {
+    chatId: string;        // @username or marked numeric id, as parsed from the link
+    messageId: number;
+    topicId?: number;      // forum topic the message is in, when the link names one
 }
 
 export interface BotToken {
@@ -54,7 +61,6 @@ export interface TelegramChannel {
     chatTitle?: string;    // legacy field — synced to chatTargets[0].title
     isDefault: boolean;
     topicId?: number;
-    replyTo?: number;      // per-target send copy of ChatTarget.replyTo (account path)
 }
 
 // Per-comment publish options for the pre-written comments (embedded .md notes) that ride
@@ -85,6 +91,7 @@ export interface SplitPartOptions {
     linkPreviewAboveText?: boolean; // render the link preview above the post text
     linkPreviewDisabled?: boolean;  // suppress the link preview entirely (wins over the two above)
     comments?: CommentOptions[];    // per-comment options, aligned to this part's md embeds
+    replyTo?: ReplyTarget;          // the message this part goes out as a reply to, in any chat
 }
 
 export interface PendingScheduledLink {

@@ -14,11 +14,11 @@ import {
 } from "@mtcute/web";
 import { thtml } from "@mtcute/html-parser";
 import wasmBytes from "@mtcute/wasm/mtcute.wasm";
-import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions, CommentOptions } from "./types";
+import { TelegramChannel, TelegramSettings, TelegramSecrets, PendingScheduledLink, SplitPartOptions, CommentOptions, ReplyTarget } from "./types";
 import { errMessage, withTimeout } from "./util";
 import { accountTransport, transportForProxy, proxiedHttpsRequest, type ProxyConfig } from "./proxy";
 import { mdToTelegramHtml, obsidianToRichMarkdown, stripComments, rewriteEmbeds, richKindForExt, type RichKind } from "./markdown";
-import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents } from "./split";
+import { parseSplitPosts, findPostContentForLink, hasSplitMarkers, parseLinkComponents, sameChatId } from "./split";
 import { t } from "../lang/helpers";
 
 // Re-exported for callers that import it from this module (gui.ts, main.ts); the
@@ -705,6 +705,29 @@ async function sendCommentViaAccount(
     return buildPostLinkFromChatId(channelChatId, sent.id);
 }
 
+// ─── Replies ──────────────────────────────────────────────────────────────────
+
+// Turns the reply set on a post's card into what mtcute sends. A message in the post's own chat
+// is replied to by id, inside the topic the message is in unless the target names a topic of
+// its own. A message in another chat is fetched first: mtcute names its chat in the reply only
+// when given the message itself. A message this account can't read is refused before sending.
+async function resolveAccountReply(
+    client: TelegramClient,
+    channel: TelegramChannel,
+    reply: ReplyTarget,
+): Promise<{ replyTo: number | Message; topicId?: number }> {
+    const inChat = { replyTo: reply.messageId, topicId: channel.topicId ? undefined : reply.topicId };
+    if (sameChatId(reply.chatId, channel.chatId)) return inChat;
+    let message: Message | null = null;
+    try {
+        [message] = await client.getMessages(peerFor(reply.chatId), reply.messageId);
+    } catch { /* no access to that chat — reported below */ }
+    if (!message) throw new Error("REPLY_TARGET_NOT_FOUND");
+    // The same chat written another way (@username in one place, its id in the other).
+    const target = await client.getPeer(peerFor(channel.chatId));
+    return message.chat.id === target.id ? inChat : { replyTo: message };
+}
+
 // ─── Part sending ─────────────────────────────────────────────────────────────
 
 async function sendPartViaAccount(
@@ -723,7 +746,9 @@ async function sendPartViaAccount(
     linkPreviewAboveText?: boolean,
     linkPreviewDisabled?: boolean,
     commentOptions?: CommentOptions[],
-    replyTo?: number,
+    // Set when the post replies to a message (see resolveAccountReply): its id in this chat, or
+    // the message itself when it's in another chat.
+    replyTo?: number | Message,
 ): Promise<SendResult | null> {
     const text = mdToTelegramHtml(body);
     const { attachments, mdEmbeds } = collectMediaFiles(app, body, sourceFile);
@@ -731,8 +756,6 @@ async function sendPartViaAccount(
     const peer = peerFor(channel.chatId);
     const topicId = channel.topicId;
     const threadId = topicId ? topicId : undefined;
-    // Set when the post is a reply to a pasted post link. With a threadId as well the reply
-    // stays inside that topic; without one, replying to a topic's root message posts into it.
 
     // PDFs always upload as documents; embedded .md files join them as document
     // attachments unless they're being sent as comments instead.
@@ -1021,10 +1044,6 @@ export async function sendNoteToTelegram(
             throw new Error("SCHEDULED_COMMENTS_IN_DISCUSSION");
         }
 
-        // A reply target set in the advanced modal applies to the first post that goes out;
-        // the rest of a split note follows it as ordinary posts.
-        let replyTo = channel.replyTo;
-
         for (let i = 0; i < effectiveParts.length; i++) {
             // Per-part options from the modal's split layout: skip parts the user unchecked and
             // let each part carry its own silent/attachments/schedule values.
@@ -1032,9 +1051,10 @@ export async function sendNoteToTelegram(
             if (opts && !opts.selected) continue;
             const partSchedule = partSchedules[i];
             try {
-                const result = await sendPartViaAccount(app, effectiveParts[i], channel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments, replyTo);
+                const reply = opts?.replyTo ? await resolveAccountReply(client, channel, opts.replyTo) : undefined;
+                const partChannel = reply?.topicId ? { ...channel, topicId: reply.topicId } : channel;
+                const result = await sendPartViaAccount(app, effectiveParts[i], partChannel, client, opts?.silent ?? silent, opts?.attachUnderText ?? attachUnderText, file, treatMdEmbedsAsComments, postAsRich, partSchedule, onProgress, opts?.linkPreviewUrl, opts?.linkPreviewAboveText, opts?.linkPreviewDisabled, opts?.comments, reply?.replyTo);
                 if (result) {
-                    replyTo = undefined;
                     // A scheduled part's link points at the scheduled queue, not a real post —
                     // it's resolved later via the scheduled task instead of being recorded now.
                     if (!partSchedule) {

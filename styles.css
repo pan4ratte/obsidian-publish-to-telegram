@@ -579,16 +579,50 @@ body .telegram-delete-button:hover {
     height: 14px;
 }
 
-/* Reply chip (a pasted post link in the one-time field): a reply arrow before the text */
-.telegram-chat-picker .telegram-chat-chip-icon {
-    flex-shrink: 0;
-    display: inline-flex;
-    color: var(--text-accent);
+/* Reply field: floats under a post card's reply button, above the advanced modal (hence the
+   menu layer — popovers sit below modals). Positioned in viewport coordinates from gui.ts. */
+.telegram-reply-field {
+    position: fixed;
+    z-index: var(--layer-menu);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 340px;
+    max-width: calc(100vw - 16px);
+    padding: 8px;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    box-shadow: var(--shadow-s);
 }
 
-.telegram-chat-picker .telegram-chat-chip-icon svg {
-    width: 14px;
-    height: 14px;
+/* The link field and the done button beside it */
+.telegram-reply-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.telegram-reply-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+body .telegram-reply-done {
+    flex: 0 0 auto;
+    padding: 0 10px;
+}
+
+/* Shown only after a link that isn't one to a message */
+.telegram-reply-error {
+    display: none;
+    padding: 0 2px;
+    color: var(--text-error);
+    font-size: var(--font-ui-smaller);
+}
+
+.telegram-reply-error.is-visible {
+    display: block;
 }
 
 /* Ad-hoc (preset-less) publishing: bordered box matching the modal's other sections */

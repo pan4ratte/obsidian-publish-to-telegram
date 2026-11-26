@@ -1,14 +1,14 @@
-import { App, Modal, Component, ButtonComponent, ToggleComponent, Menu, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, displayTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest, Platform, parseLinktext, moment } from "obsidian";
+import { App, Modal, Component, Scope, ButtonComponent, ToggleComponent, Menu, Notice, TFile, MarkdownRenderer, PluginSettingTab, Setting, TextComponent, DropdownComponent, setIcon, setTooltip, displayTooltip, addIcon, getIcon, requestUrl, AbstractInputSuggest, Platform, parseLinktext, moment } from "obsidian";
 import type { SettingDefinitionItem } from "obsidian";
 import type { TelegramClient } from "@mtcute/web";
 import { t, getUserGuideContent, getChangelogContent } from "../lang/helpers";
 import type SendToTelegramPlugin from "../main";
 import * as QRCode from "qrcode";
-import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions, TelegramProxy, ProxyType } from "./types";
+import { TelegramChannel, TelegramSecrets, BotToken, PostMethod, ChatTarget, SplitPartOptions, TelegramProxy, ProxyType, ReplyTarget } from "./types";
 import { createClient, buildClient, getUserDialogs, DialogData, parseLinkComponents, checkProxy, AUTH_API_ID, AUTH_API_HASH } from "./telegram";
 import { parseProxyLink, isValidMtProxySecret, proxyCarriesBots, defaultProxyPort, type ParsedProxy } from "./proxy-link";
 import { proxiesSupported } from "./proxy";
-import { parseSplitPosts, linksMatch, parseChatTargetInput, parseReplyTargetInput, type SplitPost } from "./split";
+import { parseSplitPosts, linksMatch, parseChatTargetInput, parseReplyLink, type SplitPost } from "./split";
 import { stripComments, richKindForExt } from "./markdown";
 import { getBotInfo } from "./telegram-bot";
 import { moveSegmentIndicator, watchSegments, watchStageHeight, PANEL_EXIT_MS } from "./segmented-bar";
@@ -210,16 +210,13 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
 
 // Chip text for a chat target. Picked chats carry a resolved title; a manually entered
 // forum topic has none, so show it in the same `<id>/<topicId>` form it was typed in.
-// A reply target (a pasted post link) names the message it replies to as well.
 function chatTargetLabel(target: ChatTarget): string {
-    const chat = target.title ?? (target.topicId ? `${target.id}/${target.topicId}` : target.id);
-    if (target.replyTo === undefined) return chat;
-    return t.ADVANCED_ADHOC_REPLY_CHIP.replace("{id}", String(target.replyTo)).replace("{chat}", chat);
+    return target.title ?? (target.topicId ? `${target.id}/${target.topicId}` : target.id);
 }
 
-// Two chips are the same target when they post to the same chat, topic and reply.
+// Two chips are the same target when they post to the same chat and topic.
 function sameChatTarget(a: ChatTarget, b: ChatTarget): boolean {
-    return a.id === b.id && a.topicId === b.topicId && a.replyTo === b.replyTo;
+    return a.id === b.id && a.topicId === b.topicId;
 }
 
 // ─── Channel resolution helpers ───────────────────────────────────────────────
@@ -250,33 +247,6 @@ async function fetchEntityInfo(link: string, secrets?: TelegramSecrets): Promise
         return null;
     } finally {
         await client.destroy();
-    }
-}
-
-// Looks up a pasted reply target for its chip: the chat title, with the topic name for a reply
-// inside a topic. For a `t.me/<chat>/<n>` link (`maybeTopic`) it also checks whether <n> is a
-// forum topic rather than a message, since Telegram's "Copy link" on a topic gives the same
-// form. Null when this account can't read the chat.
-async function fetchReplyTargetInfo(target: ChatTarget, maybeTopic: boolean, secrets: TelegramSecrets): Promise<{ title: string; isTopic: boolean } | null> {
-    const entity: string | number = /^-?\d+$/.test(target.id) ? parseInt(target.id) : target.id;
-    const client = await createClient(secrets.telegramSession, secrets.telegramApiId, secrets.telegramApiHash).catch(() => null);
-    if (!client) return null;
-    try {
-        const chat = await client.getPeer(entity);
-        const title = chat.displayName || (chat.username ? `@${chat.username}` : target.id);
-        const topicId = target.topicId ?? (maybeTopic ? target.replyTo : undefined);
-        if (!("isForum" in chat && chat.isForum) || topicId === undefined) return { title, isTopic: false };
-        try {
-            const [topic] = await client.getForumTopicsById(entity, topicId);
-            if (topic?.id === topicId && topic.title) {
-                return { title: `${title}: ${topic.title}`, isTopic: target.topicId === undefined };
-            }
-        } catch { /* not a topic, or its name is unavailable */ }
-        return { title, isTopic: false };
-    } catch {
-        return null;
-    } finally {
-        await client.destroy().catch(() => {});
     }
 }
 
@@ -381,6 +351,10 @@ interface CardRow {
     updateButtons: () => void;
     onlineOn: boolean;
     scheduleValue: string;
+    // Post cards: the message this post goes out as a reply to, and the link it was pasted as
+    // in the reply field. A comment is a reply to its post already, so it has none.
+    reply: ReplyTarget | null;
+    replyLink: string;
     // Method-conflict flags + visual re-appliers. A blocked control LOOKS reset (no active
     // state, empty date) so the user isn't misled, but the underlying state survives and
     // reappears when a supported method is picked again. `ignoreBlocked` is the same idea for
@@ -544,6 +518,110 @@ class ConfirmationModal extends Modal {
     }
 
     onClose() { this.contentEl.empty(); }
+}
+
+// ─── Reply link field ─────────────────────────────────────────────────────────
+
+// Closes the reply field that's open, if any — only one floats at a time.
+let closeOpenReplyField: (() => void) | null = null;
+
+// The field that floats under a post card's reply button, for the link to the message the post
+// replies to. The message can be in any chat; the post still goes to the targets chosen above.
+// Enter or the done button saves, and so does a click elsewhere (an invalid link is then
+// dropped); Escape cancels.
+// Saving an empty field removes the reply. It sits above the modal and follows the button as
+// the modal scrolls. Escape goes through a keymap scope of its own, so it closes the field and
+// not the modal under it.
+function openReplyField(app: App, anchorEl: HTMLElement, value: string, onSave: (link: string, target: ReplyTarget | null) => void): void {
+    closeOpenReplyField?.();
+
+    const panelEl = activeDocument.body.createDiv("telegram-reply-field");
+    const rowEl = panelEl.createDiv("telegram-reply-row");
+    const inputEl = rowEl.createEl("input", { cls: "telegram-reply-input", attr: { type: "text" } });
+    inputEl.placeholder = t.ADVANCED_REPLY_PLACEHOLDER;
+    inputEl.enterKeyHint = "done";
+    inputEl.value = value;
+    const doneBtn = rowEl.createEl("button", { cls: "telegram-reply-done mod-cta", attr: { type: "button" } });
+    setIcon(doneBtn, "check");
+    setTooltip(doneBtn, t.ADVANCED_REPLY_DONE);
+    // Shown only for a link that isn't one to a message.
+    const errorEl = panelEl.createDiv({ cls: "telegram-reply-error", text: t.ADVANCED_REPLY_INVALID });
+    inputEl.addEventListener("input", () => errorEl.removeClass("is-visible"));
+
+    const scope = new Scope();
+    const detach: Array<() => void> = [];
+    const close = () => {
+        if (closeOpenReplyField !== close) return;
+        closeOpenReplyField = null;
+        app.keymap.popScope(scope);
+        for (const off of detach) off();
+        panelEl.remove();
+    };
+    closeOpenReplyField = close;
+
+    // Saves what's in the field. An invalid link keeps the field open with the error, unless
+    // the field is closing anyway.
+    const save = (closing: boolean) => {
+        const link = inputEl.value.trim();
+        const target = link ? parseReplyLink(link) : null;
+        if (link && !target) {
+            if (closing) { close(); return; }
+            errorEl.addClass("is-visible");
+            position();
+            return;
+        }
+        close();
+        if (link !== value) onSave(target ? link : "", target);
+    };
+
+    scope.register([], "Escape", () => { close(); return false; });
+    app.keymap.pushScope(scope);
+    inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key !== "Enter" || e.isComposing) return;
+        e.preventDefault();
+        save(false);
+    });
+    doneBtn.addEventListener("click", () => save(false));
+
+    // Centred under the button, but kept inside the modal it belongs to (the window, outside one).
+    const boundsEl = anchorEl.closest(".modal");
+    const position = () => {
+        if (!anchorEl.isConnected) { close(); return; }
+        const rect = anchorEl.getBoundingClientRect();
+        const margin = 8;
+        const bounds = boundsEl?.getBoundingClientRect()
+            ?? { left: 0, right: activeWindow.innerWidth };
+        panelEl.setCssStyles({ maxWidth: `${bounds.right - bounds.left - 2 * margin}px` });
+        const width = panelEl.offsetWidth;
+        const centred = rect.left + rect.width / 2 - width / 2;
+        const left = Math.max(bounds.left + margin, Math.min(centred, bounds.right - width - margin));
+        panelEl.setCssStyles({ top: `${rect.bottom + 6}px`, left: `${left}px` });
+    };
+    const insidePanel = (target: EventTarget | null) => target instanceof Node && panelEl.contains(target);
+    const onPointerDown = (e: PointerEvent) => {
+        if (insidePanel(e.target)) return;
+        // Pressing the button again closes the field: the click that follows would only open
+        // it anew, so that one click is swallowed.
+        if (e.target instanceof Node && anchorEl.contains(e.target)) {
+            const swallow = (ev: MouseEvent) => { ev.stopImmediatePropagation(); };
+            anchorEl.addEventListener("click", swallow, { capture: true, once: true });
+            window.setTimeout(() => anchorEl.removeEventListener("click", swallow, { capture: true }), 1000);
+        }
+        save(true);
+    };
+    const onScroll = (e: Event) => { if (!insidePanel(e.target)) position(); };
+    activeDocument.addEventListener("pointerdown", onPointerDown, true);
+    activeDocument.addEventListener("scroll", onScroll, true);
+    activeWindow.addEventListener("resize", position);
+    detach.push(
+        () => activeDocument.removeEventListener("pointerdown", onPointerDown, true),
+        () => activeDocument.removeEventListener("scroll", onScroll, true),
+        () => activeWindow.removeEventListener("resize", position),
+    );
+
+    position();
+    inputEl.focus();
+    inputEl.select();
 }
 
 
@@ -921,11 +999,6 @@ export class MultiPresetModal extends Modal {
 
         for (const target of this.adhocTargets) {
             const chip = fieldEl.createSpan({ cls: "telegram-chat-chip" });
-            // A pasted post link: the post goes out as a reply to that message.
-            if (target.replyTo !== undefined) {
-                setIcon(chip.createSpan({ cls: "telegram-chat-chip-icon" }), "reply");
-                setTooltip(chip, t.ADVANCED_ADHOC_REPLY_TOOLTIP);
-            }
             chip.createSpan({ text: chatTargetLabel(target), cls: "telegram-chat-chip-text" });
             const removeBtn = chip.createEl("button", { cls: "telegram-chat-chip-remove" });
             setIcon(removeBtn, "x");
@@ -982,8 +1055,7 @@ export class MultiPresetModal extends Modal {
                     suggest = new ChatSuggest(
                         this.app, input,
                         () => this.dialogsFor(accountId).fetch,
-                        // A reply chip doesn't use up its chat: the chat can still be picked as a target of its own.
-                        () => this.adhocTargets.filter(x => x.replyTo === undefined),
+                        () => this.adhocTargets,
                     );
                     this.adhocActiveSuggest = suggest;
                     suggest.onPick = async (dialog: DialogData) => {
@@ -1002,17 +1074,10 @@ export class MultiPresetModal extends Modal {
         // Keyboard-only path: tabbing in and typing arms the picker too.
         input.addEventListener("input", () => { if (!suggest) this.adhocActivatePicker?.(); });
 
-        // Adds the typed or pasted value as a chip: a reply chip for a post link, otherwise an
-        // @username/ID chip.
+        // Adds the typed value as an @username/ID (or topic) chip.
         const addManualTarget = (value: string) => {
-            const reply = parseReplyTargetInput(value);
-            const target: ChatTarget = reply
-                ? { id: reply.id, topicId: reply.topicId, replyTo: reply.replyTo }
-                : parseChatTargetInput(value);
-            if (!this.adhocTargets.some(x => sameChatTarget(x, target))) {
-                this.adhocTargets.push(target);
-                if (reply) void this.resolveAdhocReplyTarget(target, reply.maybeTopic);
-            }
+            const target: ChatTarget = parseChatTargetInput(value);
+            if (!this.adhocTargets.some(x => sameChatTarget(x, target))) this.adhocTargets.push(target);
             this.renderAdhocPickerField();
             this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
         };
@@ -1027,18 +1092,6 @@ export class MultiPresetModal extends Modal {
             addManualTarget(input.value);
         });
 
-        // A pasted post link becomes a reply chip at once, with no Enter needed — on-screen
-        // keyboards don't always report Enter as such. Anything else pastes as text.
-        input.addEventListener("paste", (e: ClipboardEvent) => {
-            const pasted = e.clipboardData?.getData("text/plain") ?? "";
-            const start = input.selectionStart ?? input.value.length;
-            const end = input.selectionEnd ?? input.value.length;
-            const value = input.value.slice(0, start) + pasted + input.value.slice(end);
-            if (!parseReplyTargetInput(value)) return;
-            e.preventDefault();
-            addManualTarget(value);
-        });
-
         // Backspace in the empty input removes the last chip; held-down repeats are ignored.
         input.addEventListener("keydown", (e: KeyboardEvent) => {
             if (e.key !== "Backspace" || e.repeat || e.isComposing || input.value) return;
@@ -1048,46 +1101,6 @@ export class MultiPresetModal extends Modal {
             this.renderAdhocPickerField();
             this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search")?.focus();
         });
-    }
-
-    // Names a reply chip's chat (it starts out showing the bare id from the link) through the
-    // first account that can read the chat, the chosen author's first. A `t.me/<chat>/<n>` link
-    // that turns out to point at a forum topic becomes a plain topic target. Without an
-    // account that can read the chat, the chip keeps the id.
-    private async resolveAdhocReplyTarget(target: ChatTarget, maybeTopic: boolean): Promise<void> {
-        const authorId = this.adhocAuthor?.type === "account" ? this.adhocAuthor.id : undefined;
-        const accountIds = this.plugin.settings.accounts.map(account => account.id)
-            .sort((a, b) => Number(b === authorId) - Number(a === authorId));
-        for (const accountId of accountIds) {
-            const secrets = this.plugin.getAccountSecrets(accountId);
-            if (!secrets.telegramSession) continue;
-            const info = await fetchReplyTargetInfo(target, maybeTopic, secrets);
-            if (!info) continue;
-            // The chip may have been removed while the lookup ran.
-            if (!this.adhocTargets.includes(target)) return;
-            target.title = info.title;
-            if (info.isTopic) {
-                target.topicId = target.replyTo;
-                delete target.replyTo;
-                // Now a topic target, it may duplicate a chip that's already there.
-                this.adhocTargets = this.adhocTargets.filter(x => x === target || !sameChatTarget(x, target));
-            }
-            this.rerenderAdhocPickerKeepingInput();
-            return;
-        }
-    }
-
-    // Rebuilds the ad-hoc field after a background update without losing what the user is
-    // typing in it.
-    private rerenderAdhocPickerKeepingInput(): void {
-        const oldInput = this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search");
-        const value = oldInput?.value ?? "";
-        const focused = oldInput?.isActiveElement() ?? false;
-        this.renderAdhocPickerField();
-        const input = this.adhocPickerFieldEl?.querySelector<HTMLInputElement>(".telegram-chat-search");
-        if (!input) return;
-        input.value = value;
-        if (focused) input.focus();
     }
 
     // Returns (creating + caching on first use) the dialog-fetch state for an account, so the
@@ -1427,6 +1440,8 @@ export class MultiPresetModal extends Modal {
             updateButtons: () => {},
             onlineOn: false,
             scheduleValue: "",
+            reply: null,
+            replyLink: "",
             richBlocked: false,
             schedBlocked: false,
             editBlocked: false,
@@ -1582,6 +1597,39 @@ export class MultiPresetModal extends Modal {
             this.shareSetting(row, "online");
         });
 
+        // Reply: the post goes out as a reply to a message, picked by pasting its link into a
+        // field that floats under the button. The message can be in the chat the post goes to or in any other — the targets
+        // are still the preset's or the one-time field's. A comment is a reply to its post
+        // already, and an edit can't change what a message replies to, so both block it.
+        const replyBtn = controlsEl.createEl("button", { cls: "telegram-split-circle-btn", attr: { type: "button" } });
+        enableLongPressTooltip(replyBtn);
+        setIcon(replyBtn, getIcon("message-circle-reply") ? "message-circle-reply" : "reply");
+        const applyReply = () => {
+            const on = row.reply !== null && isPost && !row.editBlocked && !row.ignoreBlocked;
+            replyBtn.toggleClass("is-active", on);
+            replyBtn.toggleClass("is-disabled", !isPost || row.editBlocked || row.ignoreBlocked);
+            setTooltip(replyBtn, on && row.reply
+                ? t.ADVANCED_CARD_REPLY_TO_TOOLTIP
+                    .replace("{id}", String(row.reply.messageId))
+                    .replace("{chat}", this.resolvedInfoFor(row.replyLink)?.title ?? row.reply.chatId)
+                : t.ADVANCED_CARD_REPLY_TOOLTIP);
+        };
+        applyReply();
+        replyBtn.addEventListener("click", () => {
+            openReplyField(this.app, replyBtn, row.replyLink, (link, target) => {
+                row.replyLink = link;
+                row.reply = target;
+                applyReply();
+                // Name the chat in the tooltip once an account can read it.
+                if (link && !this.resolvedInfoFor(link) && this.plugin.settings.accounts.length > 0) {
+                    void fetchEntityInfoAnyAccount(link, this.plugin).then(info => {
+                        if (info) this.resolvedLinks.set(link, info);
+                        applyReply();
+                    });
+                }
+            });
+        });
+
         // Link-preview placement has nothing to place on a message that carries attachments,
         // whatever the method: Telegram renders the media instead.
         row.applyRichState = () => {
@@ -1614,6 +1662,7 @@ export class MultiPresetModal extends Modal {
         row.applyModeState = () => {
             silentBtn.toggleClass("is-disabled", row.editBlocked || row.ignoreBlocked);
             applySilent();
+            applyReply();
             // Re-applies the attachment / preview-mode buttons too — their disabled state
             // mixes in editBlocked and ignoreBlocked, which may have just changed.
             row.applyRichState();
@@ -2067,6 +2116,7 @@ export class MultiPresetModal extends Modal {
             linkPreviewUrl: !row.richBlocked && !row.hasMedia ? row.linkPreviewUrl ?? undefined : undefined,
             linkPreviewAboveText: !row.richBlocked && !row.hasMedia && row.previewMode === "top",
             linkPreviewDisabled: !row.richBlocked && !row.hasMedia && row.previewMode === "off",
+            replyTo: row.reply ?? undefined,
             // A comment carries only what a reply can: everything the post does except a
             // scheduled date, which it has no use for — it goes out with the post it replies to.
             comments: row.comments.map(comment => ({
@@ -2331,6 +2381,7 @@ export class MultiPresetModal extends Modal {
     }
 
     onClose() {
+        closeOpenReplyField?.();
         this.splitRenderComponent.unload();
         this.contentEl.empty();
     }
